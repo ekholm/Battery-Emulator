@@ -159,3 +159,27 @@ TEST_F(VoltageSyncTest, ZeroVoltageSkipsCheck) {
   // Should remain unchanged — early return
   EXPECT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing);
 }
+
+/* 3700 dV used to be the datalayer's "no voltage decoded yet" default, and the
+ * check skipped itself while either pack read it - so a joined pair that drifted
+ * apart while ONE pack happened to read exactly 370.0 V never reached the
+ * disengage. Packs now start at 0, and only 0 skips the check; this guards
+ * against an in-band 3700 skip coming back. */
+TEST_F(VoltageSyncTest, Battery2DisengagesWhenMainSitsAtTheSentinelVoltage) {
+  // One pass with both packs reporting real, in-sync voltages: battery 2 joins
+  datalayer.battery.status.voltage_dV = 3750;
+  datalayer.battery2.status.voltage_dV = 3750;
+  check_parallel_battery_safety(2);
+  ASSERT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing);
+
+  // Now the main pack genuinely reads 370.0 V while battery2 drifts far away
+  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.battery2.status.voltage_dV = 3500;  // 20 V apart, way over 1.5 V
+
+  for (int i = 0; i < 10; i++) {
+    check_parallel_battery_safety(2);
+  }
+  check_parallel_battery_safety(2);
+  EXPECT_FALSE(datalayer.system.status.battery2_allowed_contactor_closing)
+      << "A pack sitting at exactly 370.0 V must not suspend the drift check";
+}
