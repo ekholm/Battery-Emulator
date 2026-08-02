@@ -1,7 +1,9 @@
 # Board declaration. GENERATED ONCE from the header of the same name;
 # from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragment from it. Pins that depend on a runtime user
-# setting are NOT here - they stay hand-written in the board header.
+# the generated fragments from it. Pins whose GPIO depends on a runtime
+# user setting or a hardware variant stay hand-written in the board
+# header; they are listed under conditional_pins so that capability
+# validation still knows the role exists.
 board: lilygo2can
 class: LilyGo2CANHal
 header: hw_lilygo2can.h
@@ -26,8 +28,39 @@ pins:
   CHADEMO_PIN_4: 4
   CHADEMO_LOCK: 40
   AP_BUTTON_PIN: 0
+conditional_pins:
+  MCP2515_SCK: variant
+  MCP2515_MOSI: variant
+  MCP2515_MISO: variant
+  MCP2515_CS: variant
+  MCP2515_INT: variant
+  MCP2515_RST: variant
+  MCP2517_SCK: variant
+  MCP2517_SDI: variant
+  MCP2517_SDO: variant
+  MCP2517_CS: variant
+  MCP2517_INT: variant
+  MCP2517_INT0: variant
+  MCP2517_INT1: variant
+  MCP2517_SCK2: variant
+  MCP2517_SDI2: variant
+  MCP2517_SDO2: variant
+  MCP2517_CS2: variant
+  MCP2517_INT2: variant
+  BMS_POWER: setting
+  DISPLAY_SDA_PIN: setting
+  DISPLAY_SCL_PIN: setting
+  EQUIPMENT_STOP_PIN: setting
+  WUP_PIN1: setting
+  WUP_PIN2: setting
 scalars:
   MCP2515_FREQ: {type: uint32_t, value: "16000000"}
   MCP2517_FREQ: {type: uint32_t, value: "is_fd() ? 40000000 : 0"}
   MCP2517_BUS2: {type: uint8_t, value: "DEFAULT_MCP2515_BUS"}
   LED_MAX_BRIGHTNESS: {type: uint8_t, value: "40"}
+capabilities: [rs485, modbus, display_i2c, rgb_led, equipment_stop, ap_button, chademo, contactor_control, second_battery, third_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
+can:
+  - {slot: can1, driver: native}
+  - {slot: can2, driver: mcp2515}
+  - {slot: canfd1, driver: mcp2518fd}
+  - {slot: canfd2, driver: mcp2518fd_2}

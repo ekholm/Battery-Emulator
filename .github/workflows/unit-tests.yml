@@ -45,3 +45,19 @@ jobs:
           echo "--- shuffled, seed $seed ---"
           ./tests --gtest_shuffle --gtest_random_seed=$seed
         done
+
+  board-declarations:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Generated board fragments are in sync with the declarations
+      run: python3 tools/board_gen.py --check
+
+    - name: Declarations still transcribe the board headers exactly
+      run: python3 tools/board_verify_transcription.py
+
+    - name: Capability validation rejects what it should
+      run: python3 tools/test_board_validation.py

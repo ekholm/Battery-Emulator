@@ -1,7 +1,10 @@
 # This pre-commit configuration file configures clang-format to run upon running the command line command 'git commit'.
 # The pre-commit git hook is installed using the command line command 'pre-commit install'.
 
-exclude: '^Software/src/lib/'  # don't run hooks on external libraries
+# Don't run hooks on external libraries, or on the generated board fragments:
+# those are class-body includes rather than whole files, so clang-format would
+# strip the member indentation and then permanently disagree with the generator.
+exclude: '^(Software/src/lib/|Software/src/devboard/hal/generated/)'
 
 # This continuous integration section is optional, and enables autoupdating the pre-commit configuration, ensuring that
 # the hook versions are kept up to date.

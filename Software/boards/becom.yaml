@@ -1,7 +1,9 @@
 # Board declaration. GENERATED ONCE from the header of the same name;
 # from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragment from it. Pins that depend on a runtime user
-# setting are NOT here - they stay hand-written in the board header.
+# the generated fragments from it. Pins whose GPIO depends on a runtime
+# user setting or a hardware variant stay hand-written in the board
+# header; they are listed under conditional_pins so that capability
+# validation still knows the role exists.
 board: becom
 class: BEComHal
 header: hw_becom.h
@@ -37,3 +39,8 @@ scalars:
   MCP2517_FREQ2: {type: uint32_t, value: "40000000"}
   MCP2517_CLKODIV: {type: int, value: "0b00"}
   LED_MAX_BRIGHTNESS: {type: uint8_t, value: "40"}
+capabilities: [rs485, modbus, rgb_led, equipment_stop, ap_button, contactor_control, second_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
+can:
+  - {slot: can1, driver: native}
+  - {slot: canfd1, driver: mcp2518fd}
+  - {slot: canfd2, driver: mcp2518fd_2}

@@ -14,6 +14,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from board_gen import parse_yaml_subset  # noqa: E402
+
 ROOT = Path(__file__).parent.parent
 HAL = ROOT / 'Software' / 'src' / 'devboard' / 'hal'
 GEN = HAL / 'generated'
@@ -63,6 +66,17 @@ for board, header in sorted(BOARDS.items()):
                                 f'declaration claims a fixed pin - the generated value would be wrong')
     counts[board] = (len(emitted_names), len(conditional))
 
+    # The conditional getters are not generated, but they must be DECLARED, or
+    # a capability that needs one looks unsupported and validation would reject
+    # hardware the board really has.
+    declared_cond = set(parse_yaml_subset(
+        (ROOT / 'Software' / 'boards' / f'{board}.yaml').read_text(encoding='utf-8'),
+        f'{board}.yaml').get('conditional_pins', {}))
+    for role in sorted(conditional - declared_cond):
+        problems.append(f'{board}: {role}() is conditional in {header} but is not in conditional_pins')
+    for role in sorted(declared_cond - conditional):
+        problems.append(f'{board}: conditional_pins declares {role}, which {header} does not define')
+
 print(f'checked {checked} generated member lines across {len(BOARDS)} boards')
 for b, (dec, cond) in sorted(counts.items()):
     print(f'  {b:12} {dec:3} declared  {cond:3} conditional (hand-written)')
@@ -71,3 +85,51 @@ if problems:
     print(f'\n{len(problems)} transcription problem(s)')
     sys.exit(1)
 print('transcription: every generated line matches its header verbatim, no constant getter missed')
+
+# ---------------------------------------------------------------------------
+# Claim audit. Each header states what interfaces it has in two places:
+# available_interfaces(), and name_for_comm_interface() returning "" to hide
+# one. Neither is checked against the pin map today, and they disagree with it
+# and with each other. Reported, not fatal: making it fatal would block on
+# changes that alter behaviour, which stage 1 excludes.
+# ---------------------------------------------------------------------------
+IFACE_DRIVER = {'CanNative': 'native', 'CanAddonMcp2515': 'mcp2515',
+                'CanFdNative': 'mcp2518fd', 'CanFdAddonMcp2518': 'mcp2518fd',
+                'CanFdAddonMcp2518_2': 'mcp2518fd_2'}
+
+
+def switch_names(text):
+    m = re.search(r'name_for_comm_interface\(comm_interface comm\)\s*\{(.*?)\n  \}', text, re.S)
+    return dict(re.findall(r'case comm_interface::(\w+):\s*\n\s*return\s+"([^"]*)";', m.group(1))) if m else {}
+
+
+base_names = switch_names((HAL / 'hal.h').read_text(encoding='utf-8'))
+notes = []
+for board, header in sorted(BOARDS.items()):
+    htext = (HAL / header).read_text(encoding='utf-8')
+    data = parse_yaml_subset((ROOT / 'Software' / 'boards' / f'{board}.yaml').read_text(encoding='utf-8'),
+                             f'{board}.yaml')
+    supported = {s['driver'] for s in data.get('can', [])}
+    listed = set(re.findall(r'comm_interface::(\w+)',
+                            re.search(r'available_interfaces\(\)\s*\{(.*?)\n  \}', htext, re.S).group(1)))
+    names = dict(base_names)
+    names.update(switch_names(htext))
+    for iface, driver in sorted(IFACE_DRIVER.items()):
+        has = driver in supported
+        if (iface in listed) and not has:
+            notes.append(f'{board}: available_interfaces() lists {iface}, but the pin map has no '
+                         f'{driver} - selecting it can only fail at runtime')
+        if names.get(iface, '') != '' and not has:
+            notes.append(f'{board}: the settings page offers {iface} ("{names[iface]}"), but the pin '
+                         f'map has no {driver}')
+        if has and iface not in listed and names.get(iface, '') != '':
+            notes.append(f'{board}: the settings page offers {iface} ("{names[iface]}") and the pins '
+                         f'exist, but available_interfaces() does not list it')
+
+if notes:
+    print(f'\nclaim audit: {len(notes)} disagreement(s) between the headers and the pin map')
+    for n in notes:
+        print(f'  NOTE {n}')
+    print('  (reported only - reconciling these changes behaviour, which is not stage 1)')
+else:
+    print('claim audit: headers and pin map agree')

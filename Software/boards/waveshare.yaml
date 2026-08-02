@@ -1,7 +1,9 @@
 # Board declaration. GENERATED ONCE from the header of the same name;
 # from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragment from it. Pins that depend on a runtime user
-# setting are NOT here - they stay hand-written in the board header.
+# the generated fragments from it. Pins whose GPIO depends on a runtime
+# user setting or a hardware variant stay hand-written in the board
+# header; they are listed under conditional_pins so that capability
+# validation still knows the role exists.
 board: waveshare
 class: WaveshareS3Rs485CanHal
 header: hw_waveshare.h
@@ -32,3 +34,11 @@ pins:
   MCP2517_SDO: 12
   MCP2517_CS: 13
   MCP2517_INT: 14
+conditional_pins:
+  LED_PIN: setting
+  DISPLAY_SDA_PIN: setting
+  DISPLAY_SCL_PIN: setting
+capabilities: [rs485, modbus, display_i2c, rgb_led, equipment_stop, ap_button, contactor_control, second_battery, automatic_precharge, sma_contactor, bms_power_control]
+can:
+  - {slot: can1, driver: native}
+  - {slot: canfd1, driver: mcp2518fd}

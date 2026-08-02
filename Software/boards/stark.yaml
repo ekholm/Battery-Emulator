@@ -1,7 +1,9 @@
 # Board declaration. GENERATED ONCE from the header of the same name;
 # from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragment from it. Pins that depend on a runtime user
-# setting are NOT here - they stay hand-written in the board header.
+# the generated fragments from it. Pins whose GPIO depends on a runtime
+# user setting or a hardware variant stay hand-written in the board
+# header; they are listed under conditional_pins so that capability
+# validation still knows the role exists.
 board: stark
 class: StarkHal
 header: hw_stark.h
@@ -33,7 +35,24 @@ pins:
   WUP_PIN1: 25
   WUP_PIN2: 32
   AP_BUTTON_PIN: 0
+conditional_pins:
+  MCP2517_SCK: variant
+  PRECHARGE_PIN: setting
+  BMS_POWER: setting
 scalars:
   MCP2517_FREQ: {type: uint32_t, value: "40000000"}
   LED_MAX_BRIGHTNESS: {type: uint8_t, value: "20"}
   LED_COUNT: {type: uint8_t, value: "5"}
+# Product-labelled power outputs, from the SCMR02 v1.1 manual. Stage 1 records
+# them; nothing reads them yet. Output 4 is high unless software drives it,
+# which matters because GPIOOPT5 can put PRECHARGE_PIN on it.
+outputs:
+  - {label: "Output 1", gpio: 25, driver: relay, notes: "7 A cont / 12 A max, needs >=10 VDC to actuate, green LED"}
+  - {label: "Output 2", gpio: 33, driver: mosfet, notes: "0.65/1.4 A, PWM-capable, yellow LED"}
+  - {label: "Output 3", gpio: 32, driver: mosfet, notes: "0.65/1.4 A, PWM-capable, orange LED"}
+  - {label: "Output 4", gpio: 23, driver: mosfet, boot_state: high, notes: "0.65/1.4 A, PWM-capable, red LED, ON unless driven"}
+capabilities: [rs485, modbus, rgb_led, equipment_stop, ap_button, contactor_control, second_battery, third_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
+can:
+  - {slot: can1, driver: native}
+  - {slot: canfd1, driver: mcp2518fd}
+  - {slot: canfd2, driver: mcp2518fd_2}

@@ -1,7 +1,9 @@
 # Board declaration. GENERATED ONCE from the header of the same name;
 # from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragment from it. Pins that depend on a runtime user
-# setting are NOT here - they stay hand-written in the board header.
+# the generated fragments from it. Pins whose GPIO depends on a runtime
+# user setting or a hardware variant stay hand-written in the board
+# header; they are listed under conditional_pins so that capability
+# validation still knows the role exists.
 board: lilygo
 class: LilyGoHal
 header: hw_lilygo.h
@@ -42,3 +44,17 @@ pins:
   WUP_PIN1: 25
   WUP_PIN2: 32
   AP_BUTTON_PIN: 0
+conditional_pins:
+  BMS_POWER: setting
+  INVERTER_CONTACTOR_ENABLE_PIN: setting
+  SD_MISO_PIN: setting
+  SD_MOSI_PIN: setting
+  SD_SCLK_PIN: setting
+  SD_CS_PIN: setting
+  DISPLAY_SDA_PIN: setting
+  DISPLAY_SCL_PIN: setting
+capabilities: [rs485, modbus, sd_mmc, display_i2c, rgb_led, equipment_stop, ap_button, chademo, contactor_control, second_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
+can:
+  - {slot: can1, driver: native}
+  - {slot: can2, driver: mcp2515}
+  - {slot: canfd1, driver: mcp2518fd}
