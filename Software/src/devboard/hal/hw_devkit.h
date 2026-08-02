@@ -13,27 +13,24 @@ The pin layout below supports the following:
 
 class DevKitHal : public Esp32Hal {
  public:
+  // ---- BEGIN GENERATED from Software/boards/devkit.yaml ----
+  // Rebuild with tools/board_gen.py; CI fails if this block and the
+  // declaration disagree. Getters below the block are hand-written.
+
   const char* name() { return "ESP32 DevKit V1"; }
 
+  // RS485
   virtual gpio_num_t RS485_TX_PIN() { return GPIO_NUM_1; }
   virtual gpio_num_t RS485_RX_PIN() { return GPIO_NUM_3; }
 
+  // CAN interfaces
   virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_27; }
   virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_26; }
-
-  // CAN_ADDON
-  // SCK input of MCP2515
   virtual gpio_num_t MCP2515_SCK() { return GPIO_NUM_22; }
-  // SDI input of MCP2515
   virtual gpio_num_t MCP2515_MOSI() { return GPIO_NUM_21; }
-  // SDO output of MCP2515
   virtual gpio_num_t MCP2515_MISO() { return GPIO_NUM_19; }
-  // CS input of MCP2515
   virtual gpio_num_t MCP2515_CS() { return GPIO_NUM_18; }
-  // INT output of MCP2515
   virtual gpio_num_t MCP2515_INT() { return GPIO_NUM_23; }
-
-  // CANFD_ADDON defines for MCP2517
   virtual gpio_num_t MCP2517_SCK() { return GPIO_NUM_33; }
   virtual gpio_num_t MCP2517_SDI() { return GPIO_NUM_32; }
   virtual gpio_num_t MCP2517_SDO() { return GPIO_NUM_35; }
@@ -53,7 +50,6 @@ class DevKitHal : public Esp32Hal {
 
   // SMA CAN contactor pins
   virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_PIN() { return GPIO_NUM_14; }
-
   virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_LED_PIN() { return GPIO_NUM_2; }
 
   // LED
@@ -67,8 +63,9 @@ class DevKitHal : public Esp32Hal {
   virtual gpio_num_t WUP_PIN1() { return GPIO_NUM_25; }
   virtual gpio_num_t WUP_PIN2() { return GPIO_NUM_32; }
 
-  // Momentary push-button that can be long-pressed at runtime to start the Wi-Fi AP.
+  // Wi-Fi AP button
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
+  // ---- END GENERATED ----
 
   std::vector<comm_interface> available_interfaces() {
     return {

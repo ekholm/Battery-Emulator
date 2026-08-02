@@ -1,44 +1,34 @@
-# Board declaration. GENERATED ONCE from the header of the same name;
-# from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragments from it. Pins whose GPIO depends on a runtime
-# user setting or a hardware variant stay hand-written in the board
-# header; they are listed under conditional_pins so that capability
-# validation still knows the role exists.
+# Board declaration - the source for the generated block in the header
+# of the same name. Features own their pins; shared buses are declared
+# once and referenced. A pin is a GPIO number, NC (the board does not
+# have it), or setting/variant when the getter is chosen at runtime and
+# stays hand-written below the generated block.
 board: waveshare
 class: WaveshareS3Rs485CanHal
 header: hw_waveshare.h
 name: "Waveshare ESP32-S3-RS485-CAN"
-pins:
-  CAN_TX_PIN: 15
-  CAN_RX_PIN: 16
-  CAN_SE_PIN: NC
-  RS485_TX_PIN: 17
-  RS485_RX_PIN: 18
-  RS485_DE_PIN: 21
-  RS485_EN_PIN: NC
-  RS485_SE_PIN: NC
-  PIN_5V_EN: NC
-  POSITIVE_CONTACTOR_PIN: 3
-  NEGATIVE_CONTACTOR_PIN: 4
-  PRECHARGE_PIN: 5
-  BMS_POWER: 6
-  SECOND_BATTERY_CONTACTORS_PIN: 8
-  EQUIPMENT_STOP_PIN: 7
-  WUP_PIN1: 8
-  AP_BUTTON_PIN: 0
-  HIA4V1_PIN: 5
-  INVERTER_DISCONNECT_CONTACTOR_PIN: 3
-  INVERTER_CONTACTOR_ENABLE_PIN: 9
-  MCP2517_SCK: 10
-  MCP2517_SDI: 11
-  MCP2517_SDO: 12
-  MCP2517_CS: 13
-  MCP2517_INT: 14
-conditional_pins:
-  LED_PIN: setting
-  DISPLAY_SDA_PIN: setting
-  DISPLAY_SCL_PIN: setting
-capabilities: [rs485, modbus, display_i2c, rgb_led, equipment_stop, ap_button, contactor_control, second_battery, automatic_precharge, sma_contactor, bms_power_control]
+buses:
+  SPI1: {clk: 10, mosi: 11, miso: 12}
+rs485:
+  - {tx: 17, rx: 18, en: NC, se: NC, de: 21, power_5v_en: NC}
 can:
-  - {slot: can1, driver: native}
-  - {slot: canfd1, driver: mcp2518fd}
+  - {driver: native, tx: 15, rx: 16, se: NC}
+  - {driver: mcp2518fd, bus: SPI1, cs: 13, int: 14}
+contactors:
+  - {positive: 3, negative: 4, precharge: 5, bms_power: 6, second: 8}
+precharge_auto:
+  - {hia4v1: 5, inverter_disconnect: 3}
+sma:
+  - {enable: 9}
+rgb_led:
+  - {pin: setting}
+equipment_stop:
+  - {pin: 7}
+battery_wakeup:
+  - {wup1: 8, wup2: 9}
+ap_button:
+  - {pin: 0}
+display_i2c:
+  - {sda: setting, scl: setting}
+comments:
+  WUP_PIN2: "//Collides with SMA contactor input"

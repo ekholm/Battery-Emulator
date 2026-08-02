@@ -19,26 +19,62 @@ GPIOs on extra header
 
 class StarkHal : public Esp32Hal {
  public:
+  // ---- BEGIN GENERATED from Software/boards/stark.yaml ----
+  // Rebuild with tools/board_gen.py; CI fails if this block and the
+  // declaration disagree. Getters below the block are hand-written.
+
   const char* name() { return "Stark CMR Module"; }
+
+  // RS485
+  virtual gpio_num_t RS485_TX_PIN() { return GPIO_NUM_22; }
+  virtual gpio_num_t RS485_RX_PIN() { return GPIO_NUM_21; }
+  virtual gpio_num_t RS485_EN_PIN() { return GPIO_NUM_NC; }
+  virtual gpio_num_t RS485_SE_PIN() { return GPIO_NUM_NC; }
+  virtual gpio_num_t PIN_5V_EN() { return GPIO_NUM_NC; }
+
+  // CAN interfaces
+  virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_27; }
+  virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_26; }
+  virtual gpio_num_t CAN_SE_PIN() { return GPIO_NUM_NC; }
+  virtual gpio_num_t MCP2517_SDI() { return GPIO_NUM_5; }
+  virtual gpio_num_t MCP2517_SDO() { return GPIO_NUM_34; }
+  virtual gpio_num_t MCP2517_CS() { return GPIO_NUM_18; }
+  virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_35; }
+  virtual uint32_t MCP2517_FREQ() { return 40000000; }
+  virtual gpio_num_t MCP2517_CS2() { return GPIO_NUM_12; }
+  virtual gpio_num_t MCP2517_INT2() { return GPIO_NUM_14; }
+
+  // Contactor handling
+  virtual gpio_num_t POSITIVE_CONTACTOR_PIN() { return GPIO_NUM_32; }
+  virtual gpio_num_t NEGATIVE_CONTACTOR_PIN() { return GPIO_NUM_33; }
+  virtual gpio_num_t SECOND_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_19; }
+  virtual gpio_num_t TRIPLE_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_15; }
+
+  // Automatic precharging
+  virtual gpio_num_t HIA4V1_PIN() { return GPIO_NUM_19; }
+  virtual gpio_num_t INVERTER_DISCONNECT_CONTACTOR_PIN() { return GPIO_NUM_25; }
+
+  // SMA CAN contactor pins
+  virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_PIN() { return GPIO_NUM_2; }
+
+  // LED
+  virtual gpio_num_t LED_PIN() { return GPIO_NUM_4; }
+  virtual uint8_t LED_COUNT() { return 5; }
+  virtual uint8_t LED_MAX_BRIGHTNESS() { return 20; }
+
+  // Equipment stop pin
+  virtual gpio_num_t EQUIPMENT_STOP_PIN() { return GPIO_NUM_2; }
+
+  // Battery wake up pins
+  virtual gpio_num_t WUP_PIN1() { return GPIO_NUM_25; }
+  virtual gpio_num_t WUP_PIN2() { return GPIO_NUM_32; }
+
+  // Wi-Fi AP button
+  virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
+  // ---- END GENERATED ----
 
   //Always enable BMS power on Stark CMR, it does not collide with any pin definitions
   virtual bool always_enable_bms_power() { return true; }
-
-  // Not needed, GPIO 16 has hardware pullup for PSRAM compatibility
-  virtual gpio_num_t PIN_5V_EN() { return GPIO_NUM_NC; }
-
-  // Not needed, GPIO 17 is used as SCK input of MCP2517
-  virtual gpio_num_t RS485_EN_PIN() { return GPIO_NUM_NC; }
-  virtual gpio_num_t RS485_TX_PIN() { return GPIO_NUM_22; }
-  virtual gpio_num_t RS485_RX_PIN() { return GPIO_NUM_21; }
-  // Not needed, GPIO 19 is available as extra GPIO via pin header
-  virtual gpio_num_t RS485_SE_PIN() { return GPIO_NUM_NC; }
-
-  virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_27; }
-  virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_26; }
-
-  // (No function, GPIO 23 used instead as MCP_SCK)
-  virtual gpio_num_t CAN_SE_PIN() { return GPIO_NUM_NC; }
 
   // CANFD_ADDON defines for MCP2517
   // Stark CMR v1 has GPIO pin 16 for SCK, CMR v2 has GPIO pin 17. Only diff between the two boards
@@ -51,20 +87,7 @@ class StarkHal : public Esp32Hal {
     }
   }
   virtual gpio_num_t MCP2517_SCK() { return isStarkVersion1() ? GPIO_NUM_16 : GPIO_NUM_17; }
-  virtual gpio_num_t MCP2517_SDI() { return GPIO_NUM_5; }
-  virtual gpio_num_t MCP2517_SDO() { return GPIO_NUM_34; }
-  virtual gpio_num_t MCP2517_CS() { return GPIO_NUM_18; }
-  virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_35; }
-  virtual uint32_t MCP2517_FREQ() { return 40000000; }
 
-  // MCP2518FD add-on via the GPIO pins
-  // SPI Bus is shared with the 1st interface, only INT and CS pins are needed
-  virtual gpio_num_t MCP2517_CS2() { return GPIO_NUM_12; }
-  virtual gpio_num_t MCP2517_INT2() { return GPIO_NUM_14; }
-
-  // Contactor handling
-  virtual gpio_num_t POSITIVE_CONTACTOR_PIN() { return GPIO_NUM_32; }
-  virtual gpio_num_t NEGATIVE_CONTACTOR_PIN() { return GPIO_NUM_33; }
   virtual gpio_num_t PRECHARGE_PIN() {  //Precharge and BMS power pins can be swapped in config
     if (user_selected_gpioopt5 == GPIOOPT5::BMS_POWER_25) {
       return GPIO_NUM_23;
@@ -74,40 +97,12 @@ class StarkHal : public Esp32Hal {
   // Pins to be latched across a reset/OTA reboot (RTC-capable pins only): BMS_POWER can be GPIO25
   virtual std::vector<gpio_num_t> reset_hold_pins() { return {GPIO_NUM_25}; }
 
-  virtual gpio_num_t SECOND_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_19; }
-  virtual gpio_num_t TRIPLE_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_15; }
   virtual gpio_num_t BMS_POWER() {
     if (user_selected_gpioopt5 == GPIOOPT5::BMS_POWER_25) {
       return GPIO_NUM_25;
     }
     return GPIO_NUM_23;
   }
-
-  // Automatic precharging
-  virtual gpio_num_t HIA4V1_PIN() { return GPIO_NUM_19; }
-  virtual gpio_num_t INVERTER_DISCONNECT_CONTACTOR_PIN() { return GPIO_NUM_25; }
-
-  // SMA CAN contactor pins
-  virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_PIN() { return GPIO_NUM_2; }
-
-  // LED
-  virtual gpio_num_t LED_PIN() { return GPIO_NUM_4; }
-  virtual uint8_t LED_MAX_BRIGHTNESS() { return 20; }
-  // LEDs 1-4 (PRECHARGE, CONTACTOR NEG, CONTACTOR POS, BMS POWER) are chained off the STATUS LED
-  // (pixel 0). On boards with the older plain hardwired LEDs there's no physical RGB LED at those
-  // positions, so this extra chain data has nowhere to go and is simply a no-op; on boards with
-  // the RGB LED PCB it lights them. No user-facing option needed either way.
-  virtual uint8_t LED_COUNT() { return 5; }
-
-  // Equipment stop pin
-  virtual gpio_num_t EQUIPMENT_STOP_PIN() { return GPIO_NUM_2; }
-
-  // Battery wake up pins
-  virtual gpio_num_t WUP_PIN1() { return GPIO_NUM_25; }
-  virtual gpio_num_t WUP_PIN2() { return GPIO_NUM_32; }
-
-  // the FLA momentary push-button that can be long-pressed at runtime to start the Wi-Fi AP if not running
-  virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
 
   std::vector<comm_interface> available_interfaces() {
     return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanAddonMcp2515,

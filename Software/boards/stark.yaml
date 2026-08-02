@@ -1,48 +1,34 @@
-# Board declaration. GENERATED ONCE from the header of the same name;
-# from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragments from it. Pins whose GPIO depends on a runtime
-# user setting or a hardware variant stay hand-written in the board
-# header; they are listed under conditional_pins so that capability
-# validation still knows the role exists.
+# Board declaration - the source for the generated block in the header
+# of the same name. Features own their pins; shared buses are declared
+# once and referenced. A pin is a GPIO number, NC (the board does not
+# have it), or setting/variant when the getter is chosen at runtime and
+# stays hand-written below the generated block.
 board: stark
 class: StarkHal
 header: hw_stark.h
 name: "Stark CMR Module"
-pins:
-  PIN_5V_EN: NC
-  RS485_EN_PIN: NC
-  RS485_TX_PIN: 22
-  RS485_RX_PIN: 21
-  RS485_SE_PIN: NC
-  CAN_TX_PIN: 27
-  CAN_RX_PIN: 26
-  CAN_SE_PIN: NC
-  MCP2517_SDI: 5
-  MCP2517_SDO: 34
-  MCP2517_CS: 18
-  MCP2517_INT: 35
-  MCP2517_CS2: 12
-  MCP2517_INT2: 14
-  POSITIVE_CONTACTOR_PIN: 32
-  NEGATIVE_CONTACTOR_PIN: 33
-  SECOND_BATTERY_CONTACTORS_PIN: 19
-  TRIPLE_BATTERY_CONTACTORS_PIN: 15
-  HIA4V1_PIN: 19
-  INVERTER_DISCONNECT_CONTACTOR_PIN: 25
-  INVERTER_CONTACTOR_ENABLE_PIN: 2
-  LED_PIN: 4
-  EQUIPMENT_STOP_PIN: 2
-  WUP_PIN1: 25
-  WUP_PIN2: 32
-  AP_BUTTON_PIN: 0
-conditional_pins:
-  MCP2517_SCK: variant
-  PRECHARGE_PIN: setting
-  BMS_POWER: setting
-scalars:
-  MCP2517_FREQ: {type: uint32_t, value: "40000000"}
-  LED_MAX_BRIGHTNESS: {type: uint8_t, value: "20"}
-  LED_COUNT: {type: uint8_t, value: "5"}
+buses:
+  SPI1: {clk: variant, mosi: 5, miso: 34}
+rs485:
+  - {tx: 22, rx: 21, en: NC, se: NC, power_5v_en: NC}
+can:
+  - {driver: native, tx: 27, rx: 26, se: NC}
+  - {driver: mcp2518fd, bus: SPI1, cs: 18, int: 35, freq: 40000000}
+  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}
+contactors:
+  - {positive: 32, negative: 33, precharge: setting, bms_power: setting, second: 19, third: 15}
+precharge_auto:
+  - {hia4v1: 19, inverter_disconnect: 25}
+sma:
+  - {enable: 2}
+rgb_led:
+  - {pin: 4, count: 5, max_brightness: 20}
+equipment_stop:
+  - {pin: 2}
+battery_wakeup:
+  - {wup1: 25, wup2: 32}
+ap_button:
+  - {pin: 0}
 # Product-labelled power outputs, from the SCMR02 v1.1 manual. Stage 1 records
 # them; nothing reads them yet. Output 4 is high unless software drives it,
 # which matters because GPIOOPT5 can put PRECHARGE_PIN on it.
@@ -51,8 +37,3 @@ outputs:
   - {label: "Output 2", gpio: 33, driver: mosfet, notes: "0.65/1.4 A, PWM-capable, yellow LED"}
   - {label: "Output 3", gpio: 32, driver: mosfet, notes: "0.65/1.4 A, PWM-capable, orange LED"}
   - {label: "Output 4", gpio: 23, driver: mosfet, boot_state: high, notes: "0.65/1.4 A, PWM-capable, red LED, ON unless driven"}
-capabilities: [rs485, modbus, rgb_led, equipment_stop, ap_button, contactor_control, second_battery, third_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
-can:
-  - {slot: can1, driver: native}
-  - {slot: canfd1, driver: mcp2518fd}
-  - {slot: canfd2, driver: mcp2518fd_2}

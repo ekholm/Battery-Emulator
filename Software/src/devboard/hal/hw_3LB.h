@@ -5,34 +5,31 @@
 
 class ThreeLBHal : public Esp32Hal {
  public:
+  // ---- BEGIN GENERATED from Software/boards/3lb.yaml ----
+  // Rebuild with tools/board_gen.py; CI fails if this block and the
+  // declaration disagree. Getters below the block are hand-written.
+
   const char* name() { return "3LB board"; }
 
+  // RS485
   virtual gpio_num_t RS485_TX_PIN() { return GPIO_NUM_1; }
   virtual gpio_num_t RS485_RX_PIN() { return GPIO_NUM_3; }
 
+  // CAN interfaces
   virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_27; }
   virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_26; }
-
-  // CAN_ADDON
-  // SCK input of MCP2515
   virtual gpio_num_t MCP2515_SCK() { return GPIO_NUM_12; }
-  // SDI input of MCP2515
   virtual gpio_num_t MCP2515_MOSI() { return GPIO_NUM_5; }
-  // SDO output of MCP2515
   virtual gpio_num_t MCP2515_MISO() { return GPIO_NUM_34; }
-  // CS input of MCP2515
   virtual gpio_num_t MCP2515_CS() { return GPIO_NUM_18; }
-  // INT output of MCP2515
   virtual gpio_num_t MCP2515_INT() { return GPIO_NUM_35; }
-
-  // CANFD_ADDON defines for MCP2517
   virtual gpio_num_t MCP2517_SCK() { return GPIO_NUM_17; }
   virtual gpio_num_t MCP2517_SDI() { return GPIO_NUM_23; }
   virtual gpio_num_t MCP2517_SDO() { return GPIO_NUM_39; }
   virtual gpio_num_t MCP2517_CS() { return GPIO_NUM_21; }
   virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_34; }
 
-  // CHAdeMO support pin dependencies
+  // CHAdeMO support pins
   virtual gpio_num_t CHADEMO_PIN_2() { return GPIO_NUM_12; }
   virtual gpio_num_t CHADEMO_PIN_10() { return GPIO_NUM_5; }
   virtual gpio_num_t CHADEMO_PIN_7() { return GPIO_NUM_34; }
@@ -66,6 +63,7 @@ class ThreeLBHal : public Esp32Hal {
   // Battery wake up pins
   virtual gpio_num_t WUP_PIN1() { return GPIO_NUM_25; }
   virtual gpio_num_t WUP_PIN2() { return GPIO_NUM_32; }
+  // ---- END GENERATED ----
 
   std::vector<comm_interface> available_interfaces() {
     return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative};

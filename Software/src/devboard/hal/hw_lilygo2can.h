@@ -34,17 +34,52 @@ if opi PSRAM is enabled.
 
 class LilyGo2CANHal : public Esp32Hal {
  public:
+  // ---- BEGIN GENERATED from Software/boards/lilygo2can.yaml ----
+  // Rebuild with tools/board_gen.py; CI fails if this block and the
+  // declaration disagree. Getters below the block are hand-written.
+
   const char* name() { return "LilyGo T_2CAN"; }
 
-  virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_7; }
-  virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_6; }
-
-  // Note: these are used by the bootloader UART, so there'll be some bootloader
-  // chatter sent down the RS485 bus when the chip starts up. Hopefully this
-  // won't matter (it'll be 115200 baud, so much higher than the normal Modbus
-  // 9600 baud) - if it's a problem we can burn fuses to disable it.
+  // RS485
   virtual gpio_num_t RS485_TX_PIN() { return GPIO_NUM_43; }
   virtual gpio_num_t RS485_RX_PIN() { return GPIO_NUM_44; }
+
+  // CAN interfaces
+  virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_7; }
+  virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_6; }
+  virtual uint32_t MCP2515_FREQ() { return 16000000; }
+  virtual uint32_t MCP2517_FREQ() { return is_fd() ? 40000000 : 0; }
+  virtual uint8_t MCP2517_BUS2() { return DEFAULT_MCP2515_BUS; }
+
+  // CHAdeMO support pins
+  virtual gpio_num_t CHADEMO_PIN_2() { return GPIO_NUM_16; }
+  virtual gpio_num_t CHADEMO_PIN_10() { return GPIO_NUM_15; }
+  virtual gpio_num_t CHADEMO_PIN_7() { return GPIO_NUM_47; }
+  virtual gpio_num_t CHADEMO_PIN_4() { return GPIO_NUM_4; }
+  virtual gpio_num_t CHADEMO_LOCK() { return GPIO_NUM_40; }
+  virtual gpio_num_t CHADEMO_CT_PIN() { return GPIO_NUM_5; }  // ADC1_CH4
+
+  // Contactor handling
+  virtual gpio_num_t POSITIVE_CONTACTOR_PIN() { return GPIO_NUM_48; }
+  virtual gpio_num_t NEGATIVE_CONTACTOR_PIN() { return GPIO_NUM_17; }
+  virtual gpio_num_t PRECHARGE_PIN() { return GPIO_NUM_21; }
+  virtual gpio_num_t SECOND_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_5; }
+  virtual gpio_num_t TRIPLE_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_4; }
+
+  // Automatic precharging
+  virtual gpio_num_t HIA4V1_PIN() { return GPIO_NUM_18; }
+  virtual gpio_num_t INVERTER_DISCONNECT_CONTACTOR_PIN() { return GPIO_NUM_14; }
+
+  // SMA CAN contactor pins
+  virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_PIN() { return GPIO_NUM_46; }
+
+  // LED
+  virtual gpio_num_t LED_PIN() { return GPIO_NUM_35; }
+  virtual uint8_t LED_MAX_BRIGHTNESS() { return 40; }
+
+  // Wi-Fi AP button
+  virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
+  // ---- END GENERATED ----
 
   // Built In MCP2515 CAN_ADDON
   virtual gpio_num_t MCP2515_SCK() { return is_fd() ? GPIO_NUM_NC : GPIO_NUM_12; }
@@ -53,7 +88,6 @@ class LilyGo2CANHal : public Esp32Hal {
   virtual gpio_num_t MCP2515_CS() { return is_fd() ? GPIO_NUM_NC : GPIO_NUM_10; }
   virtual gpio_num_t MCP2515_INT() { return is_fd() ? GPIO_NUM_NC : GPIO_NUM_8; }
   virtual gpio_num_t MCP2515_RST() { return is_fd() ? GPIO_NUM_NC : GPIO_NUM_9; }
-  virtual uint32_t MCP2515_FREQ() { return 16000000; }
 
   // CANFD_ADDON defines for MCP2517
   virtual gpio_num_t MCP2517_SCK() { return is_fd() ? GPIO_NUM_12 : GPIO_NUM_38; }
@@ -63,20 +97,13 @@ class LilyGo2CANHal : public Esp32Hal {
   virtual gpio_num_t MCP2517_INT() { return is_fd() ? GPIO_NUM_NC : GPIO_NUM_39; }
   virtual gpio_num_t MCP2517_INT0() { return is_fd() ? GPIO_NUM_9 : GPIO_NUM_NC; }
   virtual gpio_num_t MCP2517_INT1() { return is_fd() ? GPIO_NUM_3 : GPIO_NUM_NC; }
-  virtual uint32_t MCP2517_FREQ() { return is_fd() ? 40000000 : 0; }
 
-  // Use the 2515 SPI bus for the add-on on the FD (as it isn't being used for a 2515)
-  virtual uint8_t MCP2517_BUS2() { return DEFAULT_MCP2515_BUS; }
   virtual gpio_num_t MCP2517_SCK2() { return is_fd() ? GPIO_NUM_38 : GPIO_NUM_NC; }
   virtual gpio_num_t MCP2517_SDI2() { return is_fd() ? GPIO_NUM_42 : GPIO_NUM_NC; }
   virtual gpio_num_t MCP2517_SDO2() { return is_fd() ? GPIO_NUM_37 : GPIO_NUM_NC; }
   virtual gpio_num_t MCP2517_CS2() { return is_fd() ? GPIO_NUM_41 : GPIO_NUM_NC; }
   virtual gpio_num_t MCP2517_INT2() { return is_fd() ? GPIO_NUM_39 : GPIO_NUM_NC; }
 
-  // Contactor handling
-  virtual gpio_num_t POSITIVE_CONTACTOR_PIN() { return GPIO_NUM_48; }
-  virtual gpio_num_t NEGATIVE_CONTACTOR_PIN() { return GPIO_NUM_17; }
-  virtual gpio_num_t PRECHARGE_PIN() { return GPIO_NUM_21; }
   virtual gpio_num_t BMS_POWER() {
     if (user_selected_gpioopt1 == GPIOOPT1::ESTOP_BMS_POWER) {
       return GPIO_NUM_2;
@@ -85,27 +112,6 @@ class LilyGo2CANHal : public Esp32Hal {
   }
   // Pins to be latched across a reset/OTA reboot (RTC-capable pins only): BMS_POWER is either GPIO2, GPIO3
   virtual std::vector<gpio_num_t> reset_hold_pins() { return {GPIO_NUM_2, GPIO_NUM_3}; }
-  virtual gpio_num_t SECOND_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_5; }
-  virtual gpio_num_t TRIPLE_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_4; }
-
-  // Automatic precharging
-  virtual gpio_num_t HIA4V1_PIN() { return GPIO_NUM_18; }
-  virtual gpio_num_t INVERTER_DISCONNECT_CONTACTOR_PIN() { return GPIO_NUM_14; }
-
-  // SMA CAN contactor pin
-  virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_PIN() { return GPIO_NUM_46; }
-
-  // LED
-  virtual gpio_num_t LED_PIN() { return GPIO_NUM_35; }
-  virtual uint8_t LED_MAX_BRIGHTNESS() { return 40; }
-
-  // CHAdeMO support pin dependencies
-  virtual gpio_num_t CHADEMO_PIN_2() { return GPIO_NUM_16; }
-  virtual gpio_num_t CHADEMO_PIN_10() { return GPIO_NUM_15; }
-  virtual gpio_num_t CHADEMO_PIN_7() { return GPIO_NUM_47; }
-  virtual gpio_num_t CHADEMO_PIN_4() { return GPIO_NUM_4; }
-  virtual gpio_num_t CHADEMO_LOCK() { return GPIO_NUM_40; }
-  virtual gpio_num_t CHADEMO_CT_PIN() { return GPIO_NUM_5; }  // ADC1_CH4
 
 #ifndef SMALL_FLASH_DEVICE
   // i2c display
@@ -146,9 +152,6 @@ class LilyGo2CANHal : public Esp32Hal {
     }
     return GPIO_NUM_14;
   }
-
-  // Momentary push-button that can be long-pressed at runtime to start the Wi-Fi AP.
-  virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
 
   std::vector<comm_interface> available_interfaces() {
     return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanAddonMcp2515,

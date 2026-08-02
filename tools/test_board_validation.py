@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Prove board_gen.py's capability validation rejects what it should.
+"""Prove board_gen.py rejects declarations it should reject.
 
 A validator is only worth its runtime if it fails on bad input, and the way to
-be sure is to feed it bad input rather than to read it. Each case below mutates
-a real board declaration into something the hardware could not support and
-requires a nonzero exit whose message names the board, the capability and the
-missing role - and requires that nothing was written.
+be sure is to feed it bad input rather than to read it. Each case mutates a
+real declaration into something the hardware could not support and requires a
+nonzero exit whose message names the board, the feature and the field - and
+requires that no header was touched.
 
-The passing cases matter as much: they pin the two requirement shapes that
-exist in the drivers (the CAN-FD interrupt is INT *or* INT0+INT1; the second
-CAN-FD chip needs its own SPI pins *only* on a separate bus), so a later
-simplification of DRIVER_SPECS that flattened either one would fail here.
+The accepted cases pin the requirement shapes that exist in the drivers, so a
+later simplification that flattened one of them fails here: the CAN-FD
+interrupt is INT *or* INT0+INT1; a pin that is chosen at runtime still counts
+as present; a pin declared NC does not.
 
 Usage: python3 tools/test_board_validation.py
 """
@@ -23,111 +23,115 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 BOARDS = ROOT / 'Software' / 'boards'
+HEADERS = ROOT / 'Software' / 'src' / 'devboard' / 'hal'
 GEN = ROOT / 'tools' / 'board_gen.py'
 
 failures = []
 
 
-def run(yaml_by_board):
-    """Run the generator over a temp board set; return (rc, output, files written)."""
+def run(board, text):
+    """Run the generator over one declaration in a sandbox; return
+    (rc, output, whether any header changed)."""
     with tempfile.TemporaryDirectory() as tmp:
-        boards, out = Path(tmp) / 'boards', Path(tmp) / 'out'
+        boards, headers = Path(tmp) / 'boards', Path(tmp) / 'hal'
         boards.mkdir()
-        out.mkdir()
-        for board, text in yaml_by_board.items():
-            (boards / f'{board}.yaml').write_text(text, encoding='utf-8')
+        headers.mkdir()
+        for src in HEADERS.glob('hw_*.h'):
+            shutil.copy(src, headers / src.name)
+        before = {p.name: p.read_text(encoding='utf-8') for p in headers.iterdir()}
+        (boards / f'{board}.yaml').write_text(text, encoding='utf-8')
         proc = subprocess.run(
-            [sys.executable, str(GEN), '--boards', str(boards), '--out', str(out)],
+            [sys.executable, str(GEN), '--boards', str(boards), '--headers', str(headers)],
             capture_output=True, text=True)
-        return proc.returncode, proc.stdout + proc.stderr, sorted(p.name for p in out.iterdir())
+        after = {p.name: p.read_text(encoding='utf-8') for p in headers.iterdir()}
+        return proc.returncode, proc.stdout + proc.stderr, before != after
 
 
 def expect_reject(case, text, *must_mention, board='stark'):
-    rc, output, written = run({board: text})
+    rc, output, changed = run(board, text)
     if rc == 0:
         failures.append(f'{case}: accepted a declaration it must reject')
         return
     missing = [m for m in must_mention if m not in output]
     if missing:
-        failures.append(f'{case}: rejected, but the message never mentions {missing}\n    {output.strip()}')
-    if written:
-        failures.append(f'{case}: rejected but still wrote {written}')
+        failures.append(f'{case}: rejected, but the message never mentions {missing}\n'
+                        f'    {output.strip()}')
+    if changed:
+        failures.append(f'{case}: rejected but still rewrote a header')
 
 
 def expect_accept(case, text, board='stark'):
-    rc, output, written = run({board: text})
+    rc, output, _ = run(board, text)
     if rc != 0:
         failures.append(f'{case}: rejected a valid declaration\n    {output.strip()}')
-    elif not written:
-        failures.append(f'{case}: accepted but wrote nothing')
 
 
-def drop_line(text, pattern):
-    kept = [ln for ln in text.splitlines() if not re.match(pattern, ln)]
-    if len(kept) == len(text.splitlines()):
+def drop(text, pattern):
+    """Remove a key: value pair from an inline map."""
+    new = re.sub(pattern, '', text, count=1)
+    if new == text:
         raise AssertionError(f'test setup: nothing matched {pattern!r}')
-    return '\n'.join(kept) + '\n'
+    return new
 
 
 def main():
     stark = (BOARDS / 'stark.yaml').read_text(encoding='utf-8')
-    lilygo2can = (BOARDS / 'lilygo2can.yaml').read_text(encoding='utf-8')
+    lilygo = (BOARDS / 'lilygo.yaml').read_text(encoding='utf-8')
 
-    # The declarations as committed must pass, or every rejection below is
-    # meaningless - it would just be failing for an unrelated reason.
+    # If the committed declarations did not pass, every rejection below would
+    # be meaningless - it would just be failing for an unrelated reason.
     expect_accept('committed stark', stark)
-    expect_accept('committed lilygo2can', lilygo2can, board='lilygo2can')
+    expect_accept('committed lilygo', lilygo, board='lilygo')
 
-    # A capability whose pin the board does not define.
-    expect_reject('missing capability pin', drop_line(stark, r'\s+EQUIPMENT_STOP_PIN:'),
-                  'stark', 'equipment_stop', 'EQUIPMENT_STOP_PIN')
+    # A feature missing a pin its driver reads.
+    expect_reject('missing required field', drop(stark, r'positive: 32, '),
+                  'stark', 'contactors', 'positive')
 
-    # NC means the board deliberately does not have the pin, so it must not
-    # satisfy a requirement. This is the subtle one: the role IS present.
-    expect_reject('required pin declared NC',
-                  stark.replace('  EQUIPMENT_STOP_PIN: 2', '  EQUIPMENT_STOP_PIN: NC'),
-                  'stark', 'equipment_stop', 'EQUIPMENT_STOP_PIN')
+    # NC means the board deliberately lacks the pin, so it must not satisfy a
+    # requirement even though the field is present. This is the subtle one.
+    expect_reject('required field declared NC', stark.replace('positive: 32', 'positive: NC'),
+                  'stark', 'contactors', 'positive')
 
-    # A conditional pin satisfies a requirement (the role exists, the GPIO is
-    # chosen at runtime) - and removing it must break the same capability.
-    expect_reject('missing conditional pin', drop_line(stark, r'\s+MCP2517_SCK: variant'),
-                  'stark', 'canfd1', 'MCP2517_SCK')
+    # A pin chosen at runtime is still a real role: the getter is hand-written,
+    # but the hardware is there, so the feature must validate.
+    expect_accept('late-bound pin satisfies a requirement',
+                  stark.replace('positive: 32', 'positive: setting'))
 
-    # CAN-FD interrupt: INT, or INT0+INT1. Dropping INT alone is fatal here
-    # because stark has no INT0/INT1; a board with them may drop INT.
-    expect_reject('canfd with no interrupt at all', drop_line(stark, r'\s+MCP2517_INT: '),
-                  'stark', 'canfd1', 'MCP2517_INT')
-    with_int01 = drop_line(stark, r'\s+MCP2517_INT: ').replace(
-        '  MCP2517_CS: 18', '  MCP2517_CS: 18\n  MCP2517_INT0: 36\n  MCP2517_INT1: 39')
-    expect_accept('canfd with INT0+INT1 instead of INT', with_int01)
+    # CAN-FD interrupt: INT, or INT0+INT1, and half of the pair is not enough.
+    expect_reject('canfd with no interrupt', drop(stark, r', int: 35'),
+                  'stark', 'can', 'mcp2518fd', 'int')
+    expect_accept('canfd with INT0+INT1 instead of INT',
+                  drop(stark, r', int: 35').replace('cs: 18', 'cs: 18, int0: 36, int1: 39'))
     expect_reject('canfd with only half of INT0/INT1',
-                  drop_line(with_int01, r'\s+MCP2517_INT1: '),
-                  'stark', 'canfd1', 'MCP2517_INT')
+                  drop(stark, r', int: 35').replace('cs: 18', 'cs: 18, int0: 36'),
+                  'stark', 'can', 'int')
 
-    # Second CAN-FD chip: shares the first chip's SPI bus unless the declared
-    # buses differ, in which case it needs its own three pins. stark shares.
-    expect_reject('second canfd on its own bus without its own SPI pins',
-                  stark.replace('scalars:', 'scalars:\n  MCP2517_BUS2: {type: uint8_t, value: "DEFAULT_MCP2515_BUS"}'),
-                  'stark', 'canfd2', 'MCP2517_SCK2')
+    # Buses are declared once and referenced; a dangling or incomplete bus is
+    # exactly the kind of thing the old flat pin map could not express.
+    expect_reject('reference to an undeclared bus', stark.replace('bus: SPI1', 'bus: SPI9'),
+                  'stark', 'SPI9')
+    expect_reject('bus missing a pin', drop(stark, r'clk: variant, '),
+                  'stark', 'SPI1', 'clk')
 
-    # Typos must not pass silently as "some capability I do not know about".
-    expect_reject('unknown capability',
-                  stark.replace('capabilities: [rs485', 'capabilities: [rs485_typo'),
-                  'stark', 'rs485_typo')
-    expect_reject('unknown CAN driver',
-                  stark.replace('driver: mcp2518fd_2', 'driver: mcp2519fd'),
-                  'stark', 'mcp2519fd')
-    expect_reject('duplicate CAN slot',
-                  stark.replace('{slot: canfd2,', '{slot: canfd1,'),
-                  'stark', 'canfd1')
+    # Typos must not pass silently.
+    expect_reject('unknown driver', stark.replace('driver: native', 'driver: nativ'),
+                  'stark', 'nativ')
+    expect_reject('unknown field', stark.replace('cs: 12, int: 14', 'cs: 12, int: 14, csx: 9'),
+                  'stark', 'csx')
+    expect_reject('more instances than the driver has',
+                  stark.replace('  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}',
+                                '  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}\n'
+                                '  - {driver: mcp2518fd, bus: SPI1, cs: 7, int: 8}'),
+                  'stark', 'mcp2518fd')
 
     # Two product labels cannot name the same physical output.
     expect_reject('two outputs on one GPIO',
                   stark.replace('{label: "Output 3", gpio: 32', '{label: "Output 3", gpio: 33'),
                   'stark', 'Output 3', '33')
 
-    # The parser must refuse what it does not understand rather than guess.
-    expect_reject('unparseable line', stark.replace('pins:', 'pins:\n      DEEP: 1'), 'indent')
+    # The parser refuses what it does not understand rather than guessing.
+    expect_reject('unparseable indent', stark.replace('rs485:', 'rs485:\n      deep: 1'),
+                  'indent')
 
     if failures:
         print(f'board validation: {len(failures)} FAILED')

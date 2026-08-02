@@ -1,66 +1,38 @@
-# Board declaration. GENERATED ONCE from the header of the same name;
-# from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragments from it. Pins whose GPIO depends on a runtime
-# user setting or a hardware variant stay hand-written in the board
-# header; they are listed under conditional_pins so that capability
-# validation still knows the role exists.
+# Board declaration - the source for the generated block in the header
+# of the same name. Features own their pins; shared buses are declared
+# once and referenced. A pin is a GPIO number, NC (the board does not
+# have it), or setting/variant when the getter is chosen at runtime and
+# stays hand-written below the generated block.
 board: lilygo2can
 class: LilyGo2CANHal
 header: hw_lilygo2can.h
 name: "LilyGo T_2CAN"
-pins:
-  CAN_TX_PIN: 7
-  CAN_RX_PIN: 6
-  RS485_TX_PIN: 43
-  RS485_RX_PIN: 44
-  POSITIVE_CONTACTOR_PIN: 48
-  NEGATIVE_CONTACTOR_PIN: 17
-  PRECHARGE_PIN: 21
-  SECOND_BATTERY_CONTACTORS_PIN: 5
-  TRIPLE_BATTERY_CONTACTORS_PIN: 4
-  HIA4V1_PIN: 18
-  INVERTER_DISCONNECT_CONTACTOR_PIN: 14
-  INVERTER_CONTACTOR_ENABLE_PIN: 46
-  LED_PIN: 35
-  CHADEMO_PIN_2: 16
-  CHADEMO_PIN_10: 15
-  CHADEMO_PIN_7: 47
-  CHADEMO_PIN_4: 4
-  CHADEMO_LOCK: 40
-  AP_BUTTON_PIN: 0
-conditional_pins:
-  MCP2515_SCK: variant
-  MCP2515_MOSI: variant
-  MCP2515_MISO: variant
-  MCP2515_CS: variant
-  MCP2515_INT: variant
-  MCP2515_RST: variant
-  MCP2517_SCK: variant
-  MCP2517_SDI: variant
-  MCP2517_SDO: variant
-  MCP2517_CS: variant
-  MCP2517_INT: variant
-  MCP2517_INT0: variant
-  MCP2517_INT1: variant
-  MCP2517_SCK2: variant
-  MCP2517_SDI2: variant
-  MCP2517_SDO2: variant
-  MCP2517_CS2: variant
-  MCP2517_INT2: variant
-  BMS_POWER: setting
-  DISPLAY_SDA_PIN: setting
-  DISPLAY_SCL_PIN: setting
-  EQUIPMENT_STOP_PIN: setting
-  WUP_PIN1: setting
-  WUP_PIN2: setting
-scalars:
-  MCP2515_FREQ: {type: uint32_t, value: "16000000"}
-  MCP2517_FREQ: {type: uint32_t, value: "is_fd() ? 40000000 : 0"}
-  MCP2517_BUS2: {type: uint8_t, value: "DEFAULT_MCP2515_BUS"}
-  LED_MAX_BRIGHTNESS: {type: uint8_t, value: "40"}
-capabilities: [rs485, modbus, display_i2c, rgb_led, equipment_stop, ap_button, chademo, contactor_control, second_battery, third_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
+buses:
+  SPI1: {clk: variant, mosi: variant, miso: variant}
+rs485:
+  - {tx: 43, rx: 44}
 can:
-  - {slot: can1, driver: native}
-  - {slot: can2, driver: mcp2515}
-  - {slot: canfd1, driver: mcp2518fd}
-  - {slot: canfd2, driver: mcp2518fd_2}
+  - {driver: native, tx: 7, rx: 6}
+  - {driver: mcp2515, bus: SPI1, cs: variant, int: variant, rst: variant, freq: 16000000}
+  - {driver: mcp2518fd, bus: SPI1, cs: variant, int: variant, int0: variant, int1: variant, freq: is_fd() ? 40000000 : 0}
+  - {driver: mcp2518fd, bus: SPI1, cs: variant, int: variant, spi_bus: DEFAULT_MCP2515_BUS}
+chademo:
+  - {pin2: 16, pin10: 15, pin7: 47, pin4: 4, lock: 40, ct: 5}
+contactors:
+  - {positive: 48, negative: 17, precharge: 21, bms_power: setting, second: 5, third: 4}
+precharge_auto:
+  - {hia4v1: 18, inverter_disconnect: 14}
+sma:
+  - {enable: 46}
+rgb_led:
+  - {pin: 35, max_brightness: 40}
+equipment_stop:
+  - {pin: setting}
+battery_wakeup:
+  - {wup1: setting, wup2: setting}
+ap_button:
+  - {pin: 0}
+display_i2c:
+  - {sda: setting, scl: setting}
+comments:
+  CHADEMO_CT_PIN: "// ADC1_CH4"

@@ -1,56 +1,34 @@
-# Board declaration. GENERATED ONCE from the header of the same name;
-# from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragments from it. Pins whose GPIO depends on a runtime
-# user setting or a hardware variant stay hand-written in the board
-# header; they are listed under conditional_pins so that capability
-# validation still knows the role exists.
+# Board declaration - the source for the generated block in the header
+# of the same name. Features own their pins; shared buses are declared
+# once and referenced. A pin is a GPIO number, NC (the board does not
+# have it), or setting/variant when the getter is chosen at runtime and
+# stays hand-written below the generated block.
 board: 3lb
 class: ThreeLBHal
 header: hw_3LB.h
 name: "3LB board"
-pins:
-  RS485_TX_PIN: 1
-  RS485_RX_PIN: 3
-  CAN_TX_PIN: 27
-  CAN_RX_PIN: 26
-  MCP2515_SCK: 12
-  MCP2515_MOSI: 5
-  MCP2515_MISO: 34
-  MCP2515_CS: 18
-  MCP2515_INT: 35
-  MCP2517_SCK: 17
-  MCP2517_SDI: 23
-  MCP2517_SDO: 39
-  MCP2517_CS: 21
-  MCP2517_INT: 34
-  CHADEMO_PIN_2: 12
-  CHADEMO_PIN_10: 5
-  CHADEMO_PIN_7: 34
-  CHADEMO_PIN_4: 35
-  CHADEMO_LOCK: 18
-  CHADEMO_CT_PIN: 25
-  POSITIVE_CONTACTOR_PIN: 32
-  NEGATIVE_CONTACTOR_PIN: 33
-  PRECHARGE_PIN: 25
-  BMS_POWER: 2
-  SECOND_BATTERY_CONTACTORS_PIN: 13
-  TRIPLE_BATTERY_CONTACTORS_PIN: NC
-  HIA4V1_PIN: 25
-  INVERTER_DISCONNECT_CONTACTOR_PIN: 32
-  INVERTER_CONTACTOR_ENABLE_PIN: 36
-  INVERTER_CONTACTOR_ENABLE_LED_PIN: NC
-  SD_MISO_PIN: 2
-  SD_MOSI_PIN: 15
-  SD_SCLK_PIN: 14
-  SD_CS_PIN: 13
-  LED_PIN: 4
-  EQUIPMENT_STOP_PIN: 35
-  WUP_PIN1: 25
-  WUP_PIN2: 32
-scalars:
-  LED_MAX_BRIGHTNESS: {type: uint8_t, value: "40"}
-capabilities: [rs485, modbus, sd_mmc, rgb_led, equipment_stop, chademo, contactor_control, second_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
+buses:
+  SPI1: {clk: 12, mosi: 5, miso: 34}
+  SPI2: {clk: 17, mosi: 23, miso: 39}
+rs485:
+  - {tx: 1, rx: 3}
 can:
-  - {slot: can1, driver: native}
-  - {slot: can2, driver: mcp2515}
-  - {slot: canfd1, driver: mcp2518fd}
+  - {driver: native, tx: 27, rx: 26}
+  - {driver: mcp2515, bus: SPI1, cs: 18, int: 35}
+  - {driver: mcp2518fd, bus: SPI2, cs: 21, int: 34}
+chademo:
+  - {pin2: 12, pin10: 5, pin7: 34, pin4: 35, lock: 18, ct: 25}
+contactors:
+  - {positive: 32, negative: 33, precharge: 25, bms_power: 2, second: 13, third: NC}
+precharge_auto:
+  - {hia4v1: 25, inverter_disconnect: 32}
+sma:
+  - {enable: 36, led: NC}
+sd_mmc:
+  - {miso: 2, mosi: 15, clk: 14, cs: 13}
+rgb_led:
+  - {pin: 4, max_brightness: 40}
+equipment_stop:
+  - {pin: 35}
+battery_wakeup:
+  - {wup1: 25, wup2: 32}

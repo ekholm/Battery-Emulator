@@ -51,12 +51,16 @@ jobs:
 
     steps:
     - name: Checkout code
+      # Full history: the transcription check reads the board headers as they
+      # were before this tooling existed, which a shallow clone does not have.
       uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
 
-    - name: Generated board fragments are in sync with the declarations
+    - name: Generated blocks are in sync with the declarations
       run: python3 tools/board_gen.py --check
 
-    - name: Declarations still transcribe the board headers exactly
+    - name: Declarations still reproduce the original board headers
       run: python3 tools/board_verify_transcription.py
 
     - name: Capability validation rejects what it should

@@ -1,46 +1,31 @@
-# Board declaration. GENERATED ONCE from the header of the same name;
-# from here on this file is the source and tools/board_gen.py rebuilds
-# the generated fragments from it. Pins whose GPIO depends on a runtime
-# user setting or a hardware variant stay hand-written in the board
-# header; they are listed under conditional_pins so that capability
-# validation still knows the role exists.
+# Board declaration - the source for the generated block in the header
+# of the same name. Features own their pins; shared buses are declared
+# once and referenced. A pin is a GPIO number, NC (the board does not
+# have it), or setting/variant when the getter is chosen at runtime and
+# stays hand-written below the generated block.
 board: becom
 class: BEComHal
 header: hw_becom.h
 name: "BECom"
-pins:
-  CAN_TX_PIN: 8
-  CAN_RX_PIN: 18
-  RS485_TX_PIN: 15
-  RS485_RX_PIN: 17
-  RS485_DE_PIN: 16
-  MCP2517_SCK: 12
-  MCP2517_SDI: 11
-  MCP2517_SDO: 13
-  MCP2517_CS: 14
-  MCP2517_INT: 10
-  MCP2517_CS2: 21
-  MCP2517_INT2: 9
-  POSITIVE_CONTACTOR_PIN: 47
-  NEGATIVE_CONTACTOR_PIN: 48
-  PRECHARGE_PIN: 45
-  BMS_POWER: 1
-  SECOND_BATTERY_CONTACTORS_PIN: 37
-  HIA4V1_PIN: 45
-  INVERTER_DISCONNECT_CONTACTOR_PIN: 47
-  INVERTER_CONTACTOR_ENABLE_PIN: 3
-  LED_PIN: 5
-  EQUIPMENT_STOP_PIN: 46
-  WUP_PIN1: 2
-  WUP_PIN2: 41
-  AP_BUTTON_PIN: 0
-scalars:
-  MCP2517_FREQ: {type: uint32_t, value: "40000000"}
-  MCP2517_FREQ2: {type: uint32_t, value: "40000000"}
-  MCP2517_CLKODIV: {type: int, value: "0b00"}
-  LED_MAX_BRIGHTNESS: {type: uint8_t, value: "40"}
-capabilities: [rs485, modbus, rgb_led, equipment_stop, ap_button, contactor_control, second_battery, battery_wakeup, automatic_precharge, sma_contactor, bms_power_control]
+buses:
+  SPI1: {clk: 12, mosi: 11, miso: 13}
+rs485:
+  - {tx: 15, rx: 17, de: 16}
 can:
-  - {slot: can1, driver: native}
-  - {slot: canfd1, driver: mcp2518fd}
-  - {slot: canfd2, driver: mcp2518fd_2}
+  - {driver: native, tx: 8, rx: 18}
+  - {driver: mcp2518fd, bus: SPI1, cs: 14, int: 10, freq: 40000000, clkodiv: 0b00}
+  - {driver: mcp2518fd, bus: SPI1, cs: 21, int: 9, freq: 40000000}
+contactors:
+  - {positive: 47, negative: 48, precharge: 45, bms_power: 1, second: 37}
+precharge_auto:
+  - {hia4v1: 45, inverter_disconnect: 47}
+sma:
+  - {enable: 3}
+rgb_led:
+  - {pin: 5, max_brightness: 40}
+equipment_stop:
+  - {pin: 46}
+battery_wakeup:
+  - {wup1: 2, wup2: 41}
+ap_button:
+  - {pin: 0}

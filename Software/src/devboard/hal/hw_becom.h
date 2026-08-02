@@ -5,54 +5,43 @@
 
 class BEComHal : public Esp32Hal {
  public:
+  // ---- BEGIN GENERATED from Software/boards/becom.yaml ----
+  // Rebuild with tools/board_gen.py; CI fails if this block and the
+  // declaration disagree. Getters below the block are hand-written.
+
   const char* name() { return "BECom"; }
 
-  virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_8; }
-  virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_18; }
-
+  // RS485
   virtual gpio_num_t RS485_TX_PIN() { return GPIO_NUM_15; }
   virtual gpio_num_t RS485_RX_PIN() { return GPIO_NUM_17; }
-  // New Drive Enable Pin for RS485 Half Duplex communication
   virtual gpio_num_t RS485_DE_PIN() { return GPIO_NUM_16; }
 
-  // 1st CANFD Interface: MCP2518
+  // CAN interfaces
+  virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_8; }
+  virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_18; }
   virtual gpio_num_t MCP2517_SCK() { return GPIO_NUM_12; }
   virtual gpio_num_t MCP2517_SDI() { return GPIO_NUM_11; }
   virtual gpio_num_t MCP2517_SDO() { return GPIO_NUM_13; }
   virtual gpio_num_t MCP2517_CS() { return GPIO_NUM_14; }
   virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_10; }
   virtual uint32_t MCP2517_FREQ() { return 40000000; }
-
-  // 2nd CANFD Interface: MCP2518
-  // SPI Bus is shared with the 1st interface, only INT and CS pins are needed
+  virtual int MCP2517_CLKODIV() { return 0b00; }
   virtual gpio_num_t MCP2517_CS2() { return GPIO_NUM_21; }
   virtual gpio_num_t MCP2517_INT2() { return GPIO_NUM_9; }
   virtual uint32_t MCP2517_FREQ2() { return 40000000; }
-
-  // Value for first MCP2517 CLKODIV register (divide by 1)
-  virtual int MCP2517_CLKODIV() { return 0b00; }
 
   // Contactor handling
   virtual gpio_num_t POSITIVE_CONTACTOR_PIN() { return GPIO_NUM_47; }
   virtual gpio_num_t NEGATIVE_CONTACTOR_PIN() { return GPIO_NUM_48; }
   virtual gpio_num_t PRECHARGE_PIN() { return GPIO_NUM_45; }
-  // BMS Power Pin is inverted, High Value shuts down the Battery
-  // TODO: Adapt the rest of the code to invert the power control
   virtual gpio_num_t BMS_POWER() { return GPIO_NUM_1; }
-
-  // Pins to be latched across a reset/OTA reboot (RTC-capable pins only): BMS_POWER is GPIO1
-  virtual std::vector<gpio_num_t> reset_hold_pins() { return {GPIO_NUM_1}; }
-
-  // SECOND_BATTERY_CONTACTORS_PIN mapped to the Battery 2 Negative Contactor Pin
   virtual gpio_num_t SECOND_BATTERY_CONTACTORS_PIN() { return GPIO_NUM_37; }
 
   // Automatic precharging
-  // HIA4V1_PIN mapped to Battery 1 Pre-Chage Contactor Pin
   virtual gpio_num_t HIA4V1_PIN() { return GPIO_NUM_45; }
-  // INVERTER_DISCONNECT_CONTACTOR_PIN mapped to Battery 1 Positive Contactor Pin
   virtual gpio_num_t INVERTER_DISCONNECT_CONTACTOR_PIN() { return GPIO_NUM_47; }
 
-  // SMA CAN contactor pin
+  // SMA CAN contactor pins
   virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_PIN() { return GPIO_NUM_3; }
 
   // LED
@@ -60,15 +49,18 @@ class BEComHal : public Esp32Hal {
   virtual uint8_t LED_MAX_BRIGHTNESS() { return 40; }
 
   // Equipment stop pin
-  // Mapped to and internal allways low pin, in hardware v1
   virtual gpio_num_t EQUIPMENT_STOP_PIN() { return GPIO_NUM_46; }
 
   // Battery wake up pins
   virtual gpio_num_t WUP_PIN1() { return GPIO_NUM_2; }
   virtual gpio_num_t WUP_PIN2() { return GPIO_NUM_41; }
 
-  // Momentary push-button that can be long-pressed at runtime to start the Wi-Fi AP.
+  // Wi-Fi AP button
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
+  // ---- END GENERATED ----
+
+  // Pins to be latched across a reset/OTA reboot (RTC-capable pins only): BMS_POWER is GPIO1
+  virtual std::vector<gpio_num_t> reset_hold_pins() { return {GPIO_NUM_1}; }
 
   std::vector<comm_interface> available_interfaces() {
     return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanFdAddonMcp2518,
