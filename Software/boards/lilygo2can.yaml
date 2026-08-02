@@ -1,0 +1,33 @@
+# Board declaration. GENERATED ONCE from the header of the same name;
+# from here on this file is the source and tools/board_gen.py rebuilds
+# the generated fragment from it. Pins that depend on a runtime user
+# setting are NOT here - they stay hand-written in the board header.
+board: lilygo2can
+class: LilyGo2CANHal
+header: hw_lilygo2can.h
+name: "LilyGo T_2CAN"
+pins:
+  CAN_TX_PIN: 7
+  CAN_RX_PIN: 6
+  RS485_TX_PIN: 43
+  RS485_RX_PIN: 44
+  POSITIVE_CONTACTOR_PIN: 48
+  NEGATIVE_CONTACTOR_PIN: 17
+  PRECHARGE_PIN: 21
+  SECOND_BATTERY_CONTACTORS_PIN: 5
+  TRIPLE_BATTERY_CONTACTORS_PIN: 4
+  HIA4V1_PIN: 18
+  INVERTER_DISCONNECT_CONTACTOR_PIN: 14
+  INVERTER_CONTACTOR_ENABLE_PIN: 46
+  LED_PIN: 35
+  CHADEMO_PIN_2: 16
+  CHADEMO_PIN_10: 15
+  CHADEMO_PIN_7: 47
+  CHADEMO_PIN_4: 4
+  CHADEMO_LOCK: 40
+  AP_BUTTON_PIN: 0
+scalars:
+  MCP2515_FREQ: {type: uint32_t, value: "16000000"}
+  MCP2517_FREQ: {type: uint32_t, value: "is_fd() ? 40000000 : 0"}
+  MCP2517_BUS2: {type: uint8_t, value: "DEFAULT_MCP2515_BUS"}
+  LED_MAX_BRIGHTNESS: {type: uint8_t, value: "40"}

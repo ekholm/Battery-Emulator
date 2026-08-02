@@ -1,0 +1,39 @@
+# Board declaration. GENERATED ONCE from the header of the same name;
+# from here on this file is the source and tools/board_gen.py rebuilds
+# the generated fragment from it. Pins that depend on a runtime user
+# setting are NOT here - they stay hand-written in the board header.
+board: devkit
+class: DevKitHal
+header: hw_devkit.h
+name: "ESP32 DevKit V1"
+pins:
+  RS485_TX_PIN: 1
+  RS485_RX_PIN: 3
+  CAN_TX_PIN: 27
+  CAN_RX_PIN: 26
+  MCP2515_SCK: 22
+  MCP2515_MOSI: 21
+  MCP2515_MISO: 19
+  MCP2515_CS: 18
+  MCP2515_INT: 23
+  MCP2517_SCK: 33
+  MCP2517_SDI: 32
+  MCP2517_SDO: 35
+  MCP2517_CS: 25
+  MCP2517_INT: 34
+  POSITIVE_CONTACTOR_PIN: 5
+  NEGATIVE_CONTACTOR_PIN: 16
+  PRECHARGE_PIN: 17
+  SECOND_BATTERY_CONTACTORS_PIN: 32
+  TRIPLE_BATTERY_CONTACTORS_PIN: NC
+  HIA4V1_PIN: 4
+  INVERTER_DISCONNECT_CONTACTOR_PIN: 5
+  INVERTER_CONTACTOR_ENABLE_PIN: 14
+  INVERTER_CONTACTOR_ENABLE_LED_PIN: 2
+  LED_PIN: 4
+  EQUIPMENT_STOP_PIN: 12
+  WUP_PIN1: 25
+  WUP_PIN2: 32
+  AP_BUTTON_PIN: 0
+scalars:
+  LED_MAX_BRIGHTNESS: {type: uint8_t, value: "40"}

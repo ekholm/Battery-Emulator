@@ -1,0 +1,39 @@
+# Board declaration. GENERATED ONCE from the header of the same name;
+# from here on this file is the source and tools/board_gen.py rebuilds
+# the generated fragment from it. Pins that depend on a runtime user
+# setting are NOT here - they stay hand-written in the board header.
+board: stark
+class: StarkHal
+header: hw_stark.h
+name: "Stark CMR Module"
+pins:
+  PIN_5V_EN: NC
+  RS485_EN_PIN: NC
+  RS485_TX_PIN: 22
+  RS485_RX_PIN: 21
+  RS485_SE_PIN: NC
+  CAN_TX_PIN: 27
+  CAN_RX_PIN: 26
+  CAN_SE_PIN: NC
+  MCP2517_SDI: 5
+  MCP2517_SDO: 34
+  MCP2517_CS: 18
+  MCP2517_INT: 35
+  MCP2517_CS2: 12
+  MCP2517_INT2: 14
+  POSITIVE_CONTACTOR_PIN: 32
+  NEGATIVE_CONTACTOR_PIN: 33
+  SECOND_BATTERY_CONTACTORS_PIN: 19
+  TRIPLE_BATTERY_CONTACTORS_PIN: 15
+  HIA4V1_PIN: 19
+  INVERTER_DISCONNECT_CONTACTOR_PIN: 25
+  INVERTER_CONTACTOR_ENABLE_PIN: 2
+  LED_PIN: 4
+  EQUIPMENT_STOP_PIN: 2
+  WUP_PIN1: 25
+  WUP_PIN2: 32
+  AP_BUTTON_PIN: 0
+scalars:
+  MCP2517_FREQ: {type: uint32_t, value: "40000000"}
+  LED_MAX_BRIGHTNESS: {type: uint8_t, value: "20"}
+  LED_COUNT: {type: uint8_t, value: "5"}
