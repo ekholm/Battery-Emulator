@@ -41,3 +41,6 @@ Software/idf_component.yml
 
 # Ignore generated version header (produced by tools/identify_build.py)
 Software/src/devboard/utils/version_autogen.h
+
+# Python bytecode from the tools/ scripts (board_gen is imported by the others)
+__pycache__/
