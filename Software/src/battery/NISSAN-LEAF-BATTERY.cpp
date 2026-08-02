@@ -905,8 +905,13 @@ void NissanLeafBattery::transmit_can(unsigned long currentMillis) {
         LEAF_50B.data.u8[6] = 0x00;  //Batt_Heater_Mail_Send_NG
       }
 
-      //If we are on ZE1 battery, handle some extra 100ms messages
-      if (LEAF_battery_Type == ZE1_BATTERY) {
+      /* The 3B8/5C5/626 clear-set is what stops the LBC re-logging U1000 and
+         friends after a DTC erase. It has been ZE1-only, which is why an AZE0
+         pack re-logs U1000 on the next read and keeps SOH recalculation
+         frozen at 100%. Byte patterns are sent unchanged from the ZE1 set:
+         whether they are valid on the AZE0 CAN matrix is exactly what this
+         build is meant to find out. */
+      if (LEAF_battery_Type == ZE1_BATTERY || LEAF_battery_Type == AZE0_BATTERY) {
         counter_3B8 = (counter_3B8 + 1) % 15;
         LEAF_3B8.data.u8[2] = counter_3B8;  // 0 - 14 (0x00 - 0x0E)
         transmit_can_frame(&LEAF_3B8);      // Sending 3B8 removes U1000 and P318E DTC
