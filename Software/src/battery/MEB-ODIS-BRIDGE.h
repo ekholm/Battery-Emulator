@@ -16,4 +16,4 @@ class MebOdisBridge : public CanBattery {
  private:
 };
 
-#endif
+#endif  // MEB_ODIS_BRIDGE_H
