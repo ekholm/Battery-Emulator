@@ -1,5 +1,5 @@
-#ifndef MEB_ODIS_BRIDGE_H
-#define MEB_ODIS_BRIDGE_H
+#ifndef BE_BATTERY_MEB_ODIS_BRIDGE_H
+#define BE_BATTERY_MEB_ODIS_BRIDGE_H
 
 #include "../system_settings.h"
 #include "CanBattery.h"
@@ -16,4 +16,4 @@ class MebOdisBridge : public CanBattery {
  private:
 };
 
-#endif  // MEB_ODIS_BRIDGE_H
+#endif  // BE_BATTERY_MEB_ODIS_BRIDGE_H
