@@ -47,8 +47,12 @@ void PrechargeFsm::tick(unsigned long now_ms) {
   if (state_ == State::DISCONNECTED) {
     actuator_.open_all(false);
 
+    // battery_link[0].allowed_contactor_closing is the symmetric parallel-join
+    // gate: do not close the main battery onto a link another pack holds live
+    // with more than 1.5 V difference. Computed by the join arbiter; set true
+    // at battery setup so single-battery systems are unaffected.
     if (datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active &&
-        actuator_.start_allowed()) {
+        datalayer.system.status.battery_link[0].allowed_contactor_closing && actuator_.start_allowed()) {
       state_ = State::START_PRECHARGE;
     }
   }
