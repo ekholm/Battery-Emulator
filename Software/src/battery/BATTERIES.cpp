@@ -402,7 +402,7 @@ void setup_battery() {
   }
 
   // Set the chemistry to the user selected value, the battery can override.
-  for (int i = 0; i < MAX_BATTERIES; i++) {
+  for (int i = 0; i < MAX_BATTERIES; ++i) {
     datalayer_battery(i).info.chemistry = user_selected_battery_chemistry;
   }
 
@@ -420,7 +420,7 @@ void setup_battery() {
       {user_selected_second_battery, battery_supports_double},
       {user_selected_triple_battery, battery_supports_triple},
   };
-  for (int i = 0; i < MAX_BATTERIES; i++) {
+  for (int i = 0; i < MAX_BATTERIES; ++i) {
     const auto& want = wanted[i];
     if (!want.requested || batteries[i]) {
       continue;

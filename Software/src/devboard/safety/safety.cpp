@@ -586,7 +586,7 @@ void update_machineryprotection() {
   }
   const CAN_Interface secondary_interface[MAX_BATTERIES] = {can_config.batteries[0], can_config.batteries[1],
                                                             can_config.batteries[2]};
-  for (int i = 1; i < MAX_BATTERIES; i++) {
+  for (int i = 1; i < MAX_BATTERIES; ++i) {
     if (batteries[i] && !can_corrupted && datalayer_battery(i).status.CAN_error_counter > MAX_CAN_FAILURES) {
       can_corrupted = true;
       corrupted_channel = secondary_interface[i];
@@ -691,7 +691,7 @@ void setBatteryPause(bool pause_battery, bool pause_CAN, EquipmentStop equipment
     emulator_pause_status = PAUSING;
     datalayer.batteries[0].status.max_discharge_power_W = 0;
     datalayer.batteries[0].status.max_charge_power_W = 0;
-    for (int i = 1; i < MAX_BATTERIES; i++) {
+    for (int i = 1; i < MAX_BATTERIES; ++i) {
       if (batteries[i]) {
         datalayer_battery(i).status.max_discharge_power_W = 0;
         datalayer_battery(i).status.max_charge_power_W = 0;

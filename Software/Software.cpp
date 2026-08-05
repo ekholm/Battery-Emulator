@@ -334,7 +334,7 @@ void update_calculated_values(uint32_t currentMillis) {
   update_remote_limit_expiry(currentMillis);
 
   /* Cap max charge/discharge to the lowest battery's limits */
-  for (int i = 1; i < MAX_BATTERIES; i++) {
+  for (int i = 1; i < MAX_BATTERIES; ++i) {
     if (!batteries[i]) {
       continue;
     }
@@ -399,7 +399,7 @@ void update_calculated_values(uint32_t currentMillis) {
 
   /* Calculate sum of all currents from all batteries. 0 if they are not used*/
   datalayer.batteries[0].status.reported_current_dA = datalayer.batteries[0].status.current_dA;
-  for (int i = 1; i < MAX_BATTERIES; i++) {
+  for (int i = 1; i < MAX_BATTERIES; ++i) {
     datalayer.batteries[0].status.reported_current_dA += datalayer_battery(i).status.current_dA;
   }
 
@@ -433,7 +433,7 @@ void update_calculated_values(uint32_t currentMillis) {
   }
 
   /* Calculate active power based on voltage and current, for every configured battery */
-  for (int i = 0; i < MAX_BATTERIES; i++) {
+  for (int i = 0; i < MAX_BATTERIES; ++i) {
     if (i == 0 || batteries[i]) {
       datalayer_battery(i).status.active_power_W =
           (datalayer_battery(i).status.current_dA * (datalayer_battery(i).status.voltage_dV / 100));
@@ -513,7 +513,7 @@ void update_calculated_values(uint32_t currentMillis) {
     datalayer.batteries[0].status.reported_remaining_capacity_Wh = datalayer.batteries[0].status.remaining_capacity_Wh;
     datalayer.batteries[0].info.reported_total_capacity_Wh = datalayer.batteries[0].info.total_capacity_Wh;
 
-    for (int i = 1; i < MAX_BATTERIES; i++) {
+    for (int i = 1; i < MAX_BATTERIES; ++i) {
       if (batteries[i]) {
         datalayer.batteries[0].status.reported_remaining_capacity_Wh +=
             datalayer_battery(i).status.remaining_capacity_Wh;
@@ -522,7 +522,7 @@ void update_calculated_values(uint32_t currentMillis) {
     }
   }
 
-  for (int i = 1; i < MAX_BATTERIES; i++) {
+  for (int i = 1; i < MAX_BATTERIES; ++i) {
     // For screen to display the correct SOC of each extra battery
     datalayer_battery(i).status.reported_soc = datalayer_battery(i).status.real_soc;
 
@@ -636,7 +636,7 @@ void core_loop(void*) {
 
       // Fetch battery values; every non-primary instance also runs the
       // parallel-pack safety checks against the primary.
-      for (int i = 0; i < MAX_BATTERIES; i++) {
+      for (int i = 0; i < MAX_BATTERIES; ++i) {
         if (!batteries[i]) {
           continue;
         }

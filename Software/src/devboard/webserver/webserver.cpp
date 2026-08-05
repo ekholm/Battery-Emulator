@@ -1322,7 +1322,7 @@ String processor(const String& var) {
       content += "</div>";
 
       if (batteries[1]) {
-        for (int i = 1; i < MAX_BATTERIES && batteries[i]; i++) {
+        for (int i = 1; i < MAX_BATTERIES && batteries[i]; ++i) {
           auto& dl = datalayer_battery(i);
           content += "<div style='flex: 1; background-color: ";
           switch (datalayer.system.status.system_status) {
