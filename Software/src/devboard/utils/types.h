@@ -1,6 +1,9 @@
 #ifndef _TYPES_H_
 #define _TYPES_H_
 
+// Maximum simultaneously configured battery instances (primary + extras).
+inline constexpr int MAX_BATTERIES = 3;
+
 #include <chrono>
 #include <cstdint>
 #include <string>

@@ -2,6 +2,7 @@
 #define SAFETY_H
 #include <stdint.h>
 #include <string>
+#include "../utils/types.h"
 
 #define MAX_CAN_FAILURES 50
 #define BATTERY_MAX_TEMPERATURE_DEVIATION 150  // 150 = 15.0 °C
@@ -16,10 +17,6 @@ extern bool emulator_pause_CAN_send_ON;
 extern battery_pause_status emulator_pause_status;
 extern bool allowed_to_send_CAN;
 //battery pause status end
-
-extern bool battery_detected;
-extern bool battery2_detected;
-extern bool battery3_detected;
 
 extern void store_settings_equipment_stop();
 

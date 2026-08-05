@@ -221,11 +221,18 @@ void init_display() {
   clear();
   display_initialized = true;
 
-  // Count configured batteries
-  if (battery2)
-    num_batteries++;
-  if (battery3)
-    num_batteries++;
+  // Count configured batteries. Clamped to >= 1: num_batteries divides the
+  // page rotation (battery_index / page), so it must never reach the modulo
+  // as zero.
+  num_batteries = 0;
+  for (int i = 0; i < MAX_BATTERIES; ++i) {
+    if (batteries[i]) {
+      ++num_batteries;
+    }
+  }
+  if (num_batteries == 0) {
+    num_batteries = 1;
+  }
 }
 
 static void printn(char* buf, int value, int digits) {
@@ -448,13 +455,7 @@ void update_display() {
   int page = (current_phase / num_batteries) % NUM_PAGES;
 
   // Print the battery status for current battery
-  if (battery_index == 0) {
-    print_battery_status(0, datalayer.battery.status, 1, page);
-  } else if (battery_index == 1) {
-    print_battery_status(0, datalayer.battery2.status, 2, page);
-  } else {
-    print_battery_status(0, datalayer.battery3.status, 3, page);
-  }
+  print_battery_status(0, datalayer_battery(battery_index).status, battery_index + 1, page);
 
   write_text(0, 2, "---------------------", false);
 

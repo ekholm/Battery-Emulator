@@ -1,25 +1,30 @@
 #ifndef BATTERIES_H
 #define BATTERIES_H
 
+#include "../datalayer/datalayer.h"
 #include "../shunt/Shunt.h"
 #include "Battery.h"
 
-// Currently initialized objects for primary/secondary/tertiary battery.
-// Null value indicates that battery is not configured/initialized
-extern Battery* battery;
-extern Battery* battery2;
-extern Battery* battery3;
+// Currently initialized battery instances, primary first. A null entry means
+// that instance is not configured/initialized. The array is the source of
+// truth; battery/battery2/battery3 are aliases for the existing call sites.
+// MAX_BATTERIES lives in datalayer.h beside the datalayer instance array.
+extern Battery* batteries[MAX_BATTERIES];
+
+// Primary-instance alias: singleton readers keep their idiom; everything
+// per-instance uses batteries[i]. The battery2/battery3 aliases are GONE -
+// no code names the secondary instances anymore.
 
 void setup_shunt();
 
 void setup_battery(void);
-Battery* create_battery(BatteryType type);
+Battery* create_battery(BatteryType type, int instance = 0);
 
 // Returns true if the given battery integration can be instantiated a second
-// resp. third time to run batteries in parallel. These are the single source of
-// truth for double/triple battery support: setup_battery() gates object creation
-// on them, and the web UI uses them to decide whether to offer the checkboxes.
-// Keep them in sync with the switch statements in setup_battery().
+// resp. third time to run batteries in parallel. Support is opt-OUT: any
+// stateless driver runs multiple instances; the exceptions (singleton
+// hardware, single transport, pending de-static work) are listed with their
+// reasons in battery_supports_extra_instances().
 bool battery_supports_double(BatteryType type);
 bool battery_supports_triple(BatteryType type);
 

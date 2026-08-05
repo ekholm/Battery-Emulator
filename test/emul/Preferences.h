@@ -9,9 +9,9 @@ class Preferences {
  public:
   Preferences() {}
 
-  bool begin(const char* name, bool readOnly = false, const char* partition_label = NULL);
-  void end();
-  bool clear();
+  bool begin(const char* name, bool readOnly = false, const char* partition_label = NULL) { return true; }
+  void end() {}
+  bool clear() { return true; }
 
   size_t putInt(const char* key, int32_t value) { return 0; }
   size_t putUInt(const char* key, uint32_t value) { return 0; }
@@ -22,10 +22,10 @@ class Preferences {
   bool isKey(const char* key) { return false; }
   bool remove(const char* key) { return true; }
 
-  int32_t getInt(const char* key, int32_t defaultValue = 0) { return 0; }
-  uint32_t getUInt(const char* key, uint32_t defaultValue = 0) { return 0; }
-  bool getBool(const char* key, bool defaultValue = false) { return false; }
+  int32_t getInt(const char* key, int32_t defaultValue = 0) { return defaultValue; }
+  uint32_t getUInt(const char* key, uint32_t defaultValue = 0) { return defaultValue; }
+  bool getBool(const char* key, bool defaultValue = false) { return defaultValue; }
   size_t getString(const char* key, char* value, size_t maxLen) { return 0; }
-  String getString(const char* key, String defaultValue = String()) { return String(); }
+  String getString(const char* key, String defaultValue = String()) { return defaultValue; }
 };
 #endif

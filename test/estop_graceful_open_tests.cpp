@@ -26,17 +26,17 @@ class EstopGracefulOpenTest : public ::testing::Test {
     reset_all_events();
     init_hal();
     set_millis64(100000);
-    contactor_control_enabled = true;
+    contactor_control_enabled[0] = true;
     contactorStatus = COMPLETED;
     emulator_pause_status = NORMAL;
-    battery_detected = true;
+    datalayer.system.status.battery_link[0].detected = true;
     datalayer.system.status.system_status = ACTIVE;
     datalayer.system.status.inverter_allows_contactor_closing = true;
     datalayer.system.info.equipment_stop_active = false;
   }
 
   void TearDown() override {
-    contactor_control_enabled = false;
+    contactor_control_enabled[0] = false;
     contactorStatus = DISCONNECTED;
     emulator_pause_status = NORMAL;
     datalayer.system.info.equipment_stop_active = false;

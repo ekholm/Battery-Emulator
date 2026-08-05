@@ -266,10 +266,11 @@ struct BatteryTarget {
   const char* name_suffix;             // suffix for display names ("", " 2", " 3")
 };
 
+static_assert(MAX_BATTERIES == 3, "add the new instance's row (suffixes, display number)");
 static const BatteryTarget battery_targets[] = {
-    {&battery, &datalayer.battery, &battery_detected, 1, "", ""},
-    {&battery2, &datalayer.battery2, &battery2_detected, 2, "_2", " 2"},
-    {&battery3, &datalayer.battery3, &battery3_detected, 3, "_3", " 3"},
+    {&batteries[0], &datalayer.batteries[0], &datalayer.system.status.battery_link[0].detected, 1, "", ""},
+    {&batteries[1], &datalayer_battery(1), &datalayer.system.status.battery_link[1].detected, 2, "_2", " 2"},
+    {&batteries[2], &datalayer_battery(2), &datalayer.system.status.battery_link[2].detected, 3, "_3", " 3"},
 };
 
 // Per-battery state topics: "<name>/info", "<name>/info_2", "<name>/info_3".
@@ -427,21 +428,21 @@ void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& bat
   doc["limiting_factor"] = limiting_factor_to_text(get_limiting_factor(
       charging_state, battery_data.settings.inverter_limits_charge, battery_data.settings.inverter_limits_discharge,
       battery_data.settings.user_settings_limit_charge, battery_data.settings.user_settings_limit_discharge));
-  if (battery_index == 1 && supports_tesla_dcdc_metrics(::battery)) {
-    doc["dc_dc_current"] = static_cast<float>(datalayer_extended.tesla.battery_dcdcLvOutputCurrent) * 0.1f;
-    doc["dc_dc_voltage"] = static_cast<float>(datalayer_extended.tesla.battery_dcdcLvBusVolt) * 0.0390625f;
+  if (battery_index == 1 && supports_tesla_dcdc_metrics(batteries[0])) {
+    doc["dc_dc_current"] =
+        static_cast<float>(datalayer_battery(battery_index - 1).extended.tesla.battery_dcdcLvOutputCurrent) * 0.1f;
+    doc["dc_dc_voltage"] =
+        static_cast<float>(datalayer_battery(battery_index - 1).extended.tesla.battery_dcdcLvBusVolt) * 0.0390625f;
   }
-  if (supports_byd_autocal_metrics(::battery)) {
-    const DATALAYER_INFO_BYDATTO3& byd =
-        (battery_index == 2) ? datalayer_extended.bydAtto3_2 : datalayer_extended.bydAtto3;
+  if (supports_byd_autocal_metrics(batteries[0])) {
+    const DATALAYER_INFO_BYDATTO3& byd = datalayer_battery(battery_index - 1).extended.bydAtto3;
     doc["autocal_taper"] = byd.autocal_crit_taper;
     doc["autocal_dwell_s"] = byd.autocal_dwell_accumulated_ms / 1000u;
     doc["autocal_cooldown_ready"] = byd.autocal_crit_cooldown_ready;
     doc["autocal_soc_drift"] = byd.autocal_drift_percent;
   }
-  if (supports_byd_metrics(::battery)) {
-    const DATALAYER_INFO_BYDATTO3& byd =
-        (battery_index == 2) ? datalayer_extended.bydAtto3_2 : datalayer_extended.bydAtto3;
+  if (supports_byd_metrics(batteries[0])) {
+    const DATALAYER_INFO_BYDATTO3& byd = datalayer_battery(battery_index - 1).extended.bydAtto3;
     doc["min_cell_number"] = byd.BMS_min_cell_voltage_number;
     doc["max_cell_number"] = byd.BMS_max_cell_voltage_number;
   }
@@ -657,14 +658,14 @@ static bool publish_common_info(void) {
       doc["bms_status"] = getBMSStatus(datalayer.system.status.system_status);
       doc["pause_status"] = get_emulator_pause_status();
 
-      //only publish these values once the battery was actually seen on CAN (battery_detected)
+      //only publish these values once the battery was actually seen on CAN (datalayer.system.status.battery_link[0].detected)
       //and we are still communicating with it. CAN_battery_still_alive alone is not enough:
       //it starts as a nonzero countdown at boot, so for up to ~60 s it is truthy before the
       //first frame ever arrived - publishing datalayer defaults (SOC 0%, 370.0 V, SOH 99%)
       //as if they were real. Gating on detection makes HA show "unknown" until data exists.
-      if (battery_detected && datalayer.battery.status.CAN_battery_still_alive && allowed_to_send_CAN &&
-          esp32hal->system_booted_up()) {
-        set_battery_attributes(doc, datalayer.battery, 1, battery->supports_charged_energy());
+      if (datalayer.system.status.battery_link[0].detected && datalayer.batteries[0].status.CAN_battery_still_alive &&
+          allowed_to_send_CAN && esp32hal->system_booted_up()) {
+        set_battery_attributes(doc, datalayer.batteries[0], 1, batteries[0]->supports_charged_energy());
       }
 
       doc["event_level"] = get_event_level_string(get_event_level());
@@ -807,26 +808,28 @@ static bool publish_cell_voltage_discovery(const DATALAYER_BATTERY_TYPE& battery
 }
 
 static bool publish_cell_voltages(void) {
-  static String state_topic = topic_name + "/spec_data";
-  static String state_topic_2 = topic_name + "/spec_data_2";
-  static String state_topic_3 = topic_name + "/spec_data_3";
+  static const String state_topics[MAX_BATTERIES] = {topic_name + "/spec_data", topic_name + "/spec_data_2",
+                                                     topic_name + "/spec_data_3"};
+  struct CellDiscoverySuffixes {
+    const char* entity;
+    const char* name;
+    const char* topic;
+  };
+  static constexpr CellDiscoverySuffixes suffixes[MAX_BATTERIES] = {
+      {"", "", ""}, {"2_", " 2", "_2_"}, {"3_", " 3", "_3_"}};
+  static_assert(MAX_BATTERIES == 3, "add the new instance's spec_data topic and suffixes");
 
   if (ha_autodiscovery_enabled && !ha_cell_voltages_published) {
     DocClearGuard guard(shared_doc);
     bool all_ready = true;
 
-    if (!publish_cell_voltage_discovery(datalayer.battery, state_topic, default_entity_id_prefix, "", "", all_ready)) {
-      return false;
-    }
-    if (battery2) {
-      if (!publish_cell_voltage_discovery(datalayer.battery2, state_topic_2, default_entity_id_prefix + "2_", " 2",
-                                          "_2_", all_ready)) {
-        return false;
+    for (int i = 0; i < MAX_BATTERIES; ++i) {
+      if (i > 0 && !batteries[i]) {
+        continue;
       }
-    }
-    if (battery3) {
-      if (!publish_cell_voltage_discovery(datalayer.battery3, state_topic_3, default_entity_id_prefix + "3_", " 3",
-                                          "_3_", all_ready)) {
+      if (!publish_cell_voltage_discovery(datalayer_battery(i), state_topics[i],
+                                          default_entity_id_prefix + suffixes[i].entity, suffixes[i].name,
+                                          suffixes[i].topic, all_ready)) {
         return false;
       }
     }
@@ -841,14 +844,13 @@ static bool publish_cell_voltages(void) {
     return true;
   }
 
-  if (!publish_cell_data_state(datalayer.battery, state_topic)) {
-    return false;
-  }
-  if (battery2 && !publish_cell_data_state(datalayer.battery2, state_topic_2)) {
-    return false;
-  }
-  if (battery3 && !publish_cell_data_state(datalayer.battery3, state_topic_3)) {
-    return false;
+  for (int i = 0; i < MAX_BATTERIES; ++i) {
+    if (i > 0 && !batteries[i]) {
+      continue;
+    }
+    if (!publish_cell_data_state(datalayer_battery(i), state_topics[i])) {
+      return false;
+    }
   }
   // All batteries published: done until the timer next elapses. On any failure above the
   // flag stays set, so the whole round is retried on the next publish cycle instead of
@@ -1007,28 +1009,28 @@ void mqtt_message_received(char* topic_raw, int topic_len, char* data, int data_
     deserializeJson(doc, data_str);
 
     if (doc["max_charge"].is<int>()) {
-      datalayer.battery.settings.max_remote_set_charge_dA = doc["max_charge"];
-      datalayer.battery.settings.remote_settings_limit_charge = true;
+      datalayer.batteries[0].settings.max_remote_set_charge_dA = doc["max_charge"];
+      datalayer.batteries[0].settings.remote_settings_limit_charge = true;
     } else {
-      datalayer.battery.settings.max_remote_set_charge_dA = 0;
-      datalayer.battery.settings.remote_settings_limit_charge = false;
+      datalayer.batteries[0].settings.max_remote_set_charge_dA = 0;
+      datalayer.batteries[0].settings.remote_settings_limit_charge = false;
     }
 
     if (doc["max_discharge"].is<int>()) {
-      datalayer.battery.settings.max_remote_set_discharge_dA = doc["max_discharge"];
-      datalayer.battery.settings.remote_settings_limit_discharge = true;
+      datalayer.batteries[0].settings.max_remote_set_discharge_dA = doc["max_discharge"];
+      datalayer.batteries[0].settings.remote_settings_limit_discharge = true;
     } else {
-      datalayer.battery.settings.max_remote_set_discharge_dA = 0;
-      datalayer.battery.settings.remote_settings_limit_discharge = false;
+      datalayer.batteries[0].settings.max_remote_set_discharge_dA = 0;
+      datalayer.batteries[0].settings.remote_settings_limit_discharge = false;
     }
 
     if (doc["timeout"].is<int>()) {
-      datalayer.battery.settings.remote_set_timeout = doc["timeout"].as<int>() * 1000;
+      datalayer.batteries[0].settings.remote_set_timeout = doc["timeout"].as<int>() * 1000;
     } else {
-      datalayer.battery.settings.remote_set_timeout = 30000;
+      datalayer.batteries[0].settings.remote_set_timeout = 30000;
     }
 
-    datalayer.battery.settings.remote_set_timestamp = millis();
+    datalayer.batteries[0].settings.remote_set_timestamp = millis();
 
     free(data_str);
   }
@@ -1086,7 +1088,7 @@ static void mqtt_event_handler(void* handler_args, esp_event_base_t base, int32_
 
 bool init_mqtt(void) {
 
-  if (battery == nullptr) {
+  if (batteries[0] == nullptr) {
     logging.println("ERROR: No battery selected. Aborting MQTT initialization");
     return false;
   }

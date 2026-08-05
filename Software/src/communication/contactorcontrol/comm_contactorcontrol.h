@@ -5,10 +5,9 @@
 #include "../../devboard/utils/events.h"
 
 // Settings that can be changed at run-time
-extern bool contactor_control_enabled;
+// Per-instance: does the emulator's GPIO contactor control drive battery i?
+extern bool contactor_control_enabled[MAX_BATTERIES];
 extern bool contactor_control_inverted_logic;
-extern bool contactor_control_enabled_double_battery;
-extern bool contactor_control_enabled_triple_battery;
 extern bool pwm_contactor_control;
 extern bool periodic_bms_reset;
 // Interval between periodic BMS resets, in hours. Only 24 and 48 are offered in the UI.
@@ -59,22 +58,13 @@ bool init_contactors();
 void handle_contactors();
 
 /**
- * @brief Handle contactors of battery 2
+ * @brief Handle the emulator-controlled contactors of an extra battery
  *
- * @param[in] void
- *
- * @return void
- */
-void handle_contactors_battery2();
-
-/**
- * @brief Handle contactors of battery 3
- *
- * @param[in] void
+ * @param[in] instance battery instance (1-based extras)
  *
  * @return void
  */
-void handle_contactors_battery3();
+void handle_contactors_battery(int instance);
 
 // True when init_contactors() drives BMS_POWER (i.e. the pin is actively controlled).
 bool bms_power_is_active();

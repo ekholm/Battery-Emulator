@@ -3,6 +3,7 @@
 
 #include "../devboard/utils/types.h"
 #include "../system_settings.h"
+#include "datalayer_extended.h"
 
 /*Note when editing this file. Order of datatypes matter heavily to keep padding and flash size in check*/
 
@@ -229,10 +230,29 @@ struct DATALAYER_BATTERY_SETTINGS_TYPE {
   bool user_requests_tesla_soc_reset = false;
 };
 
+/** Per-battery-instance link/permission state. Passive data only. */
+typedef struct {
+  /** True if this battery reports that ITS internal state allows the
+      contactors to close (driver -> core). The core reads the primary's;
+      the extra slots exist for uniformity. */
+  bool allows_contactor_closing;
+  /** True if the core (parallel safety) permits this instance to close its
+      contactors (core -> driver). [0] is the reference pack, set at setup. */
+  bool allowed_contactor_closing;
+  /** True if this battery's BMS has been seen on CAN (safety-owned). */
+  bool detected;
+  /** True if this instance's emulator-controlled contactors are engaged
+      (contactor control-owned). [0] is unused today: the primary's
+      engagement lives in the legacy contactors_engaged field, folding it
+      here means touching its inverter readers - a separate change. */
+  bool contactors_engaged;
+} DATALAYER_BATTERY_LINK_TYPE;
+
 typedef struct {
   DATALAYER_BATTERY_INFO_TYPE info;
   DATALAYER_BATTERY_STATUS_TYPE status;
   DATALAYER_BATTERY_SETTINGS_TYPE settings;
+  DATALAYER_BATTERY_EXTENDED_TYPE extended = {};
   DATALAYER_BATTERY_DTC_TYPE dtc;
 } DATALAYER_BATTERY_TYPE;
 
@@ -408,17 +428,13 @@ struct DATALAYER_SYSTEM_STATUS_TYPE {
   bool dc_bus_live = true;
   /** State of automatic precharge sequence */
   PrechargeState precharge_status = AUTO_PRECHARGE_IDLE;
-  /** True if the primary battery allows for the contactors to close */
-  bool battery_allows_contactor_closing = false;
-  /** True if the second battery is allowed to close the contactors */
-  bool battery2_allowed_contactor_closing = false;
-  /** True if the third battery is allowed to close the contactors */
-  bool battery3_allowed_contactor_closing = false;
+  /** Per-instance battery link state (array-of-structs per the datalayer
+      design principles; all zero-init). Behavior stays in the subsystems:
+      drivers write allows_*, parallel safety writes allowed_*, the CAN-alive
+      supervision writes detected. */
+  DATALAYER_BATTERY_LINK_TYPE battery_link[MAX_BATTERIES];
   /** True if the inverter allows for the contactors to close */
   bool inverter_allows_contactor_closing = true;
-  /** True if the contactor controlled by battery-emulator is closed. Determined by check_parallel_battery_safety(); if voltage is OK */
-  bool contactors_battery2_engaged = false;
-  bool contactors_battery3_engaged = false;
   /** State of BMS reset sequence */
   BMSResetState bms_reset_status = BMS_RESET_IDLE;
   /** The current system status, determined by which Events are active, usually pending between ACTIVE and FAULT, but there are more enums. Used to signal incase we have a critical fault active, or if we should proceed operating */
@@ -432,14 +448,23 @@ struct DATALAYER_SYSTEM_TYPE {
 
 class DataLayer {
  public:
-  DATALAYER_BATTERY_TYPE battery;
-  DATALAYER_BATTERY_TYPE battery2;
-  DATALAYER_BATTERY_TYPE battery3;
+  DATALAYER_BATTERY_TYPE batteries[MAX_BATTERIES];
   DATALAYER_SHUNT_TYPE shunt;
   DATALAYER_CHARGER_TYPE charger;
   DATALAYER_SYSTEM_TYPE system;
 };
 
 extern DataLayer datalayer;
+
+// Instance-indexed view over the battery instances (0-based).
+inline DATALAYER_BATTERY_TYPE& datalayer_battery(int instance) {
+  return datalayer.batteries[instance];
+}
+
+// Which instance a driver's injected datalayer pointer refers to.
+inline int datalayer_battery_instance(const DATALAYER_BATTERY_TYPE* dl) {
+  int instance = static_cast<int>(dl - datalayer.batteries);
+  return (instance >= 0 && instance < MAX_BATTERIES) ? instance : 0;
+}
 
 #endif

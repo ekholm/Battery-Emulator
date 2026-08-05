@@ -974,62 +974,19 @@ struct DATALAYER_INFO_ZOE_PH2 {
   bool UserRequestNVROLReset;
 };
 
-class DataLayerExtended {
- public:
-  union {
-    // All zero-initialized entries should go inside this union.
-    // Double-battery repeats should go inside their own structs.
-
-    struct {
-      DATALAYER_INFO_BOLTAMPERA boltampera;
-      DATALAYER_INFO_BOLTAMPERA boltampera_2;
-    };
-    DATALAYER_INFO_BMWPHEV bmwphev;
-    DATALAYER_INFO_BMWIX bmwix;
-    DATALAYER_INFO_CELLPOWER cellpower;
-    DATALAYER_INFO_CHADEMO chademo;
-    DATALAYER_INFO_ECMP stellantisECMP;
-    DATALAYER_INFO_FORD_MACH_E fordMachE;
-    DATALAYER_INFO_GEELY_GEOMETRY_C geometryC;
-    struct {
-      DATALAYER_INFO_KIAHYUNDAI64 KiaHyundai64;
-      DATALAYER_INFO_KIAHYUNDAI64 KiaHyundai64_2;
-    };
-    DATALAYER_INFO_TESLA tesla;
-    struct {
-      DATALAYER_INFO_NISSAN_LEAF nissanleaf;
-      DATALAYER_INFO_NISSAN_LEAF nissanleaf_2;
-      DATALAYER_INFO_NISSAN_LEAF nissanleaf_3;
-    };
-    DATALAYER_INFO_MEB meb;
-    DATALAYER_INFO_VOLVO_HYBRID VolvoHybrid;
-  };
-
-  // Entries with non-zero default values should go here.
+// Per-instance driver-specific extension of the battery schema (one member is
+// live per instance - an instance is exactly one battery type). Static cost is
+// MAX_BATTERIES x the largest member. Types with non-zero defaults initialize
+// their member in the driver's constructor (the old DataLayerExtended ctor is
+// gone). TESLA is deliberately FIRST: it is the largest member, so value-init
+// ({}) zeroes the whole union.
+union DATALAYER_BATTERY_EXTENDED_TYPE {
+  DATALAYER_INFO_TESLA tesla;
+  DATALAYER_INFO_BMWIX bmwix;
+  DATALAYER_INFO_MEB meb;
   DATALAYER_INFO_BYDATTO3 bydAtto3;
-  DATALAYER_INFO_BYDATTO3 bydAtto3_2;
-  DATALAYER_INFO_RIVIAN rivian;
-  DATALAYER_INFO_VOLVO_POLESTAR VolvoPolestar;
-  DATALAYER_INFO_GEELY_SEA GeelySEA;
-  DATALAYER_INFO_ZOE_PH2 zoePH2;
-
-  DataLayerExtended() {
-    memset(this, 0, sizeof(DataLayerExtended));
-
-    // Non-zero defaults should be initialized here.
-
-    auto initBydAtto3 = [](auto& data) {
-      data.calibrationTargetSOC = 100;
-      data.calibrationTargetAH = 150;
-      data.discharge_status = 14;
-      data.auto_calibrate_soc_enabled = true;
-      data.auto_calibrate_soc_drift_percent = 5;
-    };
-    initBydAtto3(bydAtto3);
-    initBydAtto3(bydAtto3_2);
-  }
 };
-
-extern DataLayerExtended datalayer_extended;
+static_assert(sizeof(DATALAYER_INFO_TESLA) == sizeof(DATALAYER_BATTERY_EXTENDED_TYPE),
+              "keep the largest member first so {} zero-initializes the whole union");
 
 #endif

@@ -50,7 +50,7 @@ bool init_precharge_control() {
 }
 
 // Main functions
-void handle_precharge_control(unsigned long currentMillis) {
+void handle_precharge_control(unsigned long currentMillis, int instance) {
   auto hia4v1_pin = esp32hal->HIA4V1_PIN();
   auto inverter_disconnect_contactor_pin = esp32hal->INVERTER_DISCONNECT_CONTACTOR_PIN();
 
@@ -63,13 +63,13 @@ void handle_precharge_control(unsigned long currentMillis) {
   }
 
   // If we are running in test mode (No battery configured, enable precharge sequence so user can test HW)
-  if (battery == NULL) {
+  if (batteries[instance] == NULL) {
     datalayer.system.info.start_precharging = true;
-    datalayer.battery.status.real_bms_status = BMS_STANDBY;
+    datalayer_battery(instance).status.real_bms_status = BMS_STANDBY;
   }
 
-  int32_t target_voltage = datalayer.battery.status.voltage_dV;
-  int32_t external_voltage = datalayer_extended.meb.BMS_voltage_intermediate_dV;
+  int32_t target_voltage = datalayer_battery(instance).status.voltage_dV;
+  int32_t external_voltage = datalayer_battery(instance).extended.meb.BMS_voltage_intermediate_dV;
 
   switch (datalayer.system.status.precharge_status) {
     case AUTO_PRECHARGE_IDLE:
@@ -114,7 +114,7 @@ void handle_precharge_control(unsigned long currentMillis) {
       }
 
       if (currentMillis - prechargeStartTime >= precharge_max_precharge_time_before_fault ||
-          datalayer.battery.status.real_bms_status == BMS_FAULT) {
+          datalayer_battery(instance).status.real_bms_status == BMS_FAULT) {
         pinMode(hia4v1_pin, OUTPUT);
         digitalWrite(hia4v1_pin, LOW);
         digitalWrite(inverter_disconnect_contactor_pin, CONTACTOR_ON);
@@ -122,8 +122,8 @@ void handle_precharge_control(unsigned long currentMillis) {
         set_event(EVENT_AUTOMATIC_PRECHARGE_FAILURE, 0);  // also printing a log entry
         // Force stop any further precharge attempts
         datalayer.system.info.start_precharging = false;
-      } else if ((datalayer.battery.status.real_bms_status != BMS_STANDBY &&
-                  datalayer.battery.status.real_bms_status != BMS_ACTIVE) ||
+      } else if ((datalayer_battery(instance).status.real_bms_status != BMS_STANDBY &&
+                  datalayer_battery(instance).status.real_bms_status != BMS_ACTIVE) ||
                  datalayer.system.status.system_status != ACTIVE || datalayer.system.info.equipment_stop_active ||
                  !datalayer.system.status.inverter_allows_contactor_closing) {
         pinMode(hia4v1_pin, OUTPUT);
@@ -131,7 +131,7 @@ void handle_precharge_control(unsigned long currentMillis) {
         digitalWrite(inverter_disconnect_contactor_pin, CONTACTOR_ON);
         datalayer.system.status.precharge_status = AUTO_PRECHARGE_IDLE;
         logging.printf("Precharge: Disabling Precharge bms not standby/active or equipment stop\n");
-      } else if (datalayer.system.status.battery_allows_contactor_closing) {
+      } else if (datalayer.system.status.battery_link[instance].allows_contactor_closing) {
         pinMode(hia4v1_pin, OUTPUT);
         digitalWrite(hia4v1_pin, LOW);
         digitalWrite(inverter_disconnect_contactor_pin, CONTACTOR_ON);
@@ -145,7 +145,7 @@ void handle_precharge_control(unsigned long currentMillis) {
       // BMS has gone back to standby (eg, after a BMS reset), then we'll allow
       // the precharge to be restarted.
       if (datalayer.system.info.equipment_stop_active || datalayer.system.status.system_status != ACTIVE ||
-          datalayer.battery.status.real_bms_status == BMS_STANDBY ||
+          datalayer_battery(instance).status.real_bms_status == BMS_STANDBY ||
           !datalayer.system.status.inverter_allows_contactor_closing) {
         datalayer.system.status.precharge_status = AUTO_PRECHARGE_IDLE;
         logging.printf("Precharge: equipment stop activated -> IDLE\n");

@@ -24,7 +24,7 @@ CAN_frame ford_7ec_frame(std::initializer_list<uint8_t> bytes) {
 
 // The datalayer is a global shared by every test, so put the DTC block back to its power-on state.
 void reset_dtc_state() {
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 }
 
 // Drives a battery up to the point where it is waiting for a DTC reply on 0x7EC. update_values() is
@@ -58,13 +58,13 @@ TEST(FordMachEDtcTests, ShouldParseMultiFrameReply) {
   battery->handle_incoming_can_frame(ford_7ec_frame({0x21, 0xAF, 0xC1, 0x00, 0x00, 0xAF, 0xC2, 0x93}));
   battery->handle_incoming_can_frame(ford_7ec_frame({0x22, 0x00, 0xAF, 0xC2, 0x98, 0x00, 0xAF, 0xFF}));
 
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 4);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0xC19B00u);  // U019B
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[1], 0xC10000u);  // U0100
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[2], 0xC29300u);  // U0293
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[3], 0xC29800u);  // U0298
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 4);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0xC19B00u);  // U019B
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[1], 0xC10000u);  // U0100
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[2], 0xC29300u);  // U0293
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[3], 0xC29800u);  // U0298
   for (int i = 0; i < 4; i++) {
-    EXPECT_EQ(datalayer.battery.dtc.dtc_status[i], 0xAF);
+    EXPECT_EQ(datalayer.batteries[0].dtc.dtc_status[i], 0xAF);
   }
 }

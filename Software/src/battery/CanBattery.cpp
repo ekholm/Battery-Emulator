@@ -1,6 +1,6 @@
 #include "CanBattery.h"
 
-CanBattery::CanBattery(CAN_Speed speed) : CanBattery(can_config.battery, speed) {}
+CanBattery::CanBattery(CAN_Speed speed) : CanBattery(can_config.batteries[0], speed) {}
 
 CanBattery::CanBattery(CAN_Interface interface, CAN_Speed speed) {
   can_interface = interface;

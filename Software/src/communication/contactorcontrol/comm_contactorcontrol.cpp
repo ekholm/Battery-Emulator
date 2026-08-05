@@ -11,17 +11,18 @@
 
 // TODO: Ensure valid values at run-time
 // User can update all these values via Settings page
-bool contactor_control_enabled = false;         //Should GPIO contactor control be performed?
 bool contactor_control_inverted_logic = false;  //Should we control NC contactors? Extremely rare option
 uint16_t precharge_time_ms = 100;               //Precharge time in ms. Adjust depending on capacitance in inverter
 bool pwm_contactor_control = false;             //Should the contactors be economized via PWM after they are engaged?
-bool contactor_control_enabled_double_battery = false;  //Should a contactor for the secondary battery be operated?
-bool contactor_control_enabled_triple_battery = false;  //Should a contactor for the third battery be operated?
-bool remote_bms_reset = false;                          //Is it possible to actuate BMS reset via MQTT?
-bool periodic_bms_reset = false;                        //Should periodic BMS reset be performed?
-uint16_t periodic_bms_reset_interval_h = 24;            //How often the periodic BMS reset runs, in hours (24 or 48)
-bool periodic_bms_reset_defer_low_soc = false;          //Defer the reset while SOC is below BMS_RESET_DEFER_SOC_PPTT
-bool periodic_bms_reset_skip_balancing = false;         //Skip one period if the pack is balancing
+// Should the emulator's GPIO contactor control drive battery i's contactors?
+// [0] is the primary (the precharge state machine + pin trio); the extras get
+// a single on/off contactor pin each.
+bool contactor_control_enabled[MAX_BATTERIES] = {};
+bool remote_bms_reset = false;                   //Is it possible to actuate BMS reset via MQTT?
+bool periodic_bms_reset = false;                 //Should periodic BMS reset be performed?
+uint16_t periodic_bms_reset_interval_h = 24;     //How often the periodic BMS reset runs, in hours (24 or 48)
+bool periodic_bms_reset_defer_low_soc = false;   //Defer the reset while SOC is below BMS_RESET_DEFER_SOC_PPTT
+bool periodic_bms_reset_skip_balancing = false;  //Skip one period if the pack is balancing
 
 // Parameters
 enum State { DISCONNECTED, START_PRECHARGE, PRECHARGE, POSITIVE, PRECHARGE_OFF, COMPLETED, SHUTDOWN_REQUESTED };
@@ -94,9 +95,14 @@ bool bms_power_is_active() {
 
 const char* contactors = "Contactors";
 
+static gpio_num_t extra_battery_contactors_pin(int instance) {
+  static_assert(MAX_BATTERIES == 3, "add the new instance's contactor pin");
+  return instance == 1 ? esp32hal->SECOND_BATTERY_CONTACTORS_PIN() : esp32hal->TRIPLE_BATTERY_CONTACTORS_PIN();
+}
+
 bool init_contactors() {
   // Init contactor pins
-  if (contactor_control_enabled) {
+  if (contactor_control_enabled[0]) {
     auto posPin = esp32hal->POSITIVE_CONTACTOR_PIN();
     auto negPin = esp32hal->NEGATIVE_CONTACTOR_PIN();
     auto precPin = esp32hal->PRECHARGE_PIN();
@@ -128,26 +134,18 @@ bool init_contactors() {
     set_indicator_led(IndicatorLed::PRECHARGE, false);
   }
 
-  if (contactor_control_enabled_double_battery) {
-    auto second_contactors = esp32hal->SECOND_BATTERY_CONTACTORS_PIN();
-    if (!esp32hal->alloc_pins(contactors, second_contactors)) {
-      DEBUG_PRINTF("Secondary battery contactor control setup failed\n");
+  for (int i = 1; i < MAX_BATTERIES; ++i) {
+    if (!contactor_control_enabled[i]) {
+      continue;
+    }
+    auto pin = extra_battery_contactors_pin(i);
+    if (!esp32hal->alloc_pins(contactors, pin)) {
+      DEBUG_PRINTF("%s battery contactor control setup failed\n", Battery::instance_label[i]);
       return false;
     }
 
-    pinMode(second_contactors, OUTPUT);
-    set(second_contactors, OFF);
-  }
-
-  if (contactor_control_enabled_triple_battery) {
-    auto triple_contactors = esp32hal->TRIPLE_BATTERY_CONTACTORS_PIN();
-    if (!esp32hal->alloc_pins(contactors, triple_contactors)) {
-      DEBUG_PRINTF("Triple battery contactor control setup failed\n");
-      return false;
-    }
-
-    pinMode(triple_contactors, OUTPUT);
-    set(triple_contactors, OFF);
+    pinMode(pin, OUTPUT);
+    set(pin, OFF);
   }
 
   // Init BMS contactor
@@ -187,15 +185,13 @@ void handle_contactors() {
     handle_BMSpower();  // Some batteries need to be periodically power cycled
   }
 
-  if (contactor_control_enabled_double_battery) {
-    handle_contactors_battery2();
+  for (int i = 1; i < MAX_BATTERIES; ++i) {
+    if (contactor_control_enabled[i]) {
+      handle_contactors_battery(i);
+    }
   }
 
-  if (contactor_control_enabled_triple_battery) {
-    handle_contactors_battery3();
-  }
-
-  if (contactor_control_enabled) {
+  if (contactor_control_enabled[0]) {
     // DC is only live to the inverter once precharge is fully complete (COMPLETED). Re-evaluated every
     // call, so any transition (open, fault-latch, precharge) is reflected within one 10 ms tick.
     datalayer.system.status.dc_bus_live = (contactorStatus == COMPLETED);
@@ -275,7 +271,7 @@ void handle_contactors() {
 
     currentTime = millis();
 
-    if ((currentTime < INTERVAL_10_S) || !battery_detected) {
+    if ((currentTime < INTERVAL_10_S) || !datalayer.system.status.battery_link[0].detected) {
       // Skip running the state machine before system has started up. Conditions are 10sec post boot, and battery comms established
       // Gives the system some time to detect any faults from battery before blindly just engaging the contactors
       return;
@@ -331,28 +327,12 @@ void handle_contactors() {
   }
 }
 
-void handle_contactors_battery2() {
-  auto second_contactors = esp32hal->SECOND_BATTERY_CONTACTORS_PIN();
+void handle_contactors_battery(int instance) {
+  bool engage =
+      (contactorStatus == COMPLETED) && datalayer.system.status.battery_link[instance].allowed_contactor_closing;
 
-  if ((contactorStatus == COMPLETED) && datalayer.system.status.battery2_allowed_contactor_closing) {
-    set(second_contactors, ON);
-    datalayer.system.status.contactors_battery2_engaged = true;
-  } else {  // Closing contactors on secondary battery not allowed
-    set(second_contactors, OFF);
-    datalayer.system.status.contactors_battery2_engaged = false;
-  }
-}
-
-void handle_contactors_battery3() {
-  auto third_contactors = esp32hal->TRIPLE_BATTERY_CONTACTORS_PIN();
-
-  if ((contactorStatus == COMPLETED) && datalayer.system.status.battery3_allowed_contactor_closing) {
-    set(third_contactors, ON);
-    datalayer.system.status.contactors_battery3_engaged = true;
-  } else {  // Closing contactors on secondary battery not allowed
-    set(third_contactors, OFF);
-    datalayer.system.status.contactors_battery3_engaged = false;
-  }
+  set(extra_battery_contactors_pin(instance), engage ? ON : OFF);
+  datalayer.system.status.battery_link[instance].contactors_engaged = engage;
 }
 
 /* PERIODIC_BMS_RESET - Once every configured interval (24h or 48h) we remove power from the BMS_power pin for 30 seconds.
@@ -400,11 +380,11 @@ static PeriodicResetVerdict periodic_bms_reset_verdict(const char** reason) {
   // Low SOC defers: there is little point recalibrating against a nearly empty pack, and we
   // want the reset to happen as soon as it is worthwhile rather than a whole period later.
   if (periodic_bms_reset_defer_low_soc) {
-    if (datalayer.battery.status.real_soc < BMS_RESET_DEFER_SOC_PPTT) {
+    if (datalayer.batteries[0].status.real_soc < BMS_RESET_DEFER_SOC_PPTT) {
       *reason = "real SOC below 15 percent";
       return PeriodicResetVerdict::Defer;
     }
-    if (datalayer.battery.status.reported_soc < BMS_RESET_DEFER_SOC_PPTT) {
+    if (datalayer.batteries[0].status.reported_soc < BMS_RESET_DEFER_SOC_PPTT) {
       *reason = "scaled SOC below 15 percent";
       return PeriodicResetVerdict::Defer;
     }
@@ -415,17 +395,14 @@ static PeriodicResetVerdict periodic_bms_reset_verdict(const char** reason) {
      or less permanently cannot suppress the reset indefinitely.
      Batteries that are not present report BALANCING_STATUS_UNKNOWN, so they never skip. */
   if (periodic_bms_reset_skip_balancing && !balancingPeriodSkipped) {
-    if (datalayer.battery.status.balancing_status == BALANCING_STATUS_ACTIVE) {
-      *reason = "balancing active on battery";
-      return PeriodicResetVerdict::SkipPeriod;
-    }
-    if (datalayer.battery2.status.balancing_status == BALANCING_STATUS_ACTIVE) {
-      *reason = "balancing active on battery 2";
-      return PeriodicResetVerdict::SkipPeriod;
-    }
-    if (datalayer.battery3.status.balancing_status == BALANCING_STATUS_ACTIVE) {
-      *reason = "balancing active on battery 3";
-      return PeriodicResetVerdict::SkipPeriod;
+    static constexpr const char* balancing_reasons[MAX_BATTERIES] = {
+        "balancing active on battery", "balancing active on battery 2", "balancing active on battery 3"};
+    static_assert(MAX_BATTERIES == 3, "add the new instance's balancing reason");
+    for (int i = 0; i < MAX_BATTERIES; ++i) {
+      if (datalayer_battery(i).status.balancing_status == BALANCING_STATUS_ACTIVE) {
+        *reason = balancing_reasons[i];
+        return PeriodicResetVerdict::SkipPeriod;
+      }
     }
   }
 
@@ -437,7 +414,7 @@ static PeriodicResetVerdict periodic_bms_reset_verdict(const char** reason) {
    phases are short and the BMS is on the bus for part of them. To test the statement in Leaf 
    "GEN4_e_Battery_control_spec_ver1.0.pdf" page 4, "IGN to be OFF for more than 6 min 30 seconds every day. "*/
 static bool bms_reset_needs_can_keepalive() {
-  return datalayer.battery.settings.user_set_bms_reset_duration_ms > BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS;
+  return datalayer.batteries[0].settings.user_set_bms_reset_duration_ms > BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS;
 }
 
 /* Pretends the batteries were just heard from, and restarts the keepalive interval.
@@ -445,12 +422,10 @@ static bool bms_reset_needs_can_keepalive() {
    their counters either. */
 static void bms_reset_refresh_can_alive() {
   lastCanKeepaliveTime = currentTime;
-  datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
-  if (battery2) {
-    datalayer.battery2.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
-  }
-  if (battery3) {
-    datalayer.battery3.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+  for (int i = 0; i < MAX_BATTERIES; ++i) {
+    if (batteries[i]) {
+      datalayer_battery(i).status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+    }
   }
 }
 
@@ -512,9 +487,9 @@ void handle_BMSpower() {
     } else if (datalayer.system.status.bms_reset_status == BMS_RESET_WAITING_FOR_PAUSE) {
       // We've already issued a pause, now we're waiting for that to take effect.
 
-      int16_t battery_current_dA = datalayer.battery.status.current_dA;
-      int16_t battery2_current_dA = datalayer.battery2.status.current_dA;  // Should be 0 if no battery2
-      int16_t battery3_current_dA = datalayer.battery3.status.current_dA;  // Should be 0 if no battery3
+      int16_t battery_current_dA = datalayer.batteries[0].status.current_dA;
+      int16_t battery2_current_dA = datalayer_battery(1).status.current_dA;  // Should be 0 if batteries[1] is null
+      int16_t battery3_current_dA = datalayer_battery(2).status.current_dA;  // Should be 0 if batteries[2] is null
 
       if (
           // No current, safe to cut power
@@ -537,7 +512,7 @@ void handle_BMSpower() {
       bms_reset_can_keepalive_tick();
 
       // Check if the user configured duration has passed
-      if (currentTime - lastPowerRemovalTime >= datalayer.battery.settings.user_set_bms_reset_duration_ms) {
+      if (currentTime - lastPowerRemovalTime >= datalayer.batteries[0].settings.user_set_bms_reset_duration_ms) {
         bms_power_on();
         bmsPowerOnTime = currentTime;
         /* The last periodic refresh can have been up to a full interval ago, which would leave
@@ -578,7 +553,7 @@ void start_bms_reset() {
       // Issue a pause, which should stop charge/discharge whilst the reset is ongoing
       setBatteryPause(true, false, EquipmentStop::UNCHANGED, false);
 
-      if (contactor_control_enabled) {
+      if (contactor_control_enabled[0]) {
         // We power the contactors directly, so we can avoid closing/opening them
         // during reset.
 

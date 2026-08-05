@@ -29,9 +29,6 @@ bool allowed_to_send_CAN = true;
 static uint32_t emulator_restart_request_millis = 0;
 
 //component detection
-bool battery_detected = false;
-bool battery2_detected = false;
-bool battery3_detected = false;
 bool charger_detected = false;
 bool inverter_detected = false;
 
@@ -68,17 +65,13 @@ static void check_battery_temperatures(void) {
   /* Each pack owns its own set of events now, so this is a plain per-pack set/clear with no
      cross-pack reasoning: battery 1 and battery 2 can be overheating at the same time and both
      are reported. That was impossible while the three events were shared. */
-  const DATALAYER_BATTERY_TYPE* packs[3] = {battery ? &datalayer.battery : nullptr,
-                                            battery2 ? &datalayer.battery2 : nullptr,
-                                            battery3 ? &datalayer.battery3 : nullptr};
-
-  for (uint8_t i = 0; i < 3; i++) {
-    if (!packs[i]) {
+  for (uint8_t i = 0; i < MAX_BATTERIES; i++) {
+    if (!batteries[i]) {
       continue;  // Pack not configured
     }
     const uint8_t number = i + 1;
-    const int16_t max_dC = packs[i]->status.temperature_max_dC;
-    const int16_t min_dC = packs[i]->status.temperature_min_dC;
+    const int16_t max_dC = datalayer.batteries[i].status.temperature_max_dC;
+    const int16_t min_dC = datalayer.batteries[i].status.temperature_min_dC;
     const int16_t deviation_dC = (int16_t)labs((long)max_dC - (long)min_dC);
 
     // Battery is overheated!
@@ -110,12 +103,12 @@ static void check_battery_temperatures(void) {
    millis() wrap (fresh limits expire immediately) and inverts after it (stale limits
    persist up to another 49.7 days) */
 void update_remote_limit_expiry(uint32_t currentMillis) {
-  if ((currentMillis - datalayer.battery.settings.remote_set_timestamp) >
-      datalayer.battery.settings.remote_set_timeout) {
-    datalayer.battery.settings.remote_settings_limit_charge = false;
-    datalayer.battery.settings.remote_settings_limit_discharge = false;
-    datalayer.battery.settings.max_remote_set_charge_dA = 0;
-    datalayer.battery.settings.max_remote_set_discharge_dA = 0;
+  if ((currentMillis - datalayer.batteries[0].settings.remote_set_timestamp) >
+      datalayer.batteries[0].settings.remote_set_timeout) {
+    datalayer.batteries[0].settings.remote_settings_limit_charge = false;
+    datalayer.batteries[0].settings.remote_settings_limit_discharge = false;
+    datalayer.batteries[0].settings.max_remote_set_charge_dA = 0;
+    datalayer.batteries[0].settings.max_remote_set_discharge_dA = 0;
   }
 }
 
@@ -184,99 +177,100 @@ void update_machineryprotection() {
 
   // Start checking that the battery is within reason. Incase we see any funny business, raise an event!
   // Don't check any battery issues if battery is not configured
-  if (battery) {
+  if (batteries[0]) {
 
     // Pause function is on OR we have a critical fault event active
     if (emulator_pause_request_ON || (datalayer.system.status.system_status == FAULT)) {
-      datalayer.battery.status.max_discharge_power_W = 0;
-      datalayer.battery.status.max_charge_power_W = 0;
+      datalayer.batteries[0].status.max_discharge_power_W = 0;
+      datalayer.batteries[0].status.max_charge_power_W = 0;
     }
 
     // Temperature checks for every configured battery are done together in
     // check_battery_temperatures(), called further down.
 
     // Battery voltage is over designed max voltage!
-    if (datalayer.battery.status.voltage_dV > datalayer.battery.info.max_design_voltage_dV) {
-      set_event(EVENT_BATTERY_OVERVOLTAGE, datalayer.battery.status.voltage_dV, 1);
-      datalayer.battery.status.max_charge_power_W = 0;
+    if (datalayer.batteries[0].status.voltage_dV > datalayer.batteries[0].info.max_design_voltage_dV) {
+      set_event(EVENT_BATTERY_OVERVOLTAGE, datalayer.batteries[0].status.voltage_dV, 1);
+      datalayer.batteries[0].status.max_charge_power_W = 0;
     } else {
       clear_event(EVENT_BATTERY_OVERVOLTAGE, 1);
     }
 
     // Battery voltage is under designed min voltage!
-    if (datalayer.battery.status.voltage_dV < datalayer.battery.info.min_design_voltage_dV) {
-      set_event(EVENT_BATTERY_UNDERVOLTAGE, datalayer.battery.status.voltage_dV, 1);
-      datalayer.battery.status.max_discharge_power_W = 0;
+    if (datalayer.batteries[0].status.voltage_dV < datalayer.batteries[0].info.min_design_voltage_dV) {
+      set_event(EVENT_BATTERY_UNDERVOLTAGE, datalayer.batteries[0].status.voltage_dV, 1);
+      datalayer.batteries[0].status.max_discharge_power_W = 0;
     } else {
       clear_event(EVENT_BATTERY_UNDERVOLTAGE, 1);
     }
 
     // Cell overvoltage, further charging not possible. Battery might be imbalanced.
     static bool cell_overvoltage_charge_blocked = false;
-    if (datalayer.battery.status.cell_max_voltage_mV >= datalayer.battery.info.max_cell_voltage_mV) {
+    if (datalayer.batteries[0].status.cell_max_voltage_mV >= datalayer.batteries[0].info.max_cell_voltage_mV) {
       set_event(EVENT_CELL_OVER_VOLTAGE, 0);
       cell_overvoltage_charge_blocked = true;  // Latch at the ceiling
-    } else if (datalayer.battery.status.cell_max_voltage_mV <
-               (datalayer.battery.info.max_cell_voltage_mV - CELL_HYSTERESIS_MV)) {
+    } else if (datalayer.batteries[0].status.cell_max_voltage_mV <
+               (datalayer.batteries[0].info.max_cell_voltage_mV - CELL_HYSTERESIS_MV)) {
       cell_overvoltage_charge_blocked = false;  // Release only once well below the ceiling
     }
     if (cell_overvoltage_charge_blocked) {
-      datalayer.battery.status.max_charge_power_W = 0;
+      datalayer.batteries[0].status.max_charge_power_W = 0;
     }
     // Cell CRITICAL overvoltage, critical latching error without automatic reset. Requires user action to inspect battery.
-    if (datalayer.battery.status.cell_max_voltage_mV >=
-        (datalayer.battery.info.max_cell_voltage_mV + CELL_CRITICAL_MV)) {
+    if (datalayer.batteries[0].status.cell_max_voltage_mV >=
+        (datalayer.batteries[0].info.max_cell_voltage_mV + CELL_CRITICAL_MV)) {
       set_event(EVENT_CELL_CRITICAL_OVER_VOLTAGE, 0);
     }
 
     // Cell undervoltage. Further discharge not possible. Battery might be imbalanced.
-    if (datalayer.battery.status.cell_min_voltage_mV <= datalayer.battery.info.min_cell_voltage_mV) {
+    if (datalayer.batteries[0].status.cell_min_voltage_mV <= datalayer.batteries[0].info.min_cell_voltage_mV) {
       set_event(EVENT_CELL_UNDER_VOLTAGE, 0);
-      datalayer.battery.status.max_discharge_power_W = 0;
+      datalayer.batteries[0].status.max_discharge_power_W = 0;
     }
     //Cell CRITICAL undervoltage. critical latching error without automatic reset. Requires user action to inspect battery.
-    if (datalayer.battery.status.cell_min_voltage_mV <=
-        (datalayer.battery.info.min_cell_voltage_mV - CELL_CRITICAL_MV)) {
+    if (datalayer.batteries[0].status.cell_min_voltage_mV <=
+        (datalayer.batteries[0].info.min_cell_voltage_mV - CELL_CRITICAL_MV)) {
       set_event(EVENT_CELL_CRITICAL_UNDER_VOLTAGE, 0);
     }
 
     //If user is requesting charge to stop at a specific voltage
     static bool charge_blocked = false;
     static bool discharge_blocked = false;
-    if (datalayer.battery.settings.user_set_voltage_limits_active) {
+    if (datalayer.batteries[0].settings.user_set_voltage_limits_active) {
       // --- Charge limiting with hysteresis ---
-      if (datalayer.battery.status.voltage_dV >= datalayer.battery.settings.max_user_set_charge_voltage_dV) {
+      if (datalayer.batteries[0].status.voltage_dV >= datalayer.batteries[0].settings.max_user_set_charge_voltage_dV) {
         charge_blocked = true;  // Latch: block charging once target is hit
-      } else if (datalayer.battery.status.voltage_dV <
-                 (datalayer.battery.settings.max_user_set_charge_voltage_dV - HYSTERESIS_OFFSET_DV)) {
+      } else if (datalayer.batteries[0].status.voltage_dV <
+                 (datalayer.batteries[0].settings.max_user_set_charge_voltage_dV - HYSTERESIS_OFFSET_DV)) {
         charge_blocked = false;  // Only release when voltage drops well below target
       }
       if (charge_blocked) {
-        datalayer.battery.status.max_charge_power_W = 0;
+        datalayer.batteries[0].status.max_charge_power_W = 0;
       }
 
       // --- Discharge limiting with hysteresis ---
-      if (datalayer.battery.status.voltage_dV <= datalayer.battery.settings.max_user_set_discharge_voltage_dV) {
+      if (datalayer.batteries[0].status.voltage_dV <=
+          datalayer.batteries[0].settings.max_user_set_discharge_voltage_dV) {
         discharge_blocked = true;
-      } else if (datalayer.battery.status.voltage_dV >
-                 (datalayer.battery.settings.max_user_set_discharge_voltage_dV + HYSTERESIS_OFFSET_DV)) {
+      } else if (datalayer.batteries[0].status.voltage_dV >
+                 (datalayer.batteries[0].settings.max_user_set_discharge_voltage_dV + HYSTERESIS_OFFSET_DV)) {
         discharge_blocked = false;
       }
       if (discharge_blocked) {
-        datalayer.battery.status.max_discharge_power_W = 0;
+        datalayer.batteries[0].status.max_discharge_power_W = 0;
       }
     }
 
     // Battery is fully charged. Dont allow any more power into it
     // Normally the BMS will send 0W allowed, but this acts as an additional layer of safety
-    if (datalayer.battery.status.reported_soc == 10000 ||
-        datalayer.battery.status.real_soc == 10000)  //Either Scaled OR Real SOC% value is 100.00%
+    if (datalayer.batteries[0].status.reported_soc == 10000 ||
+        datalayer.batteries[0].status.real_soc == 10000)  //Either Scaled OR Real SOC% value is 100.00%
     {
       if (!battery_full_event_fired) {
         set_event(EVENT_BATTERY_FULL, 0, 1);
         battery_full_event_fired = true;
       }
-      datalayer.battery.status.max_charge_power_W = 0;
+      datalayer.batteries[0].status.max_charge_power_W = 0;
     } else {
       clear_event(EVENT_BATTERY_FULL, 1);
       battery_full_event_fired = false;
@@ -285,13 +279,13 @@ void update_machineryprotection() {
     // Battery is empty. Do not allow further discharge.
     // Normally the BMS will send 0W allowed, but this acts as an additional layer of safety
     if (datalayer.system.status.system_status == ACTIVE) {
-      if (datalayer.battery.status.reported_soc == 0 ||
-          datalayer.battery.status.real_soc == 0) {  //Either Scaled OR Real SOC% value is 0.00%, time to stop
+      if (datalayer.batteries[0].status.reported_soc == 0 ||
+          datalayer.batteries[0].status.real_soc == 0) {  //Either Scaled OR Real SOC% value is 0.00%, time to stop
         if (!battery_empty_event_fired) {
           set_event(EVENT_BATTERY_EMPTY, 0, 1);
           battery_empty_event_fired = true;
         }
-        datalayer.battery.status.max_discharge_power_W = 0;
+        datalayer.batteries[0].status.max_discharge_power_W = 0;
       } else {
         clear_event(EVENT_BATTERY_EMPTY, 1);
         battery_empty_event_fired = false;
@@ -299,20 +293,20 @@ void update_machineryprotection() {
     }
 
     // Battery is extremely degraded, not fit for secondlifestorage!
-    if (datalayer.battery.status.soh_pptt < 2500) {
-      set_event(EVENT_SOH_LOW, datalayer.battery.status.soh_pptt);
+    if (datalayer.batteries[0].status.soh_pptt < 2500) {
+      set_event(EVENT_SOH_LOW, datalayer.batteries[0].status.soh_pptt);
     } else {
       clear_event(EVENT_SOH_LOW);
     }
 
-    if (battery && !battery->soc_plausible()) {
-      set_event(EVENT_SOC_PLAUSIBILITY_ERROR, datalayer.battery.status.real_soc);
+    if (batteries[0] && !batteries[0]->soc_plausible()) {
+      set_event(EVENT_SOC_PLAUSIBILITY_ERROR, datalayer.batteries[0].status.real_soc);
     }
 
     // Check diff between highest and lowest cell
     cell_deviation_mV =
-        std::abs(datalayer.battery.status.cell_max_voltage_mV - datalayer.battery.status.cell_min_voltage_mV);
-    if (cell_deviation_mV > datalayer.battery.info.max_cell_voltage_deviation_mV) {
+        std::abs(datalayer.batteries[0].status.cell_max_voltage_mV - datalayer.batteries[0].status.cell_min_voltage_mV);
+    if (cell_deviation_mV > datalayer.batteries[0].info.max_cell_voltage_deviation_mV) {
       set_event(EVENT_CELL_DEVIATION_HIGH, (cell_deviation_mV / 20));
     } else {
       clear_event(EVENT_CELL_DEVIATION_HIGH);
@@ -333,7 +327,8 @@ void update_machineryprotection() {
       clear_event(EVENT_DISCHARGE_LIMIT_EXCEEDED);
     } else {
       // Inverter is charging with more power than battery wants!
-      if (datalayer.battery.status.active_power_W > (int32_t)(datalayer.battery.status.max_charge_power_W + 2000)) {
+      if (datalayer.batteries[0].status.active_power_W >
+          (int32_t)(datalayer.batteries[0].status.max_charge_power_W + 2000)) {
         if (charge_limit_failures > MAX_CHARGE_DISCHARGE_LIMIT_FAILURES) {
           set_event(EVENT_CHARGE_LIMIT_EXCEEDED, 0);  // Alert when 2kW over requested max
         } else {
@@ -345,7 +340,8 @@ void update_machineryprotection() {
       }
 
       // Inverter is pulling too much power from battery!
-      if (-datalayer.battery.status.active_power_W > (int32_t)(datalayer.battery.status.max_discharge_power_W + 2000)) {
+      if (-datalayer.batteries[0].status.active_power_W >
+          (int32_t)(datalayer.batteries[0].status.max_discharge_power_W + 2000)) {
         if (discharge_limit_failures > MAX_CHARGE_DISCHARGE_LIMIT_FAILURES) {
           set_event(EVENT_DISCHARGE_LIMIT_EXCEEDED, 0);  // Alert when 2kW over requested max
         } else {
@@ -359,8 +355,9 @@ void update_machineryprotection() {
 
     // Check that the BMS has been seen and is still sending CAN messages.
     // If we go 60s without messages we raise an error
-    check_can_component_alive(datalayer.battery.status.CAN_battery_still_alive, battery_detected,
-                              EVENT_CAN_BATTERY_DETECTED, EVENT_CAN_BATTERY_MISSING, can_config.battery);
+    check_can_component_alive(datalayer.batteries[0].status.CAN_battery_still_alive,
+                              datalayer.system.status.battery_link[0].detected, EVENT_CAN_BATTERY_DETECTED,
+                              EVENT_CAN_BATTERY_MISSING, can_config.batteries[0]);
   }
 
   if (inverter && inverter->interface_type() == InverterInterfaceType::Can) {
@@ -411,96 +408,61 @@ void update_machineryprotection() {
                               EVENT_CAN_CHARGER_MISSING, charger->interface());
   }
 
-  // Additional Double-Battery safeties are checked here
-  if (battery2) {
-    // Check if the Battery 2 BMS is still sending CAN messages. If we go 60s without messages we raise a warning
+  // Additional safeties for every extra battery are checked here
+  // Per-instance event ids are enum values and cannot be arrayed; everything
+  // else per-instance is indexed.
+  struct SecondaryBatterySafety {
+    EVENTS_ENUM_TYPE detected_event;
+    EVENTS_ENUM_TYPE missing_event;
+  };
+  static_assert(MAX_BATTERIES == 3, "add the new instance's detected/missing event ids");
+  const SecondaryBatterySafety secondary_safety[MAX_BATTERIES - 1] = {
+      {EVENT_CAN_BATTERY2_DETECTED, EVENT_CAN_BATTERY2_MISSING},
+      {EVENT_CAN_BATTERY3_DETECTED, EVENT_CAN_BATTERY3_MISSING},
+  };
+  for (int i = 1; i < MAX_BATTERIES; i++) {
+    if (!batteries[i]) {
+      continue;
+    }
+    const SecondaryBatterySafety& safety = secondary_safety[i - 1];
+    DATALAYER_BATTERY_TYPE& bat = datalayer_battery(i);
 
     // Pause function is on
     if (emulator_pause_request_ON) {
-      datalayer.battery2.status.max_discharge_power_W = 0;
-      datalayer.battery2.status.max_charge_power_W = 0;
+      bat.status.max_discharge_power_W = 0;
+      bat.status.max_charge_power_W = 0;
     }
 
-    // Check that the Battery 2 BMS has been seen and is still sending CAN messages
-    check_can_component_alive(datalayer.battery2.status.CAN_battery_still_alive, battery2_detected,
-                              EVENT_CAN_BATTERY2_DETECTED, EVENT_CAN_BATTERY2_MISSING, can_config.battery_double);
+    // Check that this battery's BMS has been seen and is still sending CAN messages.
+    // If we go 60s without messages we raise a warning
+    check_can_component_alive(bat.status.CAN_battery_still_alive, datalayer.system.status.battery_link[i].detected,
+                              safety.detected_event, safety.missing_event, can_config.batteries[i]);
 
     // Cell overvoltage, critical latching error without automatic reset. Requires user action.
-    if (datalayer.battery2.status.cell_max_voltage_mV >= datalayer.battery2.info.max_cell_voltage_mV) {
+    if (bat.status.cell_max_voltage_mV >= bat.info.max_cell_voltage_mV) {
       set_event(EVENT_CELL_OVER_VOLTAGE, 0);
     }
     // Cell undervoltage, critical latching error without automatic reset. Requires user action.
-    if (datalayer.battery2.status.cell_min_voltage_mV <= datalayer.battery2.info.min_cell_voltage_mV) {
+    if (bat.status.cell_min_voltage_mV <= bat.info.min_cell_voltage_mV) {
       set_event(EVENT_CELL_UNDER_VOLTAGE, 0);
     }
 
     // Check diff between highest and lowest cell
-    cell_deviation_mV =
-        std::abs(datalayer.battery2.status.cell_max_voltage_mV - datalayer.battery2.status.cell_min_voltage_mV);
-    if (cell_deviation_mV > datalayer.battery2.info.max_cell_voltage_deviation_mV) {
+    cell_deviation_mV = std::abs(bat.status.cell_max_voltage_mV - bat.status.cell_min_voltage_mV);
+    if (cell_deviation_mV > bat.info.max_cell_voltage_deviation_mV) {
       set_event(EVENT_CELL_DEVIATION_HIGH, (cell_deviation_mV / 20));
     } else {
       clear_event(EVENT_CELL_DEVIATION_HIGH);
     }
 
-    // Check if SOH% between the packs is too large
-    if ((datalayer.battery.status.soh_pptt != 9900) && (datalayer.battery2.status.soh_pptt != 9900)) {
+    // Check if SOH% between this pack and the primary is too large
+    if ((datalayer.batteries[0].status.soh_pptt != 9900) && (bat.status.soh_pptt != 9900)) {
       // Both values available, check diff
       uint16_t soh_diff_pptt;
-      if (datalayer.battery.status.soh_pptt > datalayer.battery2.status.soh_pptt) {
-        soh_diff_pptt = datalayer.battery.status.soh_pptt - datalayer.battery2.status.soh_pptt;
+      if (datalayer.batteries[0].status.soh_pptt > bat.status.soh_pptt) {
+        soh_diff_pptt = datalayer.batteries[0].status.soh_pptt - bat.status.soh_pptt;
       } else {
-        soh_diff_pptt = datalayer.battery2.status.soh_pptt - datalayer.battery.status.soh_pptt;
-      }
-
-      if (soh_diff_pptt > MAX_SOH_DEVIATION_PPTT) {
-        set_event(EVENT_SOH_DIFFERENCE, (uint8_t)(MAX_SOH_DEVIATION_PPTT / 100));
-      } else {
-        clear_event(EVENT_SOH_DIFFERENCE);
-      }
-    }
-  }
-
-  // Additional Triple-Battery safeties are checked here
-  if (battery3) {
-    // Check if the Battery 3 BMS is still sending CAN messages. If we go 60s without messages we raise a warning
-
-    // Pause function is on
-    if (emulator_pause_request_ON) {
-      datalayer.battery3.status.max_discharge_power_W = 0;
-      datalayer.battery3.status.max_charge_power_W = 0;
-    }
-
-    // Check that the Battery 3 BMS has been seen and is still sending CAN messages
-    check_can_component_alive(datalayer.battery3.status.CAN_battery_still_alive, battery3_detected,
-                              EVENT_CAN_BATTERY3_DETECTED, EVENT_CAN_BATTERY3_MISSING, can_config.battery_triple);
-
-    // Cell overvoltage, critical latching error without automatic reset. Requires user action.
-    if (datalayer.battery3.status.cell_max_voltage_mV >= datalayer.battery3.info.max_cell_voltage_mV) {
-      set_event(EVENT_CELL_OVER_VOLTAGE, 0);
-    }
-    // Cell undervoltage, critical latching error without automatic reset. Requires user action.
-    if (datalayer.battery3.status.cell_min_voltage_mV <= datalayer.battery3.info.min_cell_voltage_mV) {
-      set_event(EVENT_CELL_UNDER_VOLTAGE, 0);
-    }
-
-    // Check diff between highest and lowest cell
-    cell_deviation_mV =
-        std::abs(datalayer.battery3.status.cell_max_voltage_mV - datalayer.battery3.status.cell_min_voltage_mV);
-    if (cell_deviation_mV > datalayer.battery3.info.max_cell_voltage_deviation_mV) {
-      set_event(EVENT_CELL_DEVIATION_HIGH, (cell_deviation_mV / 20));
-    } else {
-      clear_event(EVENT_CELL_DEVIATION_HIGH);
-    }
-
-    // Check if SOH% between the packs is too large
-    if ((datalayer.battery.status.soh_pptt != 9900) && (datalayer.battery3.status.soh_pptt != 9900)) {
-      // Both values available, check diff
-      uint16_t soh_diff_pptt;
-      if (datalayer.battery.status.soh_pptt > datalayer.battery3.status.soh_pptt) {
-        soh_diff_pptt = datalayer.battery.status.soh_pptt - datalayer.battery3.status.soh_pptt;
-      } else {
-        soh_diff_pptt = datalayer.battery3.status.soh_pptt - datalayer.battery.status.soh_pptt;
+        soh_diff_pptt = bat.status.soh_pptt - datalayer.batteries[0].status.soh_pptt;
       }
 
       if (soh_diff_pptt > MAX_SOH_DEVIATION_PPTT) {
@@ -518,17 +480,17 @@ void update_machineryprotection() {
   // all batteries; evaluate them together so one battery's clean state can no longer
   // clear another battery's active warning. Event data = first offending channel.
   bool can_corrupted = false;
-  uint8_t corrupted_channel = can_config.battery;
-  if (battery && datalayer.battery.status.CAN_error_counter > MAX_CAN_FAILURES) {
+  uint8_t corrupted_channel = can_config.batteries[0];
+  if (batteries[0] && datalayer.batteries[0].status.CAN_error_counter > MAX_CAN_FAILURES) {
     can_corrupted = true;
   }
-  if (battery2 && !can_corrupted && datalayer.battery2.status.CAN_error_counter > MAX_CAN_FAILURES) {
-    can_corrupted = true;
-    corrupted_channel = can_config.battery_double;
-  }
-  if (battery3 && !can_corrupted && datalayer.battery3.status.CAN_error_counter > MAX_CAN_FAILURES) {
-    can_corrupted = true;
-    corrupted_channel = can_config.battery_triple;
+  const CAN_Interface secondary_interface[MAX_BATTERIES] = {can_config.batteries[0], can_config.batteries[1],
+                                                            can_config.batteries[2]};
+  for (int i = 1; i < MAX_BATTERIES; i++) {
+    if (batteries[i] && !can_corrupted && datalayer_battery(i).status.CAN_error_counter > MAX_CAN_FAILURES) {
+      can_corrupted = true;
+      corrupted_channel = secondary_interface[i];
+    }
   }
   if (can_corrupted) {
     set_event(EVENT_CAN_CORRUPTED_WARNING, corrupted_channel);
@@ -537,62 +499,62 @@ void update_machineryprotection() {
   }
 
   //Safeties verified, Zero charge/discharge ampere values incase any safety wrote the W to 0
-  if (datalayer.battery.status.max_discharge_power_W == 0) {
-    datalayer.battery.status.max_discharge_current_dA = 0;
+  if (datalayer.batteries[0].status.max_discharge_power_W == 0) {
+    datalayer.batteries[0].status.max_discharge_current_dA = 0;
   }
-  if (datalayer.battery.status.max_charge_power_W == 0) {
-    datalayer.battery.status.max_charge_current_dA = 0;
+  if (datalayer.batteries[0].status.max_charge_power_W == 0) {
+    datalayer.batteries[0].status.max_charge_current_dA = 0;
   }
   //One exception. If user has enabled the emergency recovery charge mode, still allow small amount of charging
-  if (datalayer.battery.settings.user_requests_forced_charging_recovery_mode) {
+  if (datalayer.batteries[0].settings.user_requests_forced_charging_recovery_mode) {
 
     //We allow the user set value as long as it does not exceed MAX_CHARGEPOWER_RECOVERY_CHARGE_DA
-    if (datalayer.battery.settings.max_user_set_charge_dA > MAX_CHARGEPOWER_RECOVERY_CHARGE_DA) {
-      datalayer.battery.status.max_charge_current_dA = MAX_CHARGEPOWER_RECOVERY_CHARGE_DA;
+    if (datalayer.batteries[0].settings.max_user_set_charge_dA > MAX_CHARGEPOWER_RECOVERY_CHARGE_DA) {
+      datalayer.batteries[0].status.max_charge_current_dA = MAX_CHARGEPOWER_RECOVERY_CHARGE_DA;
     } else {
-      datalayer.battery.status.max_charge_current_dA = datalayer.battery.settings.max_user_set_charge_dA;
+      datalayer.batteries[0].status.max_charge_current_dA = datalayer.batteries[0].settings.max_user_set_charge_dA;
     }
 
     // If this is the start of the emergency recovery charge period, capture the current time
-    if (datalayer.battery.settings.recovery_charge_start_time_ms == 0) {
-      datalayer.battery.settings.recovery_charge_start_time_ms = millis();
+    if (datalayer.batteries[0].settings.recovery_charge_start_time_ms == 0) {
+      datalayer.batteries[0].settings.recovery_charge_start_time_ms = millis();
       set_event(EVENT_RECOVERY_START, 0);
     } else {
       clear_event(EVENT_RECOVERY_START);
     }
 
     // Check if the elapsed time exceeds the max recovery charge time
-    if (millis() - datalayer.battery.settings.recovery_charge_start_time_ms >=
-        datalayer.battery.settings.recovery_charge_max_time_ms) {
-      datalayer.battery.settings.user_requests_forced_charging_recovery_mode = false;
-      datalayer.battery.settings.recovery_charge_start_time_ms = 0;  // Reset the start time
+    if (millis() - datalayer.batteries[0].settings.recovery_charge_start_time_ms >=
+        datalayer.batteries[0].settings.recovery_charge_max_time_ms) {
+      datalayer.batteries[0].settings.user_requests_forced_charging_recovery_mode = false;
+      datalayer.batteries[0].settings.recovery_charge_start_time_ms = 0;  // Reset the start time
       set_event(EVENT_RECOVERY_END, 0);
     } else {
       clear_event(EVENT_RECOVERY_END);
     }
 
     //Check if cellvoltage is too low to safely start recovery. If so, abort!
-    if (datalayer.battery.status.cell_min_voltage_mV < LOWEST_ALLOWED_CELLVOLTAGE_RECOVERY_CHARGE_MV) {
-      datalayer.battery.settings.user_requests_forced_charging_recovery_mode = false;
+    if (datalayer.batteries[0].status.cell_min_voltage_mV < LOWEST_ALLOWED_CELLVOLTAGE_RECOVERY_CHARGE_MV) {
+      datalayer.batteries[0].settings.user_requests_forced_charging_recovery_mode = false;
       set_event(EVENT_RECOVERY_END, 255);
     }
   }
 
   //Decrement the forced balancing timer incase user requested it
-  if (datalayer.battery.settings.user_requests_balancing) {
+  if (datalayer.batteries[0].settings.user_requests_balancing) {
     // If this is the start of the balancing period, capture the current time
-    if (datalayer.battery.settings.balancing_start_time_ms == 0) {
-      datalayer.battery.settings.balancing_start_time_ms = millis();
+    if (datalayer.batteries[0].settings.balancing_start_time_ms == 0) {
+      datalayer.batteries[0].settings.balancing_start_time_ms = millis();
       set_event(EVENT_BALANCING_START, 0);
     } else {
       clear_event(EVENT_BALANCING_START);
     }
 
     // Check if the elapsed time exceeds the balancing time
-    if (millis() - datalayer.battery.settings.balancing_start_time_ms >=
-        datalayer.battery.settings.balancing_max_time_ms) {
-      datalayer.battery.settings.user_requests_balancing = false;
-      datalayer.battery.settings.balancing_start_time_ms = 0;  // Reset the start time
+    if (millis() - datalayer.batteries[0].settings.balancing_start_time_ms >=
+        datalayer.batteries[0].settings.balancing_max_time_ms) {
+      datalayer.batteries[0].settings.user_requests_balancing = false;
+      datalayer.batteries[0].settings.balancing_start_time_ms = 0;  // Reset the start time
       set_event(EVENT_BALANCING_END, 0);
     } else {
       clear_event(EVENT_BALANCING_END);
@@ -627,15 +589,13 @@ void setBatteryPause(bool pause_battery, bool pause_CAN, EquipmentStop equipment
     set_event(EVENT_PAUSE_BEGIN, 1);
     emulator_pause_request_ON = true;
     emulator_pause_status = PAUSING;
-    datalayer.battery.status.max_discharge_power_W = 0;
-    datalayer.battery.status.max_charge_power_W = 0;
-    if (battery2) {
-      datalayer.battery2.status.max_discharge_power_W = 0;
-      datalayer.battery2.status.max_charge_power_W = 0;
-    }
-    if (battery3) {
-      datalayer.battery3.status.max_discharge_power_W = 0;
-      datalayer.battery3.status.max_charge_power_W = 0;
+    datalayer.batteries[0].status.max_discharge_power_W = 0;
+    datalayer.batteries[0].status.max_charge_power_W = 0;
+    for (int i = 1; i < MAX_BATTERIES; i++) {
+      if (batteries[i]) {
+        datalayer_battery(i).status.max_discharge_power_W = 0;
+        datalayer_battery(i).status.max_charge_power_W = 0;
+      }
     }
 
   } else {
@@ -685,10 +645,10 @@ void update_pause_state() {
     allowed_to_send_CAN = true;
   }
 
-  int16_t battery_current_dA = datalayer.battery.status.current_dA;
-  int16_t battery2_current_dA = datalayer.battery2.status.current_dA;  // Should be 0 if no battery2
-  int16_t battery3_current_dA = datalayer.battery3.status.current_dA;  // Should be 0 if no battery3
-  static const int16_t CURRENT_THRESHOLD_dA = 18;                      // 1.8A in deciAmps
+  int16_t battery_current_dA = datalayer.batteries[0].status.current_dA;
+  int16_t battery2_current_dA = datalayer.batteries[1].status.current_dA;  // Should be 0 if no battery2
+  int16_t battery3_current_dA = datalayer.batteries[2].status.current_dA;  // Should be 0 if no battery3
+  static const int16_t CURRENT_THRESHOLD_dA = 18;                          // 1.8A in deciAmps
 
   // in some inverters this values are not accurate, so we need to check if we are consider 1.8 amps as the limit
   if (emulator_pause_request_ON && emulator_pause_status == PAUSING && abs(battery_current_dA) < CURRENT_THRESHOLD_dA &&

@@ -312,24 +312,15 @@ static void end_frame() {
 // ---------------------------------------------------------------------------------------
 
 static const DATALAYER_BATTERY_TYPE* battery_data(uint8_t i) {
-  if (i == 0) {
-    return &datalayer.battery;
-  }
-  return (i == 1) ? &datalayer.battery2 : &datalayer.battery3;
+  return &datalayer.batteries[i];
 }
 
 static Battery* battery_instance(uint8_t i) {
-  if (i == 0) {
-    return battery;
-  }
-  return (i == 1) ? battery2 : battery3;
+  return batteries[i];
 }
 
 static bool battery_is_detected(uint8_t i) {
-  if (i == 0) {
-    return battery_detected;
-  }
-  return (i == 1) ? battery2_detected : battery3_detected;
+  return datalayer.system.status.battery_link[i].detected;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -616,10 +607,10 @@ void init_espnow() {
   emulator_id = static_cast<uint16_t>(ESP.getEfuseMac() & 0xFFFF);
 
   num_batteries = 1;
-  if (battery2) {
+  if (batteries[1]) {
     num_batteries++;
   }
-  if (battery3) {
+  if (batteries[2]) {
     num_batteries++;
   }
 

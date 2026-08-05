@@ -24,12 +24,12 @@ String cellmonitor_processor(const String& var) {
     content += ".low-voltage { color: red; }";              // Style for low voltage text
     content += ".voltage-values { margin-bottom: 10px; }";  // Style for voltage values section
 
-    if (battery3) {
+    if (batteries[2]) {
       content +=
           "#graph, #graph2, #graph3 {display: flex;align-items: flex-end;height: 200px;border: 1px solid "
           "#ccc;position: "
           "relative;}";
-    } else if (battery2) {
+    } else if (batteries[1]) {
       content +=
           "#graph, #graph2 {display: flex;align-items: flex-end;height: 200px;border: 1px solid #ccc;position: "
           "relative;}";
@@ -41,9 +41,9 @@ String cellmonitor_processor(const String& var) {
         ".bar {margin: 0 0px;background-color: blue;display: inline-block;position: relative;cursor: pointer;border: "
         "1px solid white; /* Add this line */}";
 
-    if (battery3) {
+    if (batteries[2]) {
       content += "#valueDisplay, #valueDisplay2, #valueDisplay3 {text-align: left;font-weight: bold;margin-top: 10px;}";
-    } else if (battery2) {
+    } else if (batteries[1]) {
       content += "#valueDisplay, #valueDisplay2 {text-align: left;font-weight: bold;margin-top: 10px;}";
     } else {
       content += "#valueDisplay {text-align: left;font-weight: bold;margin-top: 10px;}";
@@ -69,8 +69,8 @@ String cellmonitor_processor(const String& var) {
         "margin-right: 15px;'>Idle</span>";
     bool battery_balancing = false;
     // Check per-cell balancing status
-    for (uint8_t i = 0u; i < datalayer.battery.info.number_of_cells; i++) {
-      battery_balancing = datalayer.battery.status.cell_balancing_status[i];
+    for (uint8_t i = 0u; i < datalayer.batteries[0].info.number_of_cells; ++i) {
+      battery_balancing = datalayer.batteries[0].status.cell_balancing_status[i];
       if (battery_balancing)
         break;
     }
@@ -82,7 +82,7 @@ String cellmonitor_processor(const String& var) {
       content += "</span>";
     }
     // Also check overall balancing status enum (for batteries without per-cell data)
-    else if (datalayer.battery.status.balancing_status == BALANCING_STATUS_ACTIVE) {
+    else if (datalayer.batteries[0].status.balancing_status == BALANCING_STATUS_ACTIVE) {
       content +=
           "<span style='color: black; background-color: #ff9900ff; font-weight: bold; padding: 2px 8px; border-radius: "
           "4px; margin-right: 15px;'>Balancing is active now!</span>";
@@ -94,7 +94,7 @@ String cellmonitor_processor(const String& var) {
     // Close the block
     content += "</div>";
 
-    if (battery2) {
+    if (batteries[1]) {
       // Start a new block with a specific background color
       content += "<div style='background-color: #303E41; padding: 10px; margin-bottom: 10px; border-radius: 50px'>";
 
@@ -111,9 +111,10 @@ String cellmonitor_processor(const String& var) {
           "<span style='color: white; background-color: blue; font-weight: bold; padding: 2px 8px; border-radius: 4px; "
           "margin-right: 15px;'>Idle</span>";
 
+      static_assert(MAX_BATTERIES == 3, "add the new instance's cellmonitor section");
       bool battery2_balancing = false;
-      for (uint8_t i = 0u; i < datalayer.battery2.info.number_of_cells; i++) {
-        battery2_balancing = datalayer.battery2.status.cell_balancing_status[i];
+      for (uint8_t i = 0u; i < datalayer_battery(1).info.number_of_cells; i++) {
+        battery2_balancing = datalayer_battery(1).status.cell_balancing_status[i];
         if (battery2_balancing)
           break;
       }
@@ -132,7 +133,7 @@ String cellmonitor_processor(const String& var) {
       content += "</div>";
     }
 
-    if (battery3) {
+    if (batteries[2]) {
       // Start a new block with a specific background color
       content += "<div style='background-color: #313e41ff; padding: 10px; margin-bottom: 10px; border-radius: 50px'>";
 
@@ -150,8 +151,8 @@ String cellmonitor_processor(const String& var) {
           "margin-right: 15px;'>Idle</span>";
 
       bool battery3_balancing = false;
-      for (uint8_t i = 0u; i < datalayer.battery3.info.number_of_cells; i++) {
-        battery3_balancing = datalayer.battery3.status.cell_balancing_status[i];
+      for (uint8_t i = 0u; i < datalayer_battery(2).info.number_of_cells; i++) {
+        battery3_balancing = datalayer_battery(2).status.cell_balancing_status[i];
         if (battery3_balancing)
           break;
       }
@@ -175,20 +176,20 @@ String cellmonitor_processor(const String& var) {
     content += "<script>";
     // Populate cell data
     content += "const data = [";
-    for (uint8_t i = 0u; i < datalayer.battery.info.number_of_cells; i++) {
-      if (datalayer.battery.status.cell_voltages_mV[i] == 0) {
+    for (uint8_t i = 0u; i < datalayer.batteries[0].info.number_of_cells; ++i) {
+      if (datalayer.batteries[0].status.cell_voltages_mV[i] == 0) {
         continue;
       }
-      content += String(datalayer.battery.status.cell_voltages_mV[i]) + ",";
+      content += String(datalayer.batteries[0].status.cell_voltages_mV[i]) + ",";
     }
     content += "];";
 
     content += "const balancing = [";
-    for (uint8_t i = 0u; i < datalayer.battery.info.number_of_cells; i++) {
-      if (datalayer.battery.status.cell_voltages_mV[i] == 0) {
+    for (uint8_t i = 0u; i < datalayer.batteries[0].info.number_of_cells; ++i) {
+      if (datalayer.batteries[0].status.cell_voltages_mV[i] == 0) {
         continue;
       }
-      content += datalayer.battery.status.cell_balancing_status[i] ? "true," : "false,";
+      content += datalayer.batteries[0].status.cell_balancing_status[i] ? "true," : "false,";
     }
     content += "];";
 
@@ -288,7 +289,7 @@ String cellmonitor_processor(const String& var) {
         "const cell_dev = max_mv - min_mv;"
         "const voltVal = document.getElementById('voltageValues');"
         "voltVal.innerHTML = `Max Voltage : ${max_mv} mV<br>Min Voltage: ${min_mv} mV<br>Voltage Deviation: ";
-    if (datalayer.battery.status.balancing_status == BALANCING_STATUS_ACTIVE) {
+    if (datalayer.batteries[0].status.balancing_status == BALANCING_STATUS_ACTIVE) {
       content += "${cell_dev} mV (Battery is balancing now!)`}";
     } else {
       content += "${cell_dev} mV`}";
@@ -301,9 +302,10 @@ String cellmonitor_processor(const String& var) {
     content += "updateVoltageValues(data);";
     content += "}";
     content += "else {";
-    if (datalayer.battery.info.number_of_cells > 0) {
+    if (datalayer.batteries[0].info.number_of_cells > 0) {
       content += "document.getElementById('voltageValues').textContent = '" +
-                 String(datalayer.battery.info.number_of_cells) + " cells configured, but cellvoltages not yet read';";
+                 String(datalayer.batteries[0].info.number_of_cells) +
+                 " cells configured, but cellvoltages not yet read';";
     } else {
       content +=
           "document.getElementById('voltageValues').textContent = 'Amount of cells unknown. Cellvoltages not yet "
@@ -311,23 +313,23 @@ String cellmonitor_processor(const String& var) {
     }
     content += "}";
 
-    if (battery2) {
+    if (batteries[1]) {
       // Populate cell data
       content += "const data2 = [";
-      for (uint8_t i = 0u; i < datalayer.battery2.info.number_of_cells; i++) {
-        if (datalayer.battery2.status.cell_voltages_mV[i] == 0) {
+      for (uint8_t i = 0u; i < datalayer_battery(1).info.number_of_cells; i++) {
+        if (datalayer_battery(1).status.cell_voltages_mV[i] == 0) {
           continue;
         }
-        content += String(datalayer.battery2.status.cell_voltages_mV[i]) + ",";
+        content += String(datalayer_battery(1).status.cell_voltages_mV[i]) + ",";
       }
       content += "];";
 
       content += "const balancing2 = [";
-      for (uint8_t i = 0u; i < datalayer.battery2.info.number_of_cells; i++) {
-        if (datalayer.battery2.status.cell_voltages_mV[i] == 0) {
+      for (uint8_t i = 0u; i < datalayer_battery(1).info.number_of_cells; i++) {
+        if (datalayer_battery(1).status.cell_voltages_mV[i] == 0) {
           continue;
         }
-        content += datalayer.battery2.status.cell_balancing_status[i] ? "true," : "false,";
+        content += datalayer_battery(1).status.cell_balancing_status[i] ? "true," : "false,";
       }
       content += "];";
 
@@ -435,9 +437,9 @@ String cellmonitor_processor(const String& var) {
       content += "updateVoltageValues2(data2);";
       content += "}";
       content += "else {";
-      if (datalayer.battery2.info.number_of_cells > 0) {
+      if (datalayer_battery(1).info.number_of_cells > 0) {
         content += "document.getElementById('voltageValues2').textContent = '" +
-                   String(datalayer.battery2.info.number_of_cells) +
+                   String(datalayer_battery(1).info.number_of_cells) +
                    " cells configured, but cellvoltages not yet read';";
       } else {
         content +=
@@ -447,23 +449,23 @@ String cellmonitor_processor(const String& var) {
       content += "}";
     }
 
-    if (battery3) {
+    if (batteries[2]) {
       // Populate cell data
       content += "const data3 = [";
-      for (uint8_t i = 0u; i < datalayer.battery3.info.number_of_cells; i++) {
-        if (datalayer.battery3.status.cell_voltages_mV[i] == 0) {
+      for (uint8_t i = 0u; i < datalayer_battery(2).info.number_of_cells; i++) {
+        if (datalayer_battery(2).status.cell_voltages_mV[i] == 0) {
           continue;
         }
-        content += String(datalayer.battery3.status.cell_voltages_mV[i]) + ",";
+        content += String(datalayer_battery(2).status.cell_voltages_mV[i]) + ",";
       }
       content += "];";
 
       content += "const balancing3 = [";
-      for (uint8_t i = 0u; i < datalayer.battery3.info.number_of_cells; i++) {
-        if (datalayer.battery3.status.cell_voltages_mV[i] == 0) {
+      for (uint8_t i = 0u; i < datalayer_battery(2).info.number_of_cells; i++) {
+        if (datalayer_battery(2).status.cell_voltages_mV[i] == 0) {
           continue;
         }
-        content += datalayer.battery3.status.cell_balancing_status[i] ? "true," : "false,";
+        content += datalayer_battery(2).status.cell_balancing_status[i] ? "true," : "false,";
       }
       content += "];";
 
@@ -571,9 +573,9 @@ String cellmonitor_processor(const String& var) {
       content += "updateVoltageValues3(data3);";
       content += "}";
       content += "else {";
-      if (datalayer.battery3.info.number_of_cells > 0) {
+      if (datalayer_battery(2).info.number_of_cells > 0) {
         content += "document.getElementById('voltageValues3').textContent = '" +
-                   String(datalayer.battery3.info.number_of_cells) +
+                   String(datalayer_battery(2).info.number_of_cells) +
                    " cells configured, but cellvoltages not yet read';";
       } else {
         content +=

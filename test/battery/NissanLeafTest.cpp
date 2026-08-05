@@ -28,7 +28,7 @@ CAN_frame leaf_7bb_frame(std::initializer_list<uint8_t> bytes) {
 
 // The datalayer is a global shared by every test, so put the DTC block back to its power-on state.
 void reset_dtc_state() {
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 }
 
 // Drives a battery up to the point where it is waiting for a DTC reply on 0x7BB. update_values() is
@@ -59,7 +59,7 @@ TEST(NissanLeafTests, ShouldReportVoltage) {
   battery->handle_incoming_can_frame(frame);
   battery->update_values();
 
-  EXPECT_EQ(datalayer.battery.status.voltage_dV, expected_dV);
+  EXPECT_EQ(datalayer.batteries[0].status.voltage_dV, expected_dV);
 }
 
 // A single stored code fits in one ISO-TP frame: 59 02 <mask> then one 4-byte record.
@@ -68,11 +68,11 @@ TEST(NissanLeafDtcTests, ShouldParseSingleFrameReply) {
 
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x07, 0x59, 0x02, 0x4E, 0xD0, 0x00, 0x00, 0x4E}));
 
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 1);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0xD00000u);  // Renders as U1000
-  EXPECT_EQ(datalayer.battery.dtc.dtc_status[0], 0x4E);
-  EXPECT_NE(datalayer.battery.dtc.dtc_last_read_millis, 0u);
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 1);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0xD00000u);  // Renders as U1000
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_status[0], 0x4E);
+  EXPECT_NE(datalayer.batteries[0].dtc.dtc_last_read_millis, 0u);
 }
 
 // Real LBC capture holding four codes: U1000, P33D7, P33D9 and P33DD. The announced ISO-TP length of
@@ -84,14 +84,14 @@ TEST(NissanLeafDtcTests, ShouldParseMultiFrameReply) {
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x21, 0x4E, 0x33, 0xD7, 0x00, 0x4E, 0x33, 0xD9}));
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x22, 0x00, 0x4E, 0x33, 0xDD, 0x00, 0x4E, 0xFF}));
 
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 4);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0xD00000u);  // U1000
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[1], 0x33D700u);  // P33D7
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[2], 0x33D900u);  // P33D9
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[3], 0x33DD00u);  // P33DD
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 4);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0xD00000u);  // U1000
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[1], 0x33D700u);  // P33D7
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[2], 0x33D900u);  // P33D9
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[3], 0x33DD00u);  // P33DD
   for (int i = 0; i < 4; i++) {
-    EXPECT_EQ(datalayer.battery.dtc.dtc_status[i], 0x4E);
+    EXPECT_EQ(datalayer.batteries[0].dtc.dtc_status[i], 0x4E);
   }
 }
 
@@ -102,9 +102,9 @@ TEST(NissanLeafDtcTests, ShouldReportNoDtcsStored) {
 
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x03, 0x59, 0x02, 0x4E, 0xFF, 0xFF, 0xFF, 0xFF}));
 
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 0);
-  EXPECT_NE(datalayer.battery.dtc.dtc_last_read_millis, 0u);
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 0);
+  EXPECT_NE(datalayer.batteries[0].dtc.dtc_last_read_millis, 0u);
 }
 
 // The LBC acknowledges ClearDiagnosticInformation with a single-frame 54. Until that arrives the
@@ -115,21 +115,21 @@ TEST(NissanLeafDtcTests, ShouldClearStoredDtcsOnlyOnAcknowledgement) {
   auto battery = new NissanLeafBattery();
   battery->setup();
 
-  datalayer.battery.dtc.dtc_count = 1;
-  datalayer.battery.dtc.dtc_codes[0] = 0x33D700;
-  datalayer.battery.dtc.dtc_last_read_millis = 50000;
+  datalayer.batteries[0].dtc.dtc_count = 1;
+  datalayer.batteries[0].dtc.dtc_codes[0] = 0x33D700;
+  datalayer.batteries[0].dtc.dtc_last_read_millis = 50000;
 
   battery->reset_DTC();
   battery->transmit_can(50000);  // Sends 14 FF FF FF, but must not wipe anything yet
 
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 1);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 1);
 
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x01, 0x54, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}));
 
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 0);
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 0);
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
   // Back to "not read yet": the erase says nothing about what the LBC reports next.
-  EXPECT_EQ(datalayer.battery.dtc.dtc_last_read_millis, 0u);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_last_read_millis, 0u);
 }
 
 // An erase the LBC never acknowledges must leave the stored list alone rather than falsely
@@ -140,9 +140,9 @@ TEST(NissanLeafDtcTests, ShouldKeepStoredDtcsWhenEraseIsNotAcknowledged) {
   auto battery = new NissanLeafBattery();
   battery->setup();
 
-  datalayer.battery.dtc.dtc_count = 1;
-  datalayer.battery.dtc.dtc_codes[0] = 0x33D700;
-  datalayer.battery.dtc.dtc_last_read_millis = 50000;
+  datalayer.batteries[0].dtc.dtc_count = 1;
+  datalayer.batteries[0].dtc.dtc_codes[0] = 0x33D700;
+  datalayer.batteries[0].dtc.dtc_last_read_millis = 50000;
 
   battery->reset_DTC();
   battery->transmit_can(50000);
@@ -150,8 +150,8 @@ TEST(NissanLeafDtcTests, ShouldKeepStoredDtcsWhenEraseIsNotAcknowledged) {
   set_millis64(50000 + 2500);
   battery->transmit_can(50000 + 2500);
 
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 1);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_last_read_millis, 50000u);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 1);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_last_read_millis, 50000u);
 }
 
 // 7F 19 xx means the LBC refused the request outright.
@@ -160,8 +160,8 @@ TEST(NissanLeafDtcTests, ShouldFlagFailureOnNegativeResponse) {
 
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x03, 0x7F, 0x19, 0x12, 0x00, 0x00, 0x00, 0x00}));
 
-  EXPECT_TRUE(datalayer.battery.dtc.dtc_read_failed);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 0);
+  EXPECT_TRUE(datalayer.batteries[0].dtc.dtc_read_failed);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 0);
 }
 
 // If nothing ever answers, the read has to give up so the page stops showing it as pending.
@@ -177,7 +177,7 @@ TEST(NissanLeafDtcTests, ShouldTimeOutWhenLbcNeverReplies) {
     battery->transmit_can(t);  // sends the retry
   }
 
-  EXPECT_TRUE(datalayer.battery.dtc.dtc_read_failed);
+  EXPECT_TRUE(datalayer.batteries[0].dtc.dtc_read_failed);
 }
 
 // Regression for the collision seen on real hardware: pressing Read DTC while a group poll transfer
@@ -197,15 +197,15 @@ TEST(NissanLeafDtcTests, ShouldNotSendRequestWhileGroupTransferIsInFlight) {
 
   // A DTC reply arriving now would mean the request had been sent. Feed one and check it is ignored.
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x07, 0x59, 0x02, 0x4E, 0xD0, 0x00, 0x00, 0x4E}));
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 0);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 0);
 
   // Once the channel has been quiet for longer than the idle threshold, the request goes out.
   set_millis64(60000 + 200);
   battery->transmit_can(60000 + 200);
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x07, 0x59, 0x02, 0x4E, 0xD0, 0x00, 0x00, 0x4E}));
 
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 1);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0xD00000u);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 1);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0xD00000u);
 }
 
 // A request must not go out in the window between an earlier request being sent and its first
@@ -235,7 +235,7 @@ TEST(NissanLeafDtcTests, ShouldNotSendRequestWhileEarlierRequestIsUnanswered) {
 
   // If the DTC request had gone out, this reply would be accepted.
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x07, 0x59, 0x02, 0x4E, 0xD0, 0x00, 0x00, 0x4E}));
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 0);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 0);
 }
 
 // The periodic group polling answers on 0x7BB too, and its first frame carries 0x02 in the byte the
@@ -246,14 +246,14 @@ TEST(NissanLeafDtcTests, ShouldNotConsumeGroupReplyAsDtc) {
 
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x10, 0x35, 0x61, 0x01, 0xFF, 0xFF, 0xFC, 0x18}));
 
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 0);
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 0);
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
 
   // The genuine DTC reply that follows still parses.
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x07, 0x59, 0x02, 0x4E, 0xD0, 0x00, 0x00, 0x4E}));
 
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 1);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0xD00000u);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 1);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0xD00000u);
 }
 
 // Reproduces a reply larger than our storage: the LBC announced 599 bytes (149 codes) when asked
@@ -283,22 +283,23 @@ TEST(NissanLeafDtcTests, ShouldDrainReplyLargerThanStorage) {
     // Once our storage is full there is still far more to come. The readout must stay open and keep
     // acknowledging, not declare itself finished the moment the buffer fills.
     if (!checked_midway && sent >= 3 + 4 * DATALAYER_BATTERY_DTC_TYPE::MAX_DTC_COUNT) {
-      EXPECT_EQ(datalayer.battery.dtc.dtc_count, 0) << "readout ended early instead of draining";
+      EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, 0) << "readout ended early instead of draining";
       checked_midway = true;
     }
   }
   EXPECT_TRUE(checked_midway);
 
   // Completed rather than timed out, and filled to capacity without overrunning it.
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_count, DATALAYER_BATTERY_DTC_TYPE::MAX_DTC_COUNT);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0x0A1F00u);  // P0A1F, first code in the real capture
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_count, DATALAYER_BATTERY_DTC_TYPE::MAX_DTC_COUNT);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0x0A1F00u);  // P0A1F, first code in the real capture
 
   // The full count is kept even though only the first 32 are stored, so the page can say the list
   // is truncated. 599 bytes less the 3 byte header is 149 codes.
-  EXPECT_EQ(datalayer.battery.dtc.dtc_reported_count, 149);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_reported_count, 149);
 
-  NissanLeafHtmlRenderer renderer(&datalayer.battery, &datalayer_extended.nissanleaf);
+  DATALAYER_INFO_NISSAN_LEAF leaf_ext{};
+  NissanLeafHtmlRenderer renderer(&datalayer.batteries[0], &leaf_ext);
   EXPECT_NE(renderer.get_status_html().str().find("32 codes shown of 149 reported"), std::string::npos);
 }
 
@@ -308,10 +309,11 @@ TEST(NissanLeafDtcTests, ShouldNotClaimTruncationWhenEverythingFits) {
 
   battery->handle_incoming_can_frame(leaf_7bb_frame({0x07, 0x59, 0x02, 0x4E, 0xD0, 0x00, 0x00, 0x4E}));
 
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 1);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_reported_count, 1);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 1);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_reported_count, 1);
 
-  NissanLeafHtmlRenderer renderer(&datalayer.battery, &datalayer_extended.nissanleaf);
+  DATALAYER_INFO_NISSAN_LEAF leaf_ext{};
+  NissanLeafHtmlRenderer renderer(&datalayer.batteries[0], &leaf_ext);
   EXPECT_EQ(renderer.get_status_html().str().find("reported"), std::string::npos);
 }
 
@@ -321,14 +323,15 @@ TEST(NissanLeafDtcTests, ShouldRenderShortNissanCodeAsLookupKey) {
   reset_dtc_state();
   set_millis64(50000);
 
-  datalayer.battery.dtc.dtc_count = 2;
-  datalayer.battery.dtc.dtc_codes[0] = 0x33D700;  // P33D7, failure type byte 00
-  datalayer.battery.dtc.dtc_status[0] = 0x4E;
-  datalayer.battery.dtc.dtc_codes[1] = 0xD0002F;  // U1000, failure type byte 2F
-  datalayer.battery.dtc.dtc_status[1] = 0x09;
-  datalayer.battery.dtc.dtc_last_read_millis = 50000;
+  datalayer.batteries[0].dtc.dtc_count = 2;
+  datalayer.batteries[0].dtc.dtc_codes[0] = 0x33D700;  // P33D7, failure type byte 00
+  datalayer.batteries[0].dtc.dtc_status[0] = 0x4E;
+  datalayer.batteries[0].dtc.dtc_codes[1] = 0xD0002F;  // U1000, failure type byte 2F
+  datalayer.batteries[0].dtc.dtc_status[1] = 0x09;
+  datalayer.batteries[0].dtc.dtc_last_read_millis = 50000;
 
-  NissanLeafHtmlRenderer renderer(&datalayer.battery, &datalayer_extended.nissanleaf);
+  DATALAYER_INFO_NISSAN_LEAF leaf_ext{};
+  NissanLeafHtmlRenderer renderer(&datalayer.batteries[0], &leaf_ext);
   std::string html = renderer.get_status_html().str();
 
   EXPECT_NE(html.find("data-dtc-code='P33D7'"), std::string::npos);
@@ -341,17 +344,18 @@ TEST(NissanLeafDtcTests, ShouldRenderShortNissanCodeAsLookupKey) {
 
 // The three read states each have to be distinguishable on the page.
 TEST(NissanLeafDtcTests, ShouldRenderReadStateWhenNoTableIsShown) {
-  NissanLeafHtmlRenderer renderer(&datalayer.battery, &datalayer_extended.nissanleaf);
+  DATALAYER_INFO_NISSAN_LEAF leaf_ext{};
+  NissanLeafHtmlRenderer renderer(&datalayer.batteries[0], &leaf_ext);
 
   reset_dtc_state();  // Never read
   EXPECT_NE(renderer.get_status_html().str().find("Not read yet"), std::string::npos);
 
   reset_dtc_state();
-  datalayer.battery.dtc.dtc_last_read_millis = 50000;
-  datalayer.battery.dtc.dtc_read_failed = true;
+  datalayer.batteries[0].dtc.dtc_last_read_millis = 50000;
+  datalayer.batteries[0].dtc.dtc_read_failed = true;
   EXPECT_NE(renderer.get_status_html().str().find("failed or timed out"), std::string::npos);
 
   reset_dtc_state();
-  datalayer.battery.dtc.dtc_last_read_millis = 50000;
+  datalayer.batteries[0].dtc.dtc_last_read_millis = 50000;
   EXPECT_NE(renderer.get_status_html().str().find("No DTCs present"), std::string::npos);
 }

@@ -18,12 +18,18 @@
 #include <algorithm>
 #include <map>
 
-volatile CAN_Configuration can_config = {.battery = CAN_NATIVE,
-                                         .inverter = CAN_NATIVE,
-                                         .battery_double = CAN_ADDON_MCP2515,
-                                         .battery_triple = CAN_ADDON_MCP2515,
-                                         .charger = CAN_NATIVE,
-                                         .shunt = CAN_NATIVE};
+static_assert(MAX_BATTERIES == 3, "add the new instance's default CAN interface");
+volatile CAN_Configuration can_config = {
+    .batteries =
+        {
+            [0] = CAN_NATIVE,
+            [1] = CAN_ADDON_MCP2515,
+            [2] = CAN_ADDON_MCP2515,
+        },
+    .inverter = CAN_NATIVE,
+    .charger = CAN_NATIVE,
+    .shunt = CAN_NATIVE,
+};
 
 struct CanReceiverRegistration {
   CanReceiver* receiver;

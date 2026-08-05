@@ -63,7 +63,7 @@ bool led_init(void) {
     return false;
   }
 
-  led = new LED(datalayer.battery.status.led_mode, led_pin, esp32hal->LED_MAX_BRIGHTNESS(), esp32hal->LED_COUNT());
+  led = new LED(datalayer.batteries[0].status.led_mode, led_pin, esp32hal->LED_MAX_BRIGHTNESS(), esp32hal->LED_COUNT());
 
   return true;
 }
@@ -86,7 +86,7 @@ void LED::exe(void) {
   }
 
   // Update brightness
-  switch (datalayer.battery.status.led_mode) {
+  switch (datalayer.batteries[0].status.led_mode) {
     case led_mode_enum::FLOW:
       flow_run();
       break;
@@ -154,10 +154,10 @@ void LED::classic_run(void) {
 
 void LED::flow_run(void) {
   // Determine how bright the LED should be
-  if (datalayer.battery.status.active_power_W < -50) {
+  if (datalayer.batteries[0].status.active_power_W < -50) {
     // Discharging
     brightness = max_brightness - up_down(950);
-  } else if (datalayer.battery.status.active_power_W > 50) {
+  } else if (datalayer.batteries[0].status.active_power_W > 50) {
     // Charging
     brightness = up_down(950);
   } else {  // Idle

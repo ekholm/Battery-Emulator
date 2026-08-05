@@ -642,18 +642,20 @@ void init_webserver() {
   };
 
   // Route for editing Wh
-  update_int_setting("/updateBatterySize", [](int value) { datalayer.battery.info.total_capacity_Wh = value; });
+  update_int_setting("/updateBatterySize", [](int value) { datalayer.batteries[0].info.total_capacity_Wh = value; });
 
   // Route for editing USE_SCALED_SOC
-  update_int_setting("/updateUseScaledSOC", [](int value) { datalayer.battery.settings.soc_scaling_active = value; });
+  update_int_setting("/updateUseScaledSOC",
+                     [](int value) { datalayer.batteries[0].settings.soc_scaling_active = value; });
 
   // Route for enabling recovery mode charging
-  update_int_setting("/enableRecoveryMode",
-                     [](int value) { datalayer.battery.settings.user_requests_forced_charging_recovery_mode = value; });
+  update_int_setting("/enableRecoveryMode", [](int value) {
+    datalayer.batteries[0].settings.user_requests_forced_charging_recovery_mode = value;
+  });
 
   // Route for editing SOCMax
   update_string_setting("/updateSocMax", [](String value) {
-    datalayer.battery.settings.max_percentage = static_cast<uint16_t>(value.toFloat() * 100);
+    datalayer.batteries[0].settings.max_percentage = static_cast<uint16_t>(value.toFloat() * 100);
   });
 
   // Route for editing CAN ID cutoff filter
@@ -674,14 +676,14 @@ void init_webserver() {
 
   // Route for editing SOC Calibration BYD
   update_string_setting("/editCalTargetSOC", [](String value) {
-    datalayer_extended.bydAtto3.calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
+    datalayer_battery(0).extended.bydAtto3.calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
   });
 
   // Save auto-calibrate enabled flag to RAM + NVM
   def_route_with_auth("/editBydAtto3AutoCalEnabled", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
-      datalayer_extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
+      datalayer_battery(0).extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
       Preferences prefs;
       prefs.begin("batterySettings", false);
       prefs.putBool("BYDAUTOCALEN", enabled);
@@ -695,7 +697,7 @@ void init_webserver() {
     if (request->hasParam("value")) {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
-        datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
+        datalayer_battery(0).extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
         Preferences prefs;
         prefs.begin("batterySettings", false);
         prefs.putUInt("BYDAUTOCALDRIFT", (uint8_t)value);
@@ -707,7 +709,7 @@ void init_webserver() {
 
   // Route for editing AH Calibration BYD
   update_string_setting("/editCalTargetAH", [](String value) {
-    datalayer_extended.bydAtto3.calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
+    datalayer_battery(0).extended.bydAtto3.calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
   });
 
   // Isolation monitor control (RoutineControl 0x2008). One setting, applied to both batteries.
@@ -736,17 +738,17 @@ void init_webserver() {
 
   // Battery 2 auto-calibration routes
   update_string_setting("/editCalTargetSOC2", [](String value) {
-    datalayer_extended.bydAtto3_2.calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
+    datalayer_battery(1).extended.bydAtto3.calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
   });
 
   update_string_setting("/editCalTargetAH2", [](String value) {
-    datalayer_extended.bydAtto3_2.calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
+    datalayer_battery(1).extended.bydAtto3.calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
   });
 
   def_route_with_auth("/editBydAtto3AutoCalEnabled2", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
-      datalayer_extended.bydAtto3_2.auto_calibrate_soc_enabled = enabled;
+      datalayer_battery(1).extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
       Preferences prefs;
       prefs.begin("batterySettings", false);
       prefs.putBool("BYDAUTOCALEN2", enabled);
@@ -759,7 +761,7 @@ void init_webserver() {
     if (request->hasParam("value")) {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
-        datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent = (uint8_t)value;
+        datalayer_battery(1).extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
         Preferences prefs;
         prefs.begin("batterySettings", false);
         prefs.putUInt("BYDAUTOCALDRFT2", (uint8_t)value);
@@ -771,17 +773,17 @@ void init_webserver() {
 
   // Route for editing SOCMin
   update_string_setting("/updateSocMin", [](String value) {
-    datalayer.battery.settings.min_percentage = static_cast<uint16_t>(value.toFloat() * 100);
+    datalayer.batteries[0].settings.min_percentage = static_cast<uint16_t>(value.toFloat() * 100);
   });
 
   // Route for editing MaxChargeA
   update_string_setting("/updateMaxChargeA", [](String value) {
-    datalayer.battery.settings.max_user_set_charge_dA = static_cast<uint16_t>(value.toFloat() * 10);
+    datalayer.batteries[0].settings.max_user_set_charge_dA = static_cast<uint16_t>(value.toFloat() * 10);
   });
 
   // Route for editing MaxDischargeA
   update_string_setting("/updateMaxDischargeA", [](String value) {
-    datalayer.battery.settings.max_user_set_discharge_dA = static_cast<uint16_t>(value.toFloat() * 10);
+    datalayer.batteries[0].settings.max_user_set_discharge_dA = static_cast<uint16_t>(value.toFloat() * 10);
   });
 
   for (const auto& cmd : battery_commands) {
@@ -799,12 +801,12 @@ void init_webserver() {
           if (len > 0) {
             battIndex += (char)data[0];
           }
-          Battery* batt = battery;
+          Battery* batt = batteries[0];
           if (battIndex == "1") {
-            batt = battery2;
+            batt = batteries[1];
           }
           if (battIndex == "2") {
-            batt = battery3;
+            batt = batteries[2];
           }
           if (batt) {
             cmd.action(batt);
@@ -817,52 +819,54 @@ void init_webserver() {
 
   // Route for editing BATTERY_USE_VOLTAGE_LIMITS
   update_int_setting("/updateUseVoltageLimit",
-                     [](int value) { datalayer.battery.settings.user_set_voltage_limits_active = value; });
+                     [](int value) { datalayer.batteries[0].settings.user_set_voltage_limits_active = value; });
 
   // Route for editing MaxChargeVoltage
   update_string_setting("/updateMaxChargeVoltage", [](String value) {
-    datalayer.battery.settings.max_user_set_charge_voltage_dV = static_cast<uint16_t>(value.toFloat() * 10);
+    datalayer.batteries[0].settings.max_user_set_charge_voltage_dV = static_cast<uint16_t>(value.toFloat() * 10);
   });
 
   // Route for editing MaxDischargeVoltage
   update_string_setting("/updateMaxDischargeVoltage", [](String value) {
-    datalayer.battery.settings.max_user_set_discharge_voltage_dV = static_cast<uint16_t>(value.toFloat() * 10);
+    datalayer.batteries[0].settings.max_user_set_discharge_voltage_dV = static_cast<uint16_t>(value.toFloat() * 10);
   });
 
   // Route for editing BMSresetDuration
   update_string_setting("/updateBMSresetDuration", [](String value) {
-    datalayer.battery.settings.user_set_bms_reset_duration_ms = static_cast<uint32_t>(value.toFloat() * 1000);
+    datalayer.batteries[0].settings.user_set_bms_reset_duration_ms = static_cast<uint32_t>(value.toFloat() * 1000);
   });
 
   // Route for editing FakeBatteryVoltage
-  update_string_setting("/updateFakeBatteryVoltage", [](String value) { battery->set_fake_voltage(value.toFloat()); });
+  update_string_setting("/updateFakeBatteryVoltage",
+                        [](String value) { batteries[0]->set_fake_voltage(value.toFloat()); });
 
   // Route for editing balancing enabled
-  update_int_setting("/TeslaBalAct", [](int value) { datalayer.battery.settings.user_requests_balancing = value; });
+  update_int_setting("/TeslaBalAct",
+                     [](int value) { datalayer.batteries[0].settings.user_requests_balancing = value; });
 
   // Route for editing balancing max time
   update_string_setting("/BalTime", [](String value) {
-    datalayer.battery.settings.balancing_max_time_ms = static_cast<uint32_t>(value.toFloat() * 60000);
+    datalayer.batteries[0].settings.balancing_max_time_ms = static_cast<uint32_t>(value.toFloat() * 60000);
   });
 
   // Route for editing balancing max power
   update_string_setting("/BalFloatPower", [](String value) {
-    datalayer.battery.settings.balancing_float_power_W = static_cast<uint16_t>(value.toFloat());
+    datalayer.batteries[0].settings.balancing_float_power_W = static_cast<uint16_t>(value.toFloat());
   });
 
   // Route for editing balancing max pack voltage
   update_string_setting("/BalMaxPackV", [](String value) {
-    datalayer.battery.settings.balancing_max_pack_voltage_dV = static_cast<uint16_t>(value.toFloat() * 10);
+    datalayer.batteries[0].settings.balancing_max_pack_voltage_dV = static_cast<uint16_t>(value.toFloat() * 10);
   });
 
   // Route for editing balancing max cell voltage
   update_string_setting("/BalMaxCellV", [](String value) {
-    datalayer.battery.settings.balancing_max_cell_voltage_mV = static_cast<uint16_t>(value.toFloat());
+    datalayer.batteries[0].settings.balancing_max_cell_voltage_mV = static_cast<uint16_t>(value.toFloat());
   });
 
   // Route for editing balancing max cell voltage deviation
   update_string_setting("/BalMaxDevCellV", [](String value) {
-    datalayer.battery.settings.balancing_max_deviation_cell_voltage_mV = static_cast<uint16_t>(value.toFloat());
+    datalayer.batteries[0].settings.balancing_max_deviation_cell_voltage_mV = static_cast<uint16_t>(value.toFloat());
   });
 
   if (charger) {
@@ -879,7 +883,7 @@ void init_webserver() {
         "/updateChargeSetpointA", [](String value) { datalayer.charger.charger_setpoint_HV_IDC = value.toFloat(); },
         [](String value) {
           float val = value.toFloat();
-          return (val <= CHARGER_MAX_A) && (val <= datalayer.battery.settings.max_user_set_charge_dA) &&
+          return (val <= CHARGER_MAX_A) && (val <= datalayer.batteries[0].settings.max_user_set_charge_dA) &&
                  (val * datalayer.charger.charger_setpoint_HV_VDC <= CHARGER_MAX_POWER);
         });
 
@@ -1079,7 +1083,7 @@ String processor(const String& var) {
     // Close the block
     content += "</div>";
 
-    if (inverter || battery || charger || user_selected_shunt_type != ShuntType::None) {
+    if (inverter || batteries[0] || charger || user_selected_shunt_type != ShuntType::None) {
       // Start a new block with a specific background color
       content += "<div style='background-color: #333; padding: 10px; margin-bottom: 10px; border-radius: 50px'>";
 
@@ -1092,15 +1096,15 @@ String processor(const String& var) {
         content += "</h4>";
       }
 
-      if (battery) {
+      if (batteries[0]) {
         content += "<h4 style='color: white;'>Battery protocol: ";
         content += datalayer.system.info.battery_protocol;
-        if (battery3) {
+        if (batteries[2]) {
           content += " (Triple battery)";
-        } else if (battery2) {
+        } else if (batteries[1]) {
           content += " (Double battery)";
         }
-        if (datalayer.battery.info.chemistry == battery_chemistry_enum::LFP) {
+        if (datalayer.batteries[0].info.chemistry == battery_chemistry_enum::LFP) {
           content += " (LFP)";
         }
         content += "</h4>";
@@ -1122,8 +1126,8 @@ String processor(const String& var) {
       content += "</div>";
     }
 
-    if (battery) {
-      if (battery2) {
+    if (batteries[0]) {
+      if (batteries[1]) {
         // Start a new block with a specific background color. Color changes depending on BMS status
         content += "<div style='display: flex; width: 100%;'>";
         content += "<div style='flex: 1; background-color: ";
@@ -1152,26 +1156,28 @@ String processor(const String& var) {
 
       // Display battery statistics within this block
       float socRealFloat =
-          static_cast<float>(datalayer.battery.status.real_soc) / 100.0f;  // Convert to float and divide by 100
-      float socScaledFloat =
-          static_cast<float>(datalayer.battery.status.reported_soc) / 100.0f;  // Convert to float and divide by 100
+          static_cast<float>(datalayer.batteries[0].status.real_soc) / 100.0f;  // Convert to float and divide by 100
+      float socScaledFloat = static_cast<float>(datalayer.batteries[0].status.reported_soc) /
+                             100.0f;  // Convert to float and divide by 100
       float sohFloat =
-          static_cast<float>(datalayer.battery.status.soh_pptt) / 100.0f;  // Convert to float and divide by 100
+          static_cast<float>(datalayer.batteries[0].status.soh_pptt) / 100.0f;  // Convert to float and divide by 100
       float voltageFloat =
-          static_cast<float>(datalayer.battery.status.voltage_dV) / 10.0f;  // Convert to float and divide by 10
+          static_cast<float>(datalayer.batteries[0].status.voltage_dV) / 10.0f;  // Convert to float and divide by 10
       float currentFloat =
-          static_cast<float>(datalayer.battery.status.current_dA) / 10.0f;  // Convert to float and divide by 10
-      float powerFloat = static_cast<float>(datalayer.battery.status.active_power_W);                // Convert to float
-      float tempMaxFloat = static_cast<float>(datalayer.battery.status.temperature_max_dC) / 10.0f;  // Convert to float
-      float tempMinFloat = static_cast<float>(datalayer.battery.status.temperature_min_dC) / 10.0f;  // Convert to float
+          static_cast<float>(datalayer.batteries[0].status.current_dA) / 10.0f;  // Convert to float and divide by 10
+      float powerFloat = static_cast<float>(datalayer.batteries[0].status.active_power_W);  // Convert to float
+      float tempMaxFloat =
+          static_cast<float>(datalayer.batteries[0].status.temperature_max_dC) / 10.0f;  // Convert to float
+      float tempMinFloat =
+          static_cast<float>(datalayer.batteries[0].status.temperature_min_dC) / 10.0f;  // Convert to float
       float maxCurrentChargeFloat =
-          static_cast<float>(datalayer.battery.status.max_charge_current_dA) / 10.0f;  // Convert to float
+          static_cast<float>(datalayer.batteries[0].status.max_charge_current_dA) / 10.0f;  // Convert to float
       float maxCurrentDischargeFloat =
-          static_cast<float>(datalayer.battery.status.max_discharge_current_dA) / 10.0f;  // Convert to float
+          static_cast<float>(datalayer.batteries[0].status.max_discharge_current_dA) / 10.0f;  // Convert to float
       uint16_t cell_delta_mv =
-          datalayer.battery.status.cell_max_voltage_mV - datalayer.battery.status.cell_min_voltage_mV;
+          datalayer.batteries[0].status.cell_max_voltage_mV - datalayer.batteries[0].status.cell_min_voltage_mV;
 
-      if (datalayer.battery.settings.soc_scaling_active)
+      if (datalayer.batteries[0].settings.soc_scaling_active)
         content += "<h4 style='color: white;'>Scaled SOC: " + String(socScaledFloat, 2) +
                    "&percnt; (real: " + String(socRealFloat, 2) + "&percnt;)</h4>";
       else
@@ -1182,50 +1188,51 @@ String processor(const String& var) {
                  " V &nbsp; Current: " + String(currentFloat, 1) + " A</h4>";
       content += formatPowerValue("Power", powerFloat, "", 1);
 
-      if (datalayer.battery.settings.soc_scaling_active)
+      if (datalayer.batteries[0].settings.soc_scaling_active)
         content += "<h4 style='color: white;'>Scaled total capacity: " +
-                   formatPowerValue(datalayer.battery.info.reported_total_capacity_Wh, "h", 1) +
-                   " (real: " + formatPowerValue(datalayer.battery.info.total_capacity_Wh, "h", 1) + ")</h4>";
+                   formatPowerValue(datalayer.batteries[0].info.reported_total_capacity_Wh, "h", 1) +
+                   " (real: " + formatPowerValue(datalayer.batteries[0].info.total_capacity_Wh, "h", 1) + ")</h4>";
       else
-        content += formatPowerValue("Total capacity", datalayer.battery.info.total_capacity_Wh, "h", 1);
+        content += formatPowerValue("Total capacity", datalayer.batteries[0].info.total_capacity_Wh, "h", 1);
 
-      if (datalayer.battery.settings.soc_scaling_active)
+      if (datalayer.batteries[0].settings.soc_scaling_active)
         content += "<h4 style='color: white;'>Scaled remaining capacity: " +
-                   formatPowerValue(datalayer.battery.status.reported_remaining_capacity_Wh, "h", 1) +
-                   " (real: " + formatPowerValue(datalayer.battery.status.remaining_capacity_Wh, "h", 1) + ")</h4>";
+                   formatPowerValue(datalayer.batteries[0].status.reported_remaining_capacity_Wh, "h", 1) +
+                   " (real: " + formatPowerValue(datalayer.batteries[0].status.remaining_capacity_Wh, "h", 1) +
+                   ")</h4>";
       else
-        content += formatPowerValue("Remaining capacity", datalayer.battery.status.remaining_capacity_Wh, "h", 1);
+        content += formatPowerValue("Remaining capacity", datalayer.batteries[0].status.remaining_capacity_Wh, "h", 1);
 
       if (datalayer.system.info.equipment_stop_active) {
         content +=
-            formatPowerValue("Max discharge power", datalayer.battery.status.max_discharge_power_W, "", 1, "red");
-        content += formatPowerValue("Max charge power", datalayer.battery.status.max_charge_power_W, "", 1, "red");
+            formatPowerValue("Max discharge power", datalayer.batteries[0].status.max_discharge_power_W, "", 1, "red");
+        content += formatPowerValue("Max charge power", datalayer.batteries[0].status.max_charge_power_W, "", 1, "red");
         content += "<h4 style='color: red;'>Max discharge current: " + String(maxCurrentDischargeFloat, 1) + " A</h4>";
         content += "<h4 style='color: red;'>Max charge current: " + String(maxCurrentChargeFloat, 1) + " A</h4>";
       } else {
-        content += formatPowerValue("Max discharge power", datalayer.battery.status.max_discharge_power_W, "", 1);
-        content += formatPowerValue("Max charge power", datalayer.battery.status.max_charge_power_W, "", 1);
+        content += formatPowerValue("Max discharge power", datalayer.batteries[0].status.max_discharge_power_W, "", 1);
+        content += formatPowerValue("Max charge power", datalayer.batteries[0].status.max_charge_power_W, "", 1);
         content += "<h4 style='color: white;'>Max discharge current: " + String(maxCurrentDischargeFloat, 1) + " A";
-        if (datalayer.battery.settings.remote_settings_limit_discharge) {
+        if (datalayer.batteries[0].settings.remote_settings_limit_discharge) {
           content += " (Remote)</h4>";
-        } else if (datalayer.battery.settings.user_settings_limit_discharge) {
+        } else if (datalayer.batteries[0].settings.user_settings_limit_discharge) {
           content += " (Manual)</h4>";
         } else {
           content += " (BMS)</h4>";
         }
         content += "<h4 style='color: white;'>Max charge current: " + String(maxCurrentChargeFloat, 1) + " A";
-        if (datalayer.battery.settings.remote_settings_limit_charge) {
+        if (datalayer.batteries[0].settings.remote_settings_limit_charge) {
           content += " (Remote)</h4>";
-        } else if (datalayer.battery.settings.user_settings_limit_charge) {
+        } else if (datalayer.batteries[0].settings.user_settings_limit_charge) {
           content += " (Manual)</h4>";
         } else {
           content += " (BMS)</h4>";
         }
       }
 
-      content += "<h4>Cell min/max: " + String(datalayer.battery.status.cell_min_voltage_mV) + " mV / " +
-                 String(datalayer.battery.status.cell_max_voltage_mV) + " mV</h4>";
-      if (cell_delta_mv > datalayer.battery.info.max_cell_voltage_deviation_mV) {
+      content += "<h4>Cell min/max: " + String(datalayer.batteries[0].status.cell_min_voltage_mV) + " mV / " +
+                 String(datalayer.batteries[0].status.cell_max_voltage_mV) + " mV</h4>";
+      if (cell_delta_mv > datalayer.batteries[0].info.max_cell_voltage_deviation_mV) {
         content += "<h4 style='color: red;'>Cell delta: " + String(cell_delta_mv) + " mV</h4>";
       } else {
         content += "<h4>Cell delta: " + String(cell_delta_mv) + " mV</h4>";
@@ -1233,9 +1240,9 @@ String processor(const String& var) {
       content += "<h4>Temperature min/max: " + String(tempMinFloat, 1) + " &deg;C / " + String(tempMaxFloat, 1) +
                  " &deg;C</h4>";
 
-      if (battery && battery->supports_real_BMS_status()) {
+      if (batteries[0] && batteries[0]->supports_real_BMS_status()) {
         content += "<h4>Battery BMS status: ";
-        switch (datalayer.battery.status.real_bms_status) {
+        switch (datalayer.batteries[0].status.real_bms_status) {
           case BMS_ACTIVE:
             content += String("OK");
             break;
@@ -1256,11 +1263,11 @@ String processor(const String& var) {
       }
 
       content += "<h4>" +
-                 String(get_charging_status_text(datalayer.battery.status.current_dA,
-                                                 datalayer.battery.settings.inverter_limits_charge,
-                                                 datalayer.battery.settings.inverter_limits_discharge,
-                                                 datalayer.battery.settings.user_settings_limit_charge,
-                                                 datalayer.battery.settings.user_settings_limit_discharge)) +
+                 String(get_charging_status_text(datalayer.batteries[0].status.current_dA,
+                                                 datalayer.batteries[0].settings.inverter_limits_charge,
+                                                 datalayer.batteries[0].settings.inverter_limits_discharge,
+                                                 datalayer.batteries[0].settings.user_settings_limit_charge,
+                                                 datalayer.batteries[0].settings.user_settings_limit_discharge)) +
                  "</h4>";
 
       content += "<h4>System status: ";
@@ -1290,95 +1297,9 @@ String processor(const String& var) {
       // Close the block
       content += "</div>";
 
-      if (battery2) {
-        content += "<div style='flex: 1; background-color: ";
-        switch (datalayer.system.status.system_status) {
-          case ACTIVE:
-            content += "#2D3F2F;";
-            break;
-          case FAULT:
-            content += "#A70107;";
-            break;
-          default:
-            content += "#2D3F2F;";
-            break;
-        }
-        // Add the common style properties
-        content += "padding: 10px; margin-bottom: 10px; border-radius: 50px;'>";
-
-        // Display battery statistics within this block
-        socRealFloat =
-            static_cast<float>(datalayer.battery2.status.real_soc) / 100.0f;  // Convert to float and divide by 100
-        //socScaledFloat; // Same value used for bat2
-        sohFloat =
-            static_cast<float>(datalayer.battery2.status.soh_pptt) / 100.0f;  // Convert to float and divide by 100
-        voltageFloat =
-            static_cast<float>(datalayer.battery2.status.voltage_dV) / 10.0f;  // Convert to float and divide by 10
-        currentFloat =
-            static_cast<float>(datalayer.battery2.status.current_dA) / 10.0f;       // Convert to float and divide by 10
-        powerFloat = static_cast<float>(datalayer.battery2.status.active_power_W);  // Convert to float
-        tempMaxFloat = static_cast<float>(datalayer.battery2.status.temperature_max_dC) / 10.0f;  // Convert to float
-        tempMinFloat = static_cast<float>(datalayer.battery2.status.temperature_min_dC) / 10.0f;  // Convert to float
-        cell_delta_mv = datalayer.battery2.status.cell_max_voltage_mV - datalayer.battery2.status.cell_min_voltage_mV;
-
-        if (datalayer.battery.settings.soc_scaling_active)
-          content += "<h4 style='color: white;'>Scaled SOC: " + String(socScaledFloat, 2) +
-                     "&percnt; (real: " + String(socRealFloat, 2) + "&percnt;)</h4>";
-        else
-          content += "<h4 style='color: white;'>SOC: " + String(socRealFloat, 2) + "&percnt;</h4>";
-
-        content += "<h4 style='color: white;'>SOH: " + String(sohFloat, 2) + "&percnt;</h4>";
-        content += "<h4 style='color: white;'>Voltage: " + String(voltageFloat, 1) +
-                   " V &nbsp; Current: " + String(currentFloat, 1) + " A</h4>";
-        content += formatPowerValue("Power", powerFloat, "", 1);
-
-        if (datalayer.battery.settings.soc_scaling_active)
-          content += "<h4 style='color: white;'>Scaled total capacity: " +
-                     formatPowerValue(datalayer.battery2.info.reported_total_capacity_Wh, "h", 1) +
-                     " (real: " + formatPowerValue(datalayer.battery2.info.total_capacity_Wh, "h", 1) + ")</h4>";
-        else
-          content += formatPowerValue("Total capacity", datalayer.battery2.info.total_capacity_Wh, "h", 1);
-
-        if (datalayer.battery.settings.soc_scaling_active)
-          content += "<h4 style='color: white;'>Scaled remaining capacity: " +
-                     formatPowerValue(datalayer.battery2.status.reported_remaining_capacity_Wh, "h", 1) +
-                     " (real: " + formatPowerValue(datalayer.battery2.status.remaining_capacity_Wh, "h", 1) + ")</h4>";
-        else
-          content += formatPowerValue("Remaining capacity", datalayer.battery2.status.remaining_capacity_Wh, "h", 1);
-
-        if (datalayer.system.info.equipment_stop_active) {
-          content +=
-              formatPowerValue("Max discharge power", datalayer.battery2.status.max_discharge_power_W, "", 1, "red");
-          content += formatPowerValue("Max charge power", datalayer.battery2.status.max_charge_power_W, "", 1, "red");
-          content +=
-              "<h4 style='color: red;'>Max discharge current: " + String(maxCurrentDischargeFloat, 1) + " A</h4>";
-          content += "<h4 style='color: red;'>Max charge current: " + String(maxCurrentChargeFloat, 1) + " A</h4>";
-        } else {
-          content += formatPowerValue("Max discharge power", datalayer.battery2.status.max_discharge_power_W, "", 1);
-          content += formatPowerValue("Max charge power", datalayer.battery2.status.max_charge_power_W, "", 1);
-          content +=
-              "<h4 style='color: white;'>Max discharge current: " + String(maxCurrentDischargeFloat, 1) + " A</h4>";
-          content += "<h4 style='color: white;'>Max charge current: " + String(maxCurrentChargeFloat, 1) + " A</h4>";
-        }
-
-        content += "<h4>Cell min/max: " + String(datalayer.battery2.status.cell_min_voltage_mV) + " mV / " +
-                   String(datalayer.battery2.status.cell_max_voltage_mV) + " mV</h4>";
-        if (cell_delta_mv > datalayer.battery2.info.max_cell_voltage_deviation_mV) {
-          content += "<h4 style='color: red;'>Cell delta: " + String(cell_delta_mv) + " mV</h4>";
-        } else {
-          content += "<h4>Cell delta: " + String(cell_delta_mv) + " mV</h4>";
-        }
-        content += "<h4>Temperature min/max: " + String(tempMinFloat, 1) + " &deg;C / " + String(tempMaxFloat, 1) +
-                   " &deg;C</h4>";
-        if (datalayer.battery2.status.current_dA == 0) {
-          content += "<h4>Battery idle</h4>";
-        } else if (datalayer.battery2.status.current_dA < 0) {
-          content += "<h4>Battery discharging!</h4>";
-        } else {  // > 0
-          content += "<h4>Battery charging!</h4>";
-        }
-        content += "</div>";
-        if (battery3) {
+      if (batteries[1]) {
+        for (int i = 1; i < MAX_BATTERIES && batteries[i]; i++) {
+          auto& dl = datalayer_battery(i);
           content += "<div style='flex: 1; background-color: ";
           switch (datalayer.system.status.system_status) {
             case ACTIVE:
@@ -1395,21 +1316,17 @@ String processor(const String& var) {
           content += "padding: 10px; margin-bottom: 10px; border-radius: 50px;'>";
 
           // Display battery statistics within this block
-          socRealFloat =
-              static_cast<float>(datalayer.battery3.status.real_soc) / 100.0f;  // Convert to float and divide by 100
+          socRealFloat = static_cast<float>(dl.status.real_soc) / 100.0f;  // Convert to float and divide by 100
           //socScaledFloat; // Same value used for bat2
-          sohFloat =
-              static_cast<float>(datalayer.battery3.status.soh_pptt) / 100.0f;  // Convert to float and divide by 100
-          voltageFloat =
-              static_cast<float>(datalayer.battery3.status.voltage_dV) / 10.0f;  // Convert to float and divide by 10
-          currentFloat =
-              static_cast<float>(datalayer.battery3.status.current_dA) / 10.0f;  // Convert to float and divide by 10
-          powerFloat = static_cast<float>(datalayer.battery3.status.active_power_W);                // Convert to float
-          tempMaxFloat = static_cast<float>(datalayer.battery3.status.temperature_max_dC) / 10.0f;  // Convert to float
-          tempMinFloat = static_cast<float>(datalayer.battery3.status.temperature_min_dC) / 10.0f;  // Convert to float
-          cell_delta_mv = datalayer.battery3.status.cell_max_voltage_mV - datalayer.battery3.status.cell_min_voltage_mV;
+          sohFloat = static_cast<float>(dl.status.soh_pptt) / 100.0f;       // Convert to float and divide by 100
+          voltageFloat = static_cast<float>(dl.status.voltage_dV) / 10.0f;  // Convert to float and divide by 10
+          currentFloat = static_cast<float>(dl.status.current_dA) / 10.0f;  // Convert to float and divide by 10
+          powerFloat = static_cast<float>(dl.status.active_power_W);        // Convert to float
+          tempMaxFloat = static_cast<float>(dl.status.temperature_max_dC) / 10.0f;  // Convert to float
+          tempMinFloat = static_cast<float>(dl.status.temperature_min_dC) / 10.0f;  // Convert to float
+          cell_delta_mv = dl.status.cell_max_voltage_mV - dl.status.cell_min_voltage_mV;
 
-          if (datalayer.battery.settings.soc_scaling_active)
+          if (datalayer.batteries[0].settings.soc_scaling_active)
             content += "<h4 style='color: white;'>Scaled SOC: " + String(socScaledFloat, 2) +
                        "&percnt; (real: " + String(socRealFloat, 2) + "&percnt;)</h4>";
           else
@@ -1420,56 +1337,56 @@ String processor(const String& var) {
                      " V &nbsp; Current: " + String(currentFloat, 1) + " A</h4>";
           content += formatPowerValue("Power", powerFloat, "", 1);
 
-          if (datalayer.battery.settings.soc_scaling_active)
+          if (datalayer.batteries[0].settings.soc_scaling_active)
             content += "<h4 style='color: white;'>Scaled total capacity: " +
-                       formatPowerValue(datalayer.battery3.info.reported_total_capacity_Wh, "h", 1) +
-                       " (real: " + formatPowerValue(datalayer.battery3.info.total_capacity_Wh, "h", 1) + ")</h4>";
+                       formatPowerValue(dl.info.reported_total_capacity_Wh, "h", 1) +
+                       " (real: " + formatPowerValue(dl.info.total_capacity_Wh, "h", 1) + ")</h4>";
           else
-            content += formatPowerValue("Total capacity", datalayer.battery3.info.total_capacity_Wh, "h", 1);
+            content += formatPowerValue("Total capacity", dl.info.total_capacity_Wh, "h", 1);
 
-          if (datalayer.battery.settings.soc_scaling_active)
+          if (datalayer.batteries[0].settings.soc_scaling_active)
             content += "<h4 style='color: white;'>Scaled remaining capacity: " +
-                       formatPowerValue(datalayer.battery3.status.reported_remaining_capacity_Wh, "h", 1) +
-                       " (real: " + formatPowerValue(datalayer.battery3.status.remaining_capacity_Wh, "h", 1) +
-                       ")</h4>";
+                       formatPowerValue(dl.status.reported_remaining_capacity_Wh, "h", 1) +
+                       " (real: " + formatPowerValue(dl.status.remaining_capacity_Wh, "h", 1) + ")</h4>";
           else
-            content += formatPowerValue("Remaining capacity", datalayer.battery3.status.remaining_capacity_Wh, "h", 1);
+            content += formatPowerValue("Remaining capacity", dl.status.remaining_capacity_Wh, "h", 1);
 
           if (datalayer.system.info.equipment_stop_active) {
-            content +=
-                formatPowerValue("Max discharge power", datalayer.battery3.status.max_discharge_power_W, "", 1, "red");
-            content += formatPowerValue("Max charge power", datalayer.battery3.status.max_charge_power_W, "", 1, "red");
+            content += formatPowerValue("Max discharge power", dl.status.max_discharge_power_W, "", 1, "red");
+            content += formatPowerValue("Max charge power", dl.status.max_charge_power_W, "", 1, "red");
             content +=
                 "<h4 style='color: red;'>Max discharge current: " + String(maxCurrentDischargeFloat, 1) + " A</h4>";
             content += "<h4 style='color: red;'>Max charge current: " + String(maxCurrentChargeFloat, 1) + " A</h4>";
           } else {
-            content += formatPowerValue("Max discharge power", datalayer.battery3.status.max_discharge_power_W, "", 1);
-            content += formatPowerValue("Max charge power", datalayer.battery3.status.max_charge_power_W, "", 1);
+            content += formatPowerValue("Max discharge power", dl.status.max_discharge_power_W, "", 1);
+            content += formatPowerValue("Max charge power", dl.status.max_charge_power_W, "", 1);
             content +=
                 "<h4 style='color: white;'>Max discharge current: " + String(maxCurrentDischargeFloat, 1) + " A</h4>";
             content += "<h4 style='color: white;'>Max charge current: " + String(maxCurrentChargeFloat, 1) + " A</h4>";
           }
 
-          content += "<h4>Cell min/max: " + String(datalayer.battery3.status.cell_min_voltage_mV) + " mV / " +
-                     String(datalayer.battery3.status.cell_max_voltage_mV) + " mV</h4>";
-          if (cell_delta_mv > datalayer.battery3.info.max_cell_voltage_deviation_mV) {
+          content += "<h4>Cell min/max: " + String(dl.status.cell_min_voltage_mV) + " mV / " +
+                     String(dl.status.cell_max_voltage_mV) + " mV</h4>";
+          if (cell_delta_mv > dl.info.max_cell_voltage_deviation_mV) {
             content += "<h4 style='color: red;'>Cell delta: " + String(cell_delta_mv) + " mV</h4>";
           } else {
             content += "<h4>Cell delta: " + String(cell_delta_mv) + " mV</h4>";
           }
           content += "<h4>Temperature min/max: " + String(tempMinFloat, 1) + " &deg;C / " + String(tempMaxFloat, 1) +
                      " &deg;C</h4>";
-          if (datalayer.battery3.status.current_dA == 0) {
+          if (dl.status.current_dA == 0) {
             content += "<h4>Battery idle</h4>";
-          } else if (datalayer.battery3.status.current_dA < 0) {
+          } else if (dl.status.current_dA < 0) {
             content += "<h4>Battery discharging!</h4>";
           } else {  // > 0
             content += "<h4>Battery charging!</h4>";
           }
           content += "</div>";
-          content += "</div>";
         }
-        content += "</div>";
+        if (batteries[2]) {
+          content += "</div>";  // Closes flex wrapper when all three batteries are present
+        }
+        content += "</div>";  // Closes flex wrapper when only the secondary battery is present
       }
     }
     // Block for Contactor status and component request status
@@ -1494,24 +1411,24 @@ String processor(const String& var) {
     } else {
       content += "<span style='color: red;'>&#10005;</span></h4>";
     }
-    if (battery2) {
+    if (batteries[1]) {
       content += "<h4>Secondary battery allowed to join ";
-      if (datalayer.system.status.battery2_allowed_contactor_closing == true) {
+      if (datalayer.system.status.battery_link[1].allowed_contactor_closing == true) {
         content += "<span>&#10003;</span>";
       } else {
         content += "<span style='color: red;'>&#10005; (voltage mismatch)</span>";
       }
     }
-    if (battery3) {
+    if (batteries[2]) {
       content += "<h4>Third battery allowed to join ";
-      if (datalayer.system.status.battery3_allowed_contactor_closing == true) {
+      if (datalayer.system.status.battery_link[2].allowed_contactor_closing == true) {
         content += "<span>&#10003;</span>";
       } else {
         content += "<span style='color: red;'>&#10005; (voltage mismatch)</span>";
       }
     }
 
-    if (!contactor_control_enabled) {
+    if (!contactor_control_enabled[0]) {
       content += "<div class=\"tooltip\">";
       content += "<h4>Contactors not fully controlled via emulator <span style=\"color:orange\">[?]</span></h4>";
       content +=
@@ -1533,11 +1450,12 @@ String processor(const String& var) {
       } else if (datalayer.system.status.contactors_engaged == 3) {
         content += "<span style='color: orange;'>PRECHARGE</span>";
       }
+      static_assert(MAX_BATTERIES == 3, "add the new instance's contactor UI section");
       content += "</h4></div>";
-      if (contactor_control_enabled_double_battery && battery2) {
+      if (contactor_control_enabled[1] && batteries[1]) {
         content += "<h4>Secondary battery contactor, state: ";
         if (pwm_contactor_control) {
-          if (datalayer.system.status.contactors_battery2_engaged) {
+          if (datalayer.system.status.battery_link[1].contactors_engaged) {
             content += "<span style='color: green;'>Economized</span>";
           } else {
             content += "<span style='color: red;'>OFF</span>";
@@ -1553,10 +1471,10 @@ String processor(const String& var) {
         }  //no PWM_CONTACTOR_CONTROL
         content += "</h4>";
       }
-      if (contactor_control_enabled_triple_battery && battery3) {
+      if (contactor_control_enabled[2] && batteries[2]) {
         content += "<h4>Third battery contactor, state: ";
         if (pwm_contactor_control) {
-          if (datalayer.system.status.contactors_battery3_engaged) {
+          if (datalayer.system.status.battery_link[2].contactors_engaged) {
             content += "<span style='color: green;'>Economized</span>";
           } else {
             content += "<span style='color: red;'>OFF</span>";

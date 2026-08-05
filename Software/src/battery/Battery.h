@@ -2,6 +2,8 @@
 #define BATTERY_H
 
 #include <vector>
+#include "../../src/communication/contactorcontrol/comm_contactorcontrol.h"
+#include "../../src/datalayer/datalayer.h"
 #include "../../src/devboard/utils/types.h"
 #include "../../src/devboard/webserver/BatteryHtmlRenderer.h"
 
@@ -78,6 +80,32 @@ extern battery_chemistry_enum user_selected_battery_chemistry;
 // Defines the interface to call battery specific functionality.
 class Battery {
  public:
+  // The one authority for instance naming, consumed by the factory's and the
+  // contactor setup's user-facing messages alike.
+  static constexpr const char* instance_label[MAX_BATTERIES] = {"Main", "Secondary", "Triple"};
+  static_assert(MAX_BATTERIES == 3, "add the new instance's label");
+
+ protected:
+  // This instance's datalayer entry, injected by every concrete driver's
+  // constructor (defaulted to the primary there). Null until then - no
+  // silent primary fallback, so a driver that forgets to assign fails
+  // loudly instead of quietly reading battery 1.
+  DATALAYER_BATTERY_TYPE* datalayer_battery = nullptr;
+
+ public:
+  // Per-instance NVS setting keys, indexed like datalayer.batteries[].
+  static constexpr const char* const contactor_control_keys[MAX_BATTERIES] = {
+      "CNTCTRL",
+      "CNTCTRLDBL",
+      "CNTCTRLTRI",
+  };
+  static constexpr const char* const can_interface_keys[MAX_BATTERIES] = {
+      "BATTCOMM",
+      "BATT2COMM",
+      "BATT3COMM",
+  };
+  static_assert(MAX_BATTERIES == 3, "extend the per-instance NVS key tables");
+
   virtual void setup(void) = 0;
   virtual void update_values() = 0;
 
@@ -148,6 +176,12 @@ class Battery {
 
   // This allows for battery specific SOC plausibility calculations to be performed.
   virtual bool soc_plausible() { return true; }
+
+  // True when the emulator's GPIO contactor control drives THIS instance's
+  // contactors - drivers must consult their own instance, not the primary's.
+  bool be_controls_contactors() const {
+    return contactor_control_enabled[datalayer_battery_instance(datalayer_battery)];
+  }
 
   // Battery reports total_charged_battery_Wh and total_discharged_battery_Wh
   virtual bool supports_charged_energy() { return false; }

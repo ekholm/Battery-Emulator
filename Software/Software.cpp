@@ -170,7 +170,8 @@ static void filter_charge_taper_soc(void) {
   if (!charge_taper_soc || charge_taper_band_pptt == 0) {
     return;  // Datalayer values pass through untouched
   }
-  uint16_t soc = datalayer.battery.status.reported_soc;  // Computed earlier this cycle in update_calculated_values()
+  uint16_t soc =
+      datalayer.batteries[0].status.reported_soc;  // Computed earlier this cycle in update_calculated_values()
   if (soc > 10000) {
     soc = 10000;  // Defensive: keep (10000 - soc) non-negative if a driver misreports with SOC scaling disabled
   }
@@ -179,21 +180,21 @@ static void filter_charge_taper_soc(void) {
     band = 10000;
   }
   if (soc >= (10000 - band)) {
-    uint32_t charge_W = datalayer.battery.status.max_charge_power_W;
+    uint32_t charge_W = datalayer.batteries[0].status.max_charge_power_W;
 
     /* Apply the effective current cap (remote if active, otherwise user, same
        precedence as update_calculated_values()) to the taper input, so the
        band acts on the limit the inverter actually sees instead of on BMS
        headroom above the cap. Idempotent with the min() applied again in
        filter_inverter_limits() and driver-side by BYD-Modbus. */
-    uint16_t voltage_dV = datalayer.battery.status.voltage_dV;
+    uint16_t voltage_dV = datalayer.batteries[0].status.voltage_dV;
     if (voltage_dV <= 10) {
-      voltage_dV = datalayer.battery.info.max_design_voltage_dV;
+      voltage_dV = datalayer.batteries[0].info.max_design_voltage_dV;
     }
     if (voltage_dV > 10) {
-      uint16_t cap_dA = datalayer.battery.settings.remote_settings_limit_charge
-                            ? datalayer.battery.settings.max_remote_set_charge_dA
-                            : datalayer.battery.settings.max_user_set_charge_dA;
+      uint16_t cap_dA = datalayer.batteries[0].settings.remote_settings_limit_charge
+                            ? datalayer.batteries[0].settings.max_remote_set_charge_dA
+                            : datalayer.batteries[0].settings.max_user_set_charge_dA;
       uint32_t cap_W = ((uint32_t)cap_dA * voltage_dV) / 100;
       if (charge_W > cap_W) {
         charge_W = cap_W;
@@ -215,7 +216,7 @@ static void filter_charge_taper_soc(void) {
       charge_W = charge_taper_floor_W;
     }
 
-    datalayer.battery.status.max_charge_power_W = charge_W;
+    datalayer.batteries[0].status.max_charge_power_W = charge_W;
 
     /* Pull the derived current limit down too, so current-based inverters are
        covered when the low pass filter is disabled. min() only - the
@@ -223,14 +224,14 @@ static void filter_charge_taper_soc(void) {
        raised. */
     if (voltage_dV > 10) {
       uint32_t charge_dA_from_power = (charge_W * 100) / voltage_dV;
-      if (charge_dA_from_power < datalayer.battery.status.max_charge_current_dA) {
-        datalayer.battery.status.max_charge_current_dA = (uint16_t)charge_dA_from_power;
+      if (charge_dA_from_power < datalayer.batteries[0].status.max_charge_current_dA) {
+        datalayer.batteries[0].status.max_charge_current_dA = (uint16_t)charge_dA_from_power;
       }
     }
 
     if (!taper_engaged_logged) {
       logging.printf("Charge power tapering based on SOC engaged at %.1f (real) %.1f (scaled)\n",
-                     datalayer.battery.status.real_soc / 100.0f, soc / 100.0f);
+                     datalayer.batteries[0].status.real_soc / 100.0f, soc / 100.0f);
       taper_engaged_logged = true;
     }
   } else if (soc < (10000 - band - 50)) {  // 0.5% hysteresis before re-arming the log entry
@@ -257,16 +258,17 @@ static void filter_inverter_limits(void) {
      effective range instead of being accelerated by headroom above the cap. Also makes
      runtime cap increases ramp instead of jump. BYD-Modbus applies the same min() again
      driver-side, which is now idempotent. */
-  uint32_t charge_in = datalayer.battery.status.max_charge_power_W;
-  uint32_t discharge_in = datalayer.battery.status.max_discharge_power_W;
-  uint16_t cap_voltage_dV = datalayer.battery.status.voltage_dV;
+  uint32_t charge_in = datalayer.batteries[0].status.max_charge_power_W;
+  uint32_t discharge_in = datalayer.batteries[0].status.max_discharge_power_W;
+  uint16_t cap_voltage_dV = datalayer.batteries[0].status.voltage_dV;
   if (cap_voltage_dV <= 10) {
-    cap_voltage_dV = datalayer.battery.info.max_design_voltage_dV;
+    cap_voltage_dV = datalayer.batteries[0].info.max_design_voltage_dV;
   }
   if (cap_voltage_dV > 10) {
-    uint32_t user_charge_cap_W = ((uint32_t)datalayer.battery.settings.max_user_set_charge_dA * cap_voltage_dV) / 100;
+    uint32_t user_charge_cap_W =
+        ((uint32_t)datalayer.batteries[0].settings.max_user_set_charge_dA * cap_voltage_dV) / 100;
     uint32_t user_discharge_cap_W =
-        ((uint32_t)datalayer.battery.settings.max_user_set_discharge_dA * cap_voltage_dV) / 100;
+        ((uint32_t)datalayer.batteries[0].settings.max_user_set_discharge_dA * cap_voltage_dV) / 100;
     if (charge_in > user_charge_cap_W) {
       charge_in = user_charge_cap_W;
     }
@@ -292,24 +294,24 @@ static void filter_inverter_limits(void) {
       discharge_power_W_filtered = discharge_in;
     }
   }
-  datalayer.battery.status.max_charge_power_W = charge_power_W_filtered;
-  datalayer.battery.status.max_discharge_power_W = discharge_power_W_filtered;
+  datalayer.batteries[0].status.max_charge_power_W = charge_power_W_filtered;
+  datalayer.batteries[0].status.max_discharge_power_W = discharge_power_W_filtered;
 
   /* Cap the derived currents with values from the filtered power. min() logic is used so the
      user/remote/safety clamps already applied to the _dA fields are never raised - both
      are upper bounds. Same voltage fallback logic as in update_calculated_values(). */
-  uint16_t conversion_voltage_dV = datalayer.battery.status.voltage_dV;
+  uint16_t conversion_voltage_dV = datalayer.batteries[0].status.voltage_dV;
   if (conversion_voltage_dV <= 10) {
-    conversion_voltage_dV = datalayer.battery.info.max_design_voltage_dV;
+    conversion_voltage_dV = datalayer.batteries[0].info.max_design_voltage_dV;
   }
   if (conversion_voltage_dV > 10) {
     uint32_t charge_dA_from_power = (charge_power_W_filtered * 100) / conversion_voltage_dV;
     uint32_t discharge_dA_from_power = (discharge_power_W_filtered * 100) / conversion_voltage_dV;
-    if (charge_dA_from_power < datalayer.battery.status.max_charge_current_dA) {
-      datalayer.battery.status.max_charge_current_dA = (uint16_t)charge_dA_from_power;
+    if (charge_dA_from_power < datalayer.batteries[0].status.max_charge_current_dA) {
+      datalayer.batteries[0].status.max_charge_current_dA = (uint16_t)charge_dA_from_power;
     }
-    if (discharge_dA_from_power < datalayer.battery.status.max_discharge_current_dA) {
-      datalayer.battery.status.max_discharge_current_dA = (uint16_t)discharge_dA_from_power;
+    if (discharge_dA_from_power < datalayer.batteries[0].status.max_discharge_current_dA) {
+      datalayer.batteries[0].status.max_discharge_current_dA = (uint16_t)discharge_dA_from_power;
     }
   }
 }
@@ -332,20 +334,15 @@ void update_calculated_values(uint32_t currentMillis) {
   update_remote_limit_expiry(currentMillis);
 
   /* Cap max charge/discharge to the lowest battery's limits */
-  if (battery2) {
-    if (datalayer.battery.status.max_charge_power_W > datalayer.battery2.status.max_charge_power_W) {
-      datalayer.battery.status.max_charge_power_W = datalayer.battery2.status.max_charge_power_W;
+  for (int i = 1; i < MAX_BATTERIES; i++) {
+    if (!batteries[i]) {
+      continue;
     }
-    if (datalayer.battery.status.max_discharge_power_W > datalayer.battery2.status.max_discharge_power_W) {
-      datalayer.battery.status.max_discharge_power_W = datalayer.battery2.status.max_discharge_power_W;
+    if (datalayer.batteries[0].status.max_charge_power_W > datalayer_battery(i).status.max_charge_power_W) {
+      datalayer.batteries[0].status.max_charge_power_W = datalayer_battery(i).status.max_charge_power_W;
     }
-  }
-  if (battery3) {
-    if (datalayer.battery.status.max_charge_power_W > datalayer.battery3.status.max_charge_power_W) {
-      datalayer.battery.status.max_charge_power_W = datalayer.battery3.status.max_charge_power_W;
-    }
-    if (datalayer.battery.status.max_discharge_power_W > datalayer.battery3.status.max_discharge_power_W) {
-      datalayer.battery.status.max_discharge_power_W = datalayer.battery3.status.max_discharge_power_W;
+    if (datalayer.batteries[0].status.max_discharge_power_W > datalayer_battery(i).status.max_discharge_power_W) {
+      datalayer.batteries[0].status.max_discharge_power_W = datalayer_battery(i).status.max_discharge_power_W;
     }
   }
 
@@ -354,96 +351,96 @@ void update_calculated_values(uint32_t currentMillis) {
      max voltage - conservative, since it under-estimates current for a given power. If that is
      also 0 (generic BMS drivers with no user-configured pack voltage, or BMS-reported cutoff
      values before first frame), keep the previous values to avoid div0. */
-  uint16_t conversion_voltage_dV = datalayer.battery.status.voltage_dV;
+  uint16_t conversion_voltage_dV = datalayer.batteries[0].status.voltage_dV;
   if (conversion_voltage_dV <= 10) {
-    conversion_voltage_dV = datalayer.battery.info.max_design_voltage_dV;
+    conversion_voltage_dV = datalayer.batteries[0].info.max_design_voltage_dV;
   }
   if (conversion_voltage_dV > 10) {
-    datalayer.battery.status.max_charge_current_dA =
-        ((datalayer.battery.status.max_charge_power_W * 100) / conversion_voltage_dV);
-    datalayer.battery.status.max_discharge_current_dA =
-        ((datalayer.battery.status.max_discharge_power_W * 100) / conversion_voltage_dV);
+    datalayer.batteries[0].status.max_charge_current_dA =
+        ((datalayer.batteries[0].status.max_charge_power_W * 100) / conversion_voltage_dV);
+    datalayer.batteries[0].status.max_discharge_current_dA =
+        ((datalayer.batteries[0].status.max_discharge_power_W * 100) / conversion_voltage_dV);
   }
 
   /* Apply remote restrictions if set*/
-  if (datalayer.battery.settings.remote_settings_limit_charge) {
-    if (datalayer.battery.status.max_charge_current_dA > datalayer.battery.settings.max_remote_set_charge_dA) {
-      datalayer.battery.status.max_charge_current_dA = datalayer.battery.settings.max_remote_set_charge_dA;
+  if (datalayer.batteries[0].settings.remote_settings_limit_charge) {
+    if (datalayer.batteries[0].status.max_charge_current_dA >
+        datalayer.batteries[0].settings.max_remote_set_charge_dA) {
+      datalayer.batteries[0].status.max_charge_current_dA = datalayer.batteries[0].settings.max_remote_set_charge_dA;
     }
   } else {
     /* Restrict values from user settings if needed*/
-    if (datalayer.battery.status.max_charge_current_dA > datalayer.battery.settings.max_user_set_charge_dA) {
-      datalayer.battery.status.max_charge_current_dA = datalayer.battery.settings.max_user_set_charge_dA;
-      datalayer.battery.settings.user_settings_limit_charge = true;
+    if (datalayer.batteries[0].status.max_charge_current_dA > datalayer.batteries[0].settings.max_user_set_charge_dA) {
+      datalayer.batteries[0].status.max_charge_current_dA = datalayer.batteries[0].settings.max_user_set_charge_dA;
+      datalayer.batteries[0].settings.user_settings_limit_charge = true;
     } else {
-      datalayer.battery.settings.user_settings_limit_charge = false;
+      datalayer.batteries[0].settings.user_settings_limit_charge = false;
     }
   }
 
   /* Apply remote restrictions if set*/
-  if (datalayer.battery.settings.remote_settings_limit_discharge) {
-    if (datalayer.battery.status.max_discharge_current_dA > datalayer.battery.settings.max_remote_set_discharge_dA) {
-      datalayer.battery.status.max_discharge_current_dA = datalayer.battery.settings.max_remote_set_discharge_dA;
+  if (datalayer.batteries[0].settings.remote_settings_limit_discharge) {
+    if (datalayer.batteries[0].status.max_discharge_current_dA >
+        datalayer.batteries[0].settings.max_remote_set_discharge_dA) {
+      datalayer.batteries[0].status.max_discharge_current_dA =
+          datalayer.batteries[0].settings.max_remote_set_discharge_dA;
     }
   } else {
     /* Restrict values from user settings if needed*/
-    if (datalayer.battery.status.max_discharge_current_dA > datalayer.battery.settings.max_user_set_discharge_dA) {
-      datalayer.battery.status.max_discharge_current_dA = datalayer.battery.settings.max_user_set_discharge_dA;
-      datalayer.battery.settings.user_settings_limit_discharge = true;
+    if (datalayer.batteries[0].status.max_discharge_current_dA >
+        datalayer.batteries[0].settings.max_user_set_discharge_dA) {
+      datalayer.batteries[0].status.max_discharge_current_dA =
+          datalayer.batteries[0].settings.max_user_set_discharge_dA;
+      datalayer.batteries[0].settings.user_settings_limit_discharge = true;
     } else {
-      datalayer.battery.settings.user_settings_limit_discharge = false;
+      datalayer.batteries[0].settings.user_settings_limit_discharge = false;
     }
   }
 
   /* Calculate sum of all currents from all batteries. 0 if they are not used*/
-  datalayer.battery.status.reported_current_dA =
-      (datalayer.battery.status.current_dA + datalayer.battery2.status.current_dA +
-       datalayer.battery3.status.current_dA);
+  datalayer.batteries[0].status.reported_current_dA = datalayer.batteries[0].status.current_dA;
+  for (int i = 1; i < MAX_BATTERIES; i++) {
+    datalayer.batteries[0].status.reported_current_dA += datalayer_battery(i).status.current_dA;
+  }
 
   /* Calculate if battery or inverter is limiting factor*/
-  if (datalayer.battery.status.current_dA == 0) {  //Battery idle
-    if (datalayer.battery.status.max_discharge_current_dA > 0) {
+  if (datalayer.batteries[0].status.current_dA == 0) {  //Battery idle
+    if (datalayer.batteries[0].status.max_discharge_current_dA > 0) {
       //We allow discharge, but inverter does nothing. Inverter is limiting
-      datalayer.battery.settings.inverter_limits_discharge = true;
+      datalayer.batteries[0].settings.inverter_limits_discharge = true;
     } else {
-      datalayer.battery.settings.inverter_limits_discharge = false;
+      datalayer.batteries[0].settings.inverter_limits_discharge = false;
     }
-    if (datalayer.battery.status.max_charge_current_dA > 0) {
+    if (datalayer.batteries[0].status.max_charge_current_dA > 0) {
       //We allow charge, but inverter does nothing. Inverter is limiting
-      datalayer.battery.settings.inverter_limits_charge = true;
+      datalayer.batteries[0].settings.inverter_limits_charge = true;
     } else {
-      datalayer.battery.settings.inverter_limits_charge = false;
+      datalayer.batteries[0].settings.inverter_limits_charge = false;
     }
-  } else if (datalayer.battery.status.current_dA < 0) {  //Battery discharging
-    if (-datalayer.battery.status.current_dA < datalayer.battery.status.max_discharge_current_dA) {
-      datalayer.battery.settings.inverter_limits_discharge = true;
+  } else if (datalayer.batteries[0].status.current_dA < 0) {  //Battery discharging
+    if (-datalayer.batteries[0].status.current_dA < datalayer.batteries[0].status.max_discharge_current_dA) {
+      datalayer.batteries[0].settings.inverter_limits_discharge = true;
     } else {
-      datalayer.battery.settings.inverter_limits_discharge = false;
+      datalayer.batteries[0].settings.inverter_limits_discharge = false;
     }
   } else {  // > 0 Battery charging
     //If actual current is smaller than max we allow, inverter is limiting factor
-    if (datalayer.battery.status.current_dA < datalayer.battery.status.max_charge_current_dA) {
-      datalayer.battery.settings.inverter_limits_charge = true;
+    if (datalayer.batteries[0].status.current_dA < datalayer.batteries[0].status.max_charge_current_dA) {
+      datalayer.batteries[0].settings.inverter_limits_charge = true;
     } else {
-      datalayer.battery.settings.inverter_limits_charge = false;
+      datalayer.batteries[0].settings.inverter_limits_charge = false;
     }
   }
 
-  /* Calculate active power based on voltage and current*/
-  datalayer.battery.status.active_power_W =
-      (datalayer.battery.status.current_dA * (datalayer.battery.status.voltage_dV / 100));
-  if (battery2) {
-    /* Calculate active power based on voltage and current for battery 2*/
-    datalayer.battery2.status.active_power_W =
-        (datalayer.battery2.status.current_dA * (datalayer.battery2.status.voltage_dV / 100));
-  }
-  if (battery3) {
-    /* Calculate active power based on voltage and current for battery 2*/
-    datalayer.battery3.status.active_power_W =
-        (datalayer.battery3.status.current_dA * (datalayer.battery3.status.voltage_dV / 100));
+  /* Calculate active power based on voltage and current, for every configured battery */
+  for (int i = 0; i < MAX_BATTERIES; i++) {
+    if (i == 0 || batteries[i]) {
+      datalayer_battery(i).status.active_power_W =
+          (datalayer_battery(i).status.current_dA * (datalayer_battery(i).status.voltage_dV / 100));
+    }
   }
 
-  if (datalayer.battery.settings.soc_scaling_active) {
+  if (datalayer.batteries[0].settings.soc_scaling_active) {
     /** SOC Scaling
    * A static version of a stochastic oscillator. The scaled SoC is calculated as:
    *
@@ -457,89 +454,83 @@ void update_calculated_values(uint32_t currentMillis) {
    *     reported_remaining_capacity_Wh = reported_total_capacity_Wh * scaled_soc / 10000
    */
     // Compute delta_pct and clamped_soc
-    int32_t delta_pct = datalayer.battery.settings.max_percentage - datalayer.battery.settings.min_percentage;
-    int32_t clamped_soc = CONSTRAIN(datalayer.battery.status.real_soc, datalayer.battery.settings.min_percentage,
-                                    datalayer.battery.settings.max_percentage);
+    int32_t delta_pct = datalayer.batteries[0].settings.max_percentage - datalayer.batteries[0].settings.min_percentage;
+    int32_t clamped_soc =
+        CONSTRAIN(datalayer.batteries[0].status.real_soc, datalayer.batteries[0].settings.min_percentage,
+                  datalayer.batteries[0].settings.max_percentage);
     int32_t scaled_soc = 0;
     int32_t scaled_total_capacity = 0;
     if (delta_pct != 0) {  //Safeguard against division by 0
-      scaled_soc = 10000 * (clamped_soc - datalayer.battery.settings.min_percentage) / delta_pct;
+      scaled_soc = 10000 * (clamped_soc - datalayer.batteries[0].settings.min_percentage) / delta_pct;
     }
 
-    datalayer.battery.status.reported_soc = scaled_soc;
+    datalayer.batteries[0].status.reported_soc = scaled_soc;
 
     // If battery info is valid
-    if (datalayer.battery.info.total_capacity_Wh > 0 && datalayer.battery.status.real_soc > 0) {
+    if (datalayer.batteries[0].info.total_capacity_Wh > 0 && datalayer.batteries[0].status.real_soc > 0) {
       // Scale total usable capacity
-      scaled_total_capacity = (datalayer.battery.info.total_capacity_Wh * delta_pct) / 10000;
-      datalayer.battery.info.reported_total_capacity_Wh = scaled_total_capacity;
+      scaled_total_capacity = (datalayer.batteries[0].info.total_capacity_Wh * delta_pct) / 10000;
+      datalayer.batteries[0].info.reported_total_capacity_Wh = scaled_total_capacity;
 
       // Scale remaining capacity based on scaled SOC
-      datalayer.battery.status.reported_remaining_capacity_Wh = (scaled_total_capacity * scaled_soc) / 10000;
+      datalayer.batteries[0].status.reported_remaining_capacity_Wh = (scaled_total_capacity * scaled_soc) / 10000;
 
     } else {
       // Fallback if scaling cannot be performed
-      datalayer.battery.info.reported_total_capacity_Wh = datalayer.battery.info.total_capacity_Wh;
-      datalayer.battery.status.reported_remaining_capacity_Wh = datalayer.battery.status.remaining_capacity_Wh;
+      datalayer.batteries[0].info.reported_total_capacity_Wh = datalayer.batteries[0].info.total_capacity_Wh;
+      datalayer.batteries[0].status.reported_remaining_capacity_Wh =
+          datalayer.batteries[0].status.remaining_capacity_Wh;
     }
 
-    if (battery2) {
+    // Pre-existing asymmetry preserved: this scaled branch aggregates only the
+    // SECOND battery; battery 3 is absent here (present in the unscaled branch
+    // below). Kept verbatim - flagged for its own fix, not smuggled into a
+    // refactor. Indexed access only, no behavior change.
+    if (batteries[1]) {
       // If battery info is valid
-      if (datalayer.battery2.info.total_capacity_Wh > 0 && datalayer.battery.status.real_soc > 0) {
+      if (datalayer_battery(1).info.total_capacity_Wh > 0 && datalayer.batteries[0].status.real_soc > 0) {
 
-        datalayer.battery2.info.reported_total_capacity_Wh = scaled_total_capacity;
+        datalayer_battery(1).info.reported_total_capacity_Wh = scaled_total_capacity;
         // Scale remaining capacity based on scaled SOC
-        datalayer.battery2.status.reported_remaining_capacity_Wh = (scaled_total_capacity * scaled_soc) / 10000;
+        datalayer_battery(1).status.reported_remaining_capacity_Wh = (scaled_total_capacity * scaled_soc) / 10000;
 
       } else {
         // Fallback if scaling cannot be performed
-        datalayer.battery2.info.reported_total_capacity_Wh = datalayer.battery2.info.total_capacity_Wh;
-        datalayer.battery2.status.reported_remaining_capacity_Wh = datalayer.battery2.status.remaining_capacity_Wh;
+        datalayer_battery(1).info.reported_total_capacity_Wh = datalayer_battery(1).info.total_capacity_Wh;
+        datalayer_battery(1).status.reported_remaining_capacity_Wh = datalayer_battery(1).status.remaining_capacity_Wh;
       }
 
       //Since we are running double battery, the scaled value of battery1 becomes the sum of battery1+battery2
       //This way the inverter connected to the system sees both batteries as one large battery
-      datalayer.battery.info.reported_total_capacity_Wh += datalayer.battery2.info.reported_total_capacity_Wh;
-      datalayer.battery.status.reported_remaining_capacity_Wh +=
-          datalayer.battery2.status.reported_remaining_capacity_Wh;
+      datalayer.batteries[0].info.reported_total_capacity_Wh += datalayer_battery(1).info.reported_total_capacity_Wh;
+      datalayer.batteries[0].status.reported_remaining_capacity_Wh +=
+          datalayer_battery(1).status.reported_remaining_capacity_Wh;
     }
 
   } else {  // soc_scaling_active == false. No SOC window wanted. Set scaled SOC & capacity to same as real.
-    datalayer.battery.status.reported_soc = datalayer.battery.status.real_soc;
+    datalayer.batteries[0].status.reported_soc = datalayer.batteries[0].status.real_soc;
 
-    datalayer.battery.status.reported_remaining_capacity_Wh = datalayer.battery.status.remaining_capacity_Wh;
-    datalayer.battery.info.reported_total_capacity_Wh = datalayer.battery.info.total_capacity_Wh;
+    datalayer.batteries[0].status.reported_remaining_capacity_Wh = datalayer.batteries[0].status.remaining_capacity_Wh;
+    datalayer.batteries[0].info.reported_total_capacity_Wh = datalayer.batteries[0].info.total_capacity_Wh;
 
-    if (battery2) {
-      datalayer.battery.status.reported_remaining_capacity_Wh =
-          datalayer.battery.status.remaining_capacity_Wh + datalayer.battery2.status.remaining_capacity_Wh;
-      datalayer.battery.info.reported_total_capacity_Wh =
-          datalayer.battery.info.total_capacity_Wh + datalayer.battery2.info.total_capacity_Wh;
-    }
-    if (battery3) {
-      datalayer.battery.status.reported_remaining_capacity_Wh = datalayer.battery.status.remaining_capacity_Wh +
-                                                                datalayer.battery2.status.remaining_capacity_Wh +
-                                                                datalayer.battery3.status.remaining_capacity_Wh;
-      datalayer.battery.info.reported_total_capacity_Wh = datalayer.battery.info.total_capacity_Wh +
-                                                          datalayer.battery2.info.total_capacity_Wh +
-                                                          datalayer.battery3.info.total_capacity_Wh;
+    for (int i = 1; i < MAX_BATTERIES; i++) {
+      if (batteries[i]) {
+        datalayer.batteries[0].status.reported_remaining_capacity_Wh +=
+            datalayer_battery(i).status.remaining_capacity_Wh;
+        datalayer.batteries[0].info.reported_total_capacity_Wh += datalayer_battery(i).info.total_capacity_Wh;
+      }
     }
   }
 
-  datalayer.battery2.status.reported_soc =
-      datalayer.battery2.status.real_soc;  //For screen to display correct SOC of battery 2
-  datalayer.battery3.status.reported_soc =
-      datalayer.battery3.status.real_soc;  //For screen to display correct SOC of battery 3
+  for (int i = 1; i < MAX_BATTERIES; i++) {
+    // For screen to display the correct SOC of each extra battery
+    datalayer_battery(i).status.reported_soc = datalayer_battery(i).status.real_soc;
 
-  //Check each extra battery, and if they are at the extremes, report the SOC from these batteries instead
-  if (battery2 && datalayer.system.status.battery2_allowed_contactor_closing) {  //Battery2 is in the mix
-    if ((datalayer.battery2.status.real_soc < 100) || (datalayer.battery2.status.real_soc > 9900)) {
-      datalayer.battery.status.reported_soc = datalayer.battery2.status.real_soc;
-    }
-  }
-  if (battery3 && datalayer.system.status.battery3_allowed_contactor_closing) {  //Battery3 is in the mix
-    if ((datalayer.battery3.status.real_soc < 100) || (datalayer.battery3.status.real_soc > 9900)) {
-      datalayer.battery.status.reported_soc = datalayer.battery3.status.real_soc;
+    // If an extra battery in the mix is at the extremes, report ITS SOC instead
+    if (batteries[i] && datalayer.system.status.battery_link[i].allowed_contactor_closing) {
+      if ((datalayer_battery(i).status.real_soc < 100) || (datalayer_battery(i).status.real_soc > 9900)) {
+        datalayer.batteries[0].status.reported_soc = datalayer_battery(i).status.real_soc;
+      }
     }
   }
 }
@@ -630,10 +621,10 @@ void core_loop(void*) {
       led_exe();
       handle_contactors();  // Take care of startup precharge/contactor closing
       if (precharge_control_enabled) {
-        handle_precharge_control(currentMillis);  //Drive the hia4v1 via PWM
+        handle_precharge_control(currentMillis, 0);  //Drive the hia4v1 via PWM
       }
-      if (battery) {
-        battery->handle_precharge();
+      if (batteries[0]) {
+        batteries[0]->handle_precharge();
       }
       END_TIME_MEASUREMENT_MAX(10ms, datalayer.system.status.time_10ms_us);
     }
@@ -643,18 +634,16 @@ void core_loop(void*) {
       START_TIME_MEASUREMENT(values);
       update_pause_state();  // Check if we are OK to send CAN or need to pause
 
-      // Fetch battery values
-      if (battery) {
-        battery->update_values();
-      }
-
-      if (battery2) {
-        battery2->update_values();
-        check_parallel_battery_safety(2);
-      }
-      if (battery3) {
-        battery3->update_values();
-        check_parallel_battery_safety(3);
+      // Fetch battery values; every non-primary instance also runs the
+      // parallel-pack safety checks against the primary.
+      for (int i = 0; i < MAX_BATTERIES; i++) {
+        if (!batteries[i]) {
+          continue;
+        }
+        batteries[i]->update_values();
+        if (i > 0) {
+          check_parallel_battery_safety(i + 1);
+        }
       }
       update_calculated_values(currentMillis);
       update_machineryprotection();  // Check safeties
@@ -764,7 +753,7 @@ void setup() {
      runtime regardless of stored settings, and restrict the start SOC to
      50-85% (band 1500-5000 pptt) for them. The settings UI reflects this by
      rendering the checkbox checked and disabled. */
-  if (battery && battery->mandatory_charge_taper()) {
+  if (batteries[0] && batteries[0]->mandatory_charge_taper()) {
     if (!charge_taper_soc) {
       charge_taper_soc = true;
       logging.println("Charge power tapering based on SOC is mandatory for this battery type, enabling");

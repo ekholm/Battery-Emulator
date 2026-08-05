@@ -60,9 +60,7 @@
 #include "VOLVO-SPA-BATTERY.h"
 #include "VOLVO-SPA-HYBRID-BATTERY.h"
 
-Battery* battery = nullptr;
-Battery* battery2 = nullptr;
-Battery* battery3 = nullptr;
+Battery* batteries[MAX_BATTERIES] = {};  // value-initialized: all null for any MAX_BATTERIES
 
 std::vector<BatteryType> supported_battery_types() {
   std::vector<BatteryType> types;
@@ -222,118 +220,140 @@ BatteryType user_selected_battery_type = BatteryType::None;
 bool user_selected_second_battery = false;
 bool user_selected_triple_battery = false;
 
-Battery* create_battery(BatteryType type) {
+// One construction switch for every instance. instance 0 = primary (the
+// default-constructor form, wired to the primary globals); instance 1..2 =
+// extra batteries via the injected-instance constructors. Types without a
+// secondary form return nullptr for instance > 0.
+Battery* create_battery(BatteryType type, int instance) {
+  // Every driver has ONE constructor with defaulted parameters, so the
+  // primary is just instance 0's arguments: its own datalayer entry and the
+  // primary CAN interface. No per-case primary/secondary split remains.
+  DATALAYER_BATTERY_TYPE* dl = &datalayer_battery(instance);
+  CAN_Interface can = can_config.batteries[instance];
+  // Core-permits flag for this instance (primary constructions ignore it -
+  // their merged ctors derive the primary wiring).
+  bool* acc = &datalayer.system.status.battery_link[instance].allowed_contactor_closing;
+  (void)acc;
   switch (type) {
     case BatteryType::None:
       return nullptr;
     case BatteryType::BmwI3:
-      return new BmwI3Battery();
+      // The wakeup pin is per-instance and the boards provide exactly two -
+      // a third instance has no pin, so it fails closed here as well as at
+      // the battery_supports_triple() gate.
+      return instance <= 1 ? new BmwI3Battery(dl, acc, can, instance == 0 ? esp32hal->WUP_PIN1() : esp32hal->WUP_PIN2())
+                           : nullptr;
     case BatteryType::BmwIX:
-      return new BmwIXBattery();
+      return new BmwIXBattery(dl, can);
     case BatteryType::BmwPhev:
-      return new BmwPhevBattery();
+      return new BmwPhevBattery(dl, can);
     case BatteryType::BoltAmpera:
-      return new BoltAmperaBattery();
+      return new BoltAmperaBattery(dl, can);
     case BatteryType::BydAtto3:
-      return new BydAttoBattery();
+      // Only two extended-data instances exist (bydAtto3, bydAtto3_2) - a
+      // third battery would alias the second's, so it fails closed here as
+      // well as at the battery_supports_triple() gate.
+      return instance <= 1 ? new BydAttoBattery(dl, &dl->extended.bydAtto3, can) : nullptr;
     case BatteryType::CellPowerBms:
-      return new CellPowerBms();
+      return new CellPowerBms(dl, can);
     case BatteryType::Chademo:
-      return new ChademoBattery();
+      return new ChademoBattery(dl, can);
     case BatteryType::CmfaEv:
-      return new CmfaEvBattery();
+      return new CmfaEvBattery(dl, can);
     case BatteryType::CmpSmartCar:
-      return new CmpSmartCarBattery();
+      return new CmpSmartCarBattery(dl, can);
     case BatteryType::EnnoidBMS:
-      return new EnnoidBms();
+      return new EnnoidBms(dl, can);
     case BatteryType::FordMachE:
-      return new FordMachEBattery();
+      return new FordMachEBattery(dl, can);
     case BatteryType::Foxess:
-      return new FoxessBattery();
+      return new FoxessBattery(dl, can);
     case BatteryType::GeelyGeometryC:
-      return new GeelyGeometryCBattery();
+      return new GeelyGeometryCBattery(dl, can);
     case BatteryType::GrowattHvArk:
-      return new GrowattHvArkBattery();
+      return new GrowattHvArkBattery(dl, can);
     case BatteryType::HyundaiIoniq28:
-      return new HyundaiIoniq28Battery();
+      return new HyundaiIoniq28Battery(dl, can);
     case BatteryType::OrionBms:
-      return new OrionBms();
+      return new OrionBms(dl, can);
     case BatteryType::Sono:
-      return new SonoBattery();
+      return new SonoBattery(dl, can);
     case BatteryType::StellantisEcmp:
-      return new EcmpBattery();
+      return new EcmpBattery(dl, can);
     case BatteryType::ImievCZeroIon:
-      return new ImievCZeroIonBattery();
+      return new ImievCZeroIonBattery(dl, can);
     case BatteryType::JaguarIpace:
-      return new JaguarIpaceBattery();
+      return new JaguarIpaceBattery(dl, can);
     case BatteryType::Kia64FD:
-      return new Kia64FDBattery();
+      return new Kia64FDBattery(dl, can);
     case BatteryType::KiaEGmp:
-      return new KiaEGmpBattery();
+      return new KiaEGmpBattery(dl, can);
     case BatteryType::KiaHyundai64:
-      return new KiaHyundai64Battery();
+      return new KiaHyundai64Battery(dl, acc, can);
     case BatteryType::KiaHyundaiHybrid:
-      return new KiaHyundaiHybridBattery();
+      return new KiaHyundaiHybridBattery(dl, can);
     case BatteryType::Meb:
-      return new MebBattery();
+      return new MebBattery(dl, can);
     case BatteryType::VAGMqbEvo:
-      return new MqbEvoBattery();
+      return new MqbEvoBattery(dl, can);
 #ifndef SMALL_FLASH_DEVICE
     case BatteryType::Mg5:
-      return new Mg5Battery();
+      return new Mg5Battery(dl, can);
 #endif
     case BatteryType::MgGen1:
-      return new MgGen1Battery();
+      return new MgGen1Battery(dl, can, acc);
+    case BatteryType::MgHsPhev:
+      return new MgHsPHEVBattery(dl, can);
     case BatteryType::NissanLeaf:
-      return new NissanLeafBattery();
+      return new NissanLeafBattery(dl, can);
     case BatteryType::Pylon:
-      return new PylonBattery();
+      return new PylonBattery(dl, nullptr, can);
     case BatteryType::DalyBms:
-      return new DalyBms();
+      return instance == 0 ? new DalyBms() : nullptr;
     case BatteryType::RjxzsBms:
-      return new RjxzsBms();
+      return new RjxzsBms(dl, can);
     case BatteryType::RangeRoverPhev:
-      return new RangeRoverPhevBattery();
+      return new RangeRoverPhevBattery(dl, can);
     case BatteryType::RelionBattery:
-      return new RelionBattery();
+      return new RelionBattery(dl, can, acc);
     case BatteryType::RenaultKangoo:
-      return new RenaultKangooBattery();
+      return new RenaultKangooBattery(dl, can);
     case BatteryType::RenaultTwizy:
-      return new RenaultTwizyBattery();
+      return new RenaultTwizyBattery(dl, can);
     case BatteryType::RenaultZoe1:
-      return new RenaultZoeGen1Battery();
+      return new RenaultZoeGen1Battery(dl, can);
     case BatteryType::RenaultZoe2:
-      return new RenaultZoeGen2Battery();
+      return new RenaultZoeGen2Battery(dl, can);
     case BatteryType::RivianBattery:
-      return new RivianBattery();
+      return new RivianBattery(dl, can);
     case BatteryType::SamsungSdiLv:
-      return new SamsungSdiLVBattery();
+      return new SamsungSdiLVBattery(dl, can);
     case BatteryType::SantaFePhev:
-      return new SantaFePhevBattery();
+      return new SantaFePhevBattery(dl, can);
     case BatteryType::SimpBms:
-      return new SimpBmsBattery();
+      return new SimpBmsBattery(dl, can);
     case BatteryType::StellantisSmallWide4x4:
-      return new StellantisSmallWide4x4Battery();
+      return new StellantisSmallWide4x4Battery(dl, can);
     case BatteryType::TeslaModel3Y:
     case BatteryType::TeslaModelSX:
-      return new TeslaBattery();
+      return new TeslaBattery(dl, can);
     case BatteryType::TeslaLegacy:
-      return new TeslaLegacyBattery();
+      return new TeslaLegacyBattery(dl, can);
     case BatteryType::TestFake:
-      return new TestFakeBattery();
+      return new TestFakeBattery(dl, can);
     case BatteryType::ThinkCity:
-      return new ThinkBattery();
+      return new ThinkBattery(dl, can);
     case BatteryType::ThunderstruckBMS:
-      return new ThunderstruckBMS();
+      return new ThunderstruckBMS(dl, can);
     case BatteryType::GeelySea:
-      return new GeelySeaBattery();
+      return new GeelySeaBattery(dl, can);
     case BatteryType::VolvoSpa:
-      return new VolvoSpaBattery();
+      return new VolvoSpaBattery(dl, can);
     case BatteryType::VolvoSpaHybrid:
-      return new VolvoSpaHybridBattery();
+      return new VolvoSpaHybridBattery(dl, nullptr, can);
 #ifndef SMALL_FLASH_DEVICE
     case BatteryType::ChargebyteCCSBattery:
-      return new ChargebyteCCSBattery();
+      return new ChargebyteCCSBattery(dl, can);
 #endif
     default:
       return nullptr;
@@ -342,168 +362,81 @@ Battery* create_battery(BatteryType type) {
 
 // The integrations that can be instantiated a second time on a separate
 // interface. Must match the switch in setup_battery() below.
-bool battery_supports_double(BatteryType type) {
+// Extra-instance support is opt-OUT: with instance-injected datalayer access
+// and instance-owned extended data, any stateless driver can run more than
+// once. The exceptions carry their reason; entries marked "pending de-static"
+// unlock when the driver sheds its file-scope/function-local mutable state.
+static bool battery_supports_extra_instances(BatteryType type) {
   switch (type) {
-    case BatteryType::BoltAmpera:
-    case BatteryType::BydAtto3:
-    case BatteryType::NissanLeaf:
-    case BatteryType::BmwI3:
-    case BatteryType::CmfaEv:
-    case BatteryType::CmpSmartCar:
-    case BatteryType::StellantisEcmp:
-    case BatteryType::KiaHyundai64:
-    case BatteryType::MgGen1:
-    case BatteryType::Pylon:
-    case BatteryType::SantaFePhev:
-    case BatteryType::RelionBattery:
-    case BatteryType::RenaultZoe1:
-    case BatteryType::RenaultZoe2:
-    case BatteryType::TestFake:
-    case BatteryType::TeslaModel3Y:
-    case BatteryType::TeslaModelSX:
-      return true;
-    default:
+    case BatteryType::None:
       return false;
+    case BatteryType::Chademo:               // singleton shunt/CT hardware + heavy static state
+    case BatteryType::JaguarIpace:           // pending de-static (32 file-scope statics)
+    case BatteryType::DalyBms:               // single RS485 transport
+    case BatteryType::TeslaLegacy:           // pending de-static (incl. shared buffers)
+    case BatteryType::Meb:                   // pending de-static (first-call snapshots)
+    case BatteryType::BmwPhev:               // pending de-static
+    case BatteryType::ChargebyteCCSBattery:  // pending de-static
+    case BatteryType::GrowattHvArk:          // pending de-static
+      return false;
+    default:
+      return true;
   }
+}
+
+bool battery_supports_double(BatteryType type) {
+  return battery_supports_extra_instances(type);
+}
+
+bool battery_supports_triple(BatteryType type) {
+  // BmwI3 needs a per-instance wakeup pin and the boards provide two;
+  // BydAtto3 keeps a core-coupled extended struct with only a double variant.
+  return battery_supports_extra_instances(type) && type != BatteryType::BmwI3 && type != BatteryType::BydAtto3;
 }
 
 // The integrations that can be instantiated a third time on a separate
 // interface. Must match the switch in setup_battery() below.
-bool battery_supports_triple(BatteryType type) {
-  switch (type) {
-    case BatteryType::NissanLeaf:
-    case BatteryType::CmfaEv:
-    case BatteryType::StellantisEcmp:
-    case BatteryType::RelionBattery:
-    case BatteryType::TestFake:
-      return true;
-    default:
-      return false;
-  }
-}
 
 void setup_battery() {
-  if (battery) {
+  if (batteries[0]) {
     // Let's not create the battery again.
     return;
   }
 
   // Set the chemistry to the user selected value, the battery can override.
-  datalayer.battery.info.chemistry = user_selected_battery_chemistry;
-  datalayer.battery2.info.chemistry = user_selected_battery_chemistry;
-  datalayer.battery3.info.chemistry = user_selected_battery_chemistry;
-
-  battery = create_battery(user_selected_battery_type);
-
-  if (battery) {
-    battery->setup();
+  for (int i = 0; i < MAX_BATTERIES; i++) {
+    datalayer_battery(i).info.chemistry = user_selected_battery_chemistry;
   }
 
-  if (user_selected_second_battery && !battery2) {
-    if (!battery_supports_double(user_selected_battery_type)) {
-      DEBUG_PRINTF("User tried enabling double battery on non-supported integration!\n");
-    } else {
-      switch (user_selected_battery_type) {
-        case BatteryType::BoltAmpera:
-          battery2 =
-              new BoltAmperaBattery(&datalayer.battery2, &datalayer_extended.boltampera_2, can_config.battery_double);
-          break;
-        case BatteryType::BydAtto3:
-          battery2 = new BydAttoBattery(&datalayer.battery2, &datalayer_extended.bydAtto3_2, can_config.battery_double);
-          break;
-        case BatteryType::NissanLeaf:
-          battery2 =
-              new NissanLeafBattery(&datalayer.battery2, &datalayer_extended.nissanleaf_2, can_config.battery_double);
-          break;
-        case BatteryType::BmwI3:
-          battery2 = new BmwI3Battery(&datalayer.battery2, &datalayer.system.status.battery2_allowed_contactor_closing,
-                                      can_config.battery_double, esp32hal->WUP_PIN2());
-          break;
-        case BatteryType::CmfaEv:
-          battery2 = new CmfaEvBattery(&datalayer.battery2, can_config.battery_double);
-          break;
-        case BatteryType::CmpSmartCar:
-          battery2 = new CmpSmartCarBattery(&datalayer.battery2, can_config.battery_double);
-          break;
-        case BatteryType::StellantisEcmp:
-          battery2 = new EcmpBattery(&datalayer.battery2, can_config.battery_double);
-          break;
-        case BatteryType::KiaHyundai64:
-          battery2 = new KiaHyundai64Battery(&datalayer.battery2, &datalayer_extended.KiaHyundai64_2,
-                                             &datalayer.system.status.battery2_allowed_contactor_closing,
-                                             can_config.battery_double);
-          break;
-        case BatteryType::MgGen1:
-          battery2 = new MgGen1Battery(&datalayer.battery2, can_config.battery_double,
-                                       &datalayer.system.status.battery2_allowed_contactor_closing);
-          break;
-        case BatteryType::Pylon:
-          battery2 = new PylonBattery(&datalayer.battery2, nullptr, can_config.battery_double);
-          break;
-        case BatteryType::SantaFePhev:
-          battery2 = new SantaFePhevBattery(&datalayer.battery2, can_config.battery_double);
-          break;
-        case BatteryType::RelionBattery:
-          battery2 = new RelionBattery(&datalayer.battery2, can_config.battery_double,
-                                       &datalayer.system.status.battery2_allowed_contactor_closing);
-          break;
-        case BatteryType::RenaultZoe1:
-          battery2 = new RenaultZoeGen1Battery(&datalayer.battery2, can_config.battery_double);
-          break;
-        case BatteryType::RenaultZoe2:
-          battery2 = new RenaultZoeGen2Battery(&datalayer.battery2, nullptr, can_config.battery_double);
-          break;
-        case BatteryType::TestFake:
-          battery2 = new TestFakeBattery(&datalayer.battery2, can_config.battery_double);
-          break;
-        case BatteryType::TeslaModel3Y:
-        case BatteryType::TeslaModelSX:
-          battery2 = new TeslaBattery(&datalayer.battery2, can_config.battery_double);
-          break;
-        default:
-          break;
-      }
-    }
+  // The reference pack needs no parallel-join permission - mark it allowed.
+  datalayer.system.status.battery_link[0].allowed_contactor_closing = true;
 
-    if (battery2) {
-      battery2->battery_index = 2;
-      battery2->setup();
+  // One loop constructs every requested instance. The primary has no
+  // request flag and no capability gate; the extras have both.
+  const struct {
+    bool requested;
+    bool (*supported)(BatteryType);
+    static_assert(MAX_BATTERIES == 3, "add the new instance's request flag and capability gate");
+  } wanted[MAX_BATTERIES] = {
+      {true, nullptr},
+      {user_selected_second_battery, battery_supports_double},
+      {user_selected_triple_battery, battery_supports_triple},
+  };
+  for (int i = 0; i < MAX_BATTERIES; i++) {
+    const auto& want = wanted[i];
+    if (!want.requested || batteries[i]) {
+      continue;
     }
-  }
-
-  if (user_selected_triple_battery && !battery3) {
-    if (!battery_supports_triple(user_selected_battery_type)) {
-      DEBUG_PRINTF("User tried enabling triple battery on non-supported integration!\n");
-    } else {
-      switch (user_selected_battery_type) {
-        case BatteryType::NissanLeaf:
-          battery3 =
-              new NissanLeafBattery(&datalayer.battery3, &datalayer_extended.nissanleaf_3, can_config.battery_triple);
-          break;
-        case BatteryType::CmfaEv:
-          battery3 = new CmfaEvBattery(&datalayer.battery3, can_config.battery_triple);
-          break;
-        case BatteryType::CmpSmartCar:
-          battery3 = new CmpSmartCarBattery(&datalayer.battery3, can_config.battery_triple);
-          break;
-        case BatteryType::StellantisEcmp:
-          battery3 = new EcmpBattery(&datalayer.battery3, can_config.battery_triple);
-          break;
-        case BatteryType::RelionBattery:
-          battery3 = new RelionBattery(&datalayer.battery3, can_config.battery_triple,
-                                       &datalayer.system.status.battery3_allowed_contactor_closing);
-          break;
-        case BatteryType::TestFake:
-          battery3 = new TestFakeBattery(&datalayer.battery3, can_config.battery_triple);
-          break;
-        default:
-          break;
-      }
+    if (want.supported && !want.supported(user_selected_battery_type)) {
+      DEBUG_PRINTF("User tried enabling %s battery on non-supported integration!\n", Battery::instance_label[i]);
+      continue;
     }
-
-    if (battery3) {
-      battery3->battery_index = 3;
-      battery3->setup();
+    batteries[i] = create_battery(user_selected_battery_type, i);
+    if (batteries[i]) {
+      // Per-pack events resolve through the index (upstream #2799); the loop
+      // is this branch's replacement for the twins that carried it.
+      batteries[i]->battery_index = i + 1;
+      batteries[i]->setup();
     }
   }
 }

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "../Software/src/battery/BATTERIES.h"
+#include "../Software/src/battery/TEST-FAKE-BATTERY.h"
 #include "../Software/src/communication/contactorcontrol/comm_contactorcontrol.h"
 #include "../Software/src/datalayer/datalayer.h"
 #include "../Software/src/devboard/safety/safety.h"
@@ -15,8 +17,8 @@ const unsigned long bmsWarmupDuration = 3000;
 TEST(BmsResetTests, BmsResetSequenceDirectSuccess) {
   set_millis64(0x100000000ULL - 10);  // Start just below the 32-bit millis() wrap to test overflow handling
   remote_bms_reset = true;
-  contactor_control_enabled = true;
-  datalayer.battery.settings.user_set_bms_reset_duration_ms = 30000;  // 30 seconds
+  contactor_control_enabled[0] = true;
+  datalayer.batteries[0].settings.user_set_bms_reset_duration_ms = 30000;  // 30 seconds
 
   for (int i = 0; i < 10; i++)
     handle_BMSpower();
@@ -79,9 +81,9 @@ TEST(BmsResetTests, BmsResetSequenceDirectSuccess) {
 TEST(BmsResetTests, BmsResetSequenceWaitSuccess) {
   set_millis64(0x100000000ULL - 10);  // Start just below the 32-bit millis() wrap
   remote_bms_reset = true;
-  contactor_control_enabled = false;
-  datalayer.battery.settings.user_set_bms_reset_duration_ms = 30000;  // 30 seconds
-  datalayer.battery.status.current_dA = -50;                          // Simulate battery under load
+  contactor_control_enabled[0] = false;
+  datalayer.batteries[0].settings.user_set_bms_reset_duration_ms = 30000;  // 30 seconds
+  datalayer.batteries[0].status.current_dA = -50;                          // Simulate battery under load
 
   for (int i = 0; i < 10; i++)
     handle_BMSpower();
@@ -97,7 +99,7 @@ TEST(BmsResetTests, BmsResetSequenceWaitSuccess) {
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_WAITING_FOR_PAUSE);
   EXPECT_EQ(emulator_pause_request_ON, true);
 
-  datalayer.battery.status.current_dA = 5;  // Reduce to a tiny load
+  datalayer.batteries[0].status.current_dA = 5;  // Reduce to a tiny load
 
   for (int i = 0; i < 10; i++)
     handle_BMSpower();
@@ -171,16 +173,17 @@ static void setup_periodic_reset_test(uint16_t interval_h) {
   datalayer.system.info.equipment_stop_active = false;
   remote_bms_reset = false;
   periodic_bms_reset = true;
-  contactor_control_enabled = true;  // Lets the reset jump straight to powered off
+  contactor_control_enabled[0] = true;  // Lets the reset jump straight to powered off
   periodic_bms_reset_interval_h = interval_h;
   periodic_bms_reset_defer_low_soc = false;
   periodic_bms_reset_skip_balancing = false;
 
-  datalayer.battery.status.real_soc = 5000;
-  datalayer.battery.status.reported_soc = 5000;
-  datalayer.battery.status.balancing_status = BALANCING_STATUS_READY;
-  datalayer.battery2.status.balancing_status = BALANCING_STATUS_UNKNOWN;
-  datalayer.battery3.status.balancing_status = BALANCING_STATUS_UNKNOWN;
+  datalayer.batteries[0].status.real_soc = 5000;
+  datalayer.batteries[0].status.reported_soc = 5000;
+  datalayer.batteries[0].status.balancing_status = BALANCING_STATUS_READY;
+  for (int i = 1; i < MAX_BATTERIES; i++) {
+    datalayer_battery(i).status.balancing_status = BALANCING_STATUS_UNKNOWN;
+  }
 
   set_millis64(0);
   lastPowerRemovalTime = 0;
@@ -223,7 +226,7 @@ TEST(BmsResetTests, PeriodicBmsResetDeferLowRealSoc) {
 
   // Interval elapsed, but the pack is below 15.00%
   set_millis64(25 * ONE_HOUR_MS);
-  datalayer.battery.status.real_soc = 1400;
+  datalayer.batteries[0].status.real_soc = 1400;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
 
@@ -234,7 +237,7 @@ TEST(BmsResetTests, PeriodicBmsResetDeferLowRealSoc) {
 
   // SOC recovers, the reset runs immediately rather than waiting for the next period
   set_millis64(45 * ONE_HOUR_MS);
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.batteries[0].status.real_soc = 5000;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERED_OFF);
 
@@ -250,11 +253,11 @@ TEST(BmsResetTests, PeriodicBmsResetDeferLowScaledSoc) {
   periodic_bms_reset_defer_low_soc = true;
 
   set_millis64(25 * ONE_HOUR_MS);
-  datalayer.battery.status.reported_soc = 500;
+  datalayer.batteries[0].status.reported_soc = 500;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
 
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.batteries[0].status.reported_soc = 5000;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERED_OFF);
 
@@ -267,8 +270,8 @@ TEST(BmsResetTests, PeriodicBmsResetDeferSocThreshold) {
   periodic_bms_reset_defer_low_soc = true;
 
   set_millis64(25 * ONE_HOUR_MS);
-  datalayer.battery.status.real_soc = 1500;
-  datalayer.battery.status.reported_soc = 1500;
+  datalayer.batteries[0].status.real_soc = 1500;
+  datalayer.batteries[0].status.reported_soc = 1500;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERED_OFF);
 
@@ -280,7 +283,7 @@ TEST(BmsResetTests, PeriodicBmsResetDeferSocThreshold) {
 TEST(BmsResetTests, PeriodicBmsResetSkipBalancingOnePeriodOnly) {
   setup_periodic_reset_test(24);
   periodic_bms_reset_skip_balancing = true;
-  datalayer.battery.status.balancing_status = BALANCING_STATUS_ACTIVE;
+  datalayer.batteries[0].status.balancing_status = BALANCING_STATUS_ACTIVE;
 
   // First occurrence is given up
   set_millis64(25 * ONE_HOUR_MS);
@@ -305,7 +308,7 @@ TEST(BmsResetTests, PeriodicBmsResetSkipBalancingOnePeriodOnly) {
 TEST(BmsResetTests, PeriodicBmsResetBalancingAllowanceRestored) {
   setup_periodic_reset_test(24);
   periodic_bms_reset_skip_balancing = true;
-  datalayer.battery.status.balancing_status = BALANCING_STATUS_ACTIVE;
+  datalayer.batteries[0].status.balancing_status = BALANCING_STATUS_ACTIVE;
 
   set_millis64(25 * ONE_HOUR_MS);
   handle_BMSpower();  // Skipped
@@ -330,7 +333,7 @@ TEST(BmsResetTests, PeriodicBmsResetSkipBalancingSecondBattery) {
   periodic_bms_reset_skip_balancing = true;
 
   set_millis64(25 * ONE_HOUR_MS);
-  datalayer.battery2.status.balancing_status = BALANCING_STATUS_ACTIVE;
+  datalayer_battery(1).status.balancing_status = BALANCING_STATUS_ACTIVE;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
 
@@ -345,14 +348,14 @@ TEST(BmsResetTests, PeriodicBmsResetDeferDoesNotConsumeBalancingAllowance) {
   periodic_bms_reset_skip_balancing = true;
 
   set_millis64(25 * ONE_HOUR_MS);
-  datalayer.battery.status.real_soc = 1000;
-  datalayer.battery.status.balancing_status = BALANCING_STATUS_ACTIVE;
+  datalayer.batteries[0].status.real_soc = 1000;
+  datalayer.batteries[0].status.balancing_status = BALANCING_STATUS_ACTIVE;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
   EXPECT_FALSE(balancingPeriodSkipped);
 
   // SOC recovers while balancing is still active, so the balancing skip applies now
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.batteries[0].status.real_soc = 5000;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
   EXPECT_TRUE(balancingPeriodSkipped);
@@ -365,9 +368,9 @@ TEST(BmsResetTests, PeriodicBmsResetGuardsDisabled) {
   setup_periodic_reset_test(24);
 
   set_millis64(25 * ONE_HOUR_MS);
-  datalayer.battery.status.balancing_status = BALANCING_STATUS_ACTIVE;
-  datalayer.battery.status.real_soc = 100;
-  datalayer.battery.status.reported_soc = 100;
+  datalayer.batteries[0].status.balancing_status = BALANCING_STATUS_ACTIVE;
+  datalayer.batteries[0].status.real_soc = 100;
+  datalayer.batteries[0].status.reported_soc = 100;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERED_OFF);
 
@@ -379,7 +382,10 @@ TEST(BmsResetTests, PeriodicBmsResetGuardsDisabled) {
    EVENT_CAN_BATTERY_MISSING partway through every reset. */
 TEST(BmsResetTests, LongBmsResetHoldsCanAlive) {
   setup_periodic_reset_test(24);
-  datalayer.battery.settings.user_set_bms_reset_duration_ms = 600000;  // 600 seconds, the new maximum
+  // The keepalive only refreshes CONSTRUCTED batteries (the safety layer only
+  // watches those counters), so this test needs a real instance.
+  batteries[0] = new TestFakeBattery(&datalayer.batteries[0], CAN_NATIVE);
+  datalayer.batteries[0].settings.user_set_bms_reset_duration_ms = 600000;  // 600 seconds, the new maximum
 
   set_millis64(25 * ONE_HOUR_MS);
   handle_BMSpower();
@@ -388,35 +394,37 @@ TEST(BmsResetTests, LongBmsResetHoldsCanAlive) {
   unsigned long reset_start = 25 * ONE_HOUR_MS;
 
   // Nothing is refreshed before the first interval is up
-  datalayer.battery.status.CAN_battery_still_alive = 7;
+  datalayer.batteries[0].status.CAN_battery_still_alive = 7;
   set_millis64(reset_start + 58000);
   handle_BMSpower();
-  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 7);
+  EXPECT_EQ(datalayer.batteries[0].status.CAN_battery_still_alive, 7);
 
   // The counter is topped up one second before the window would close, and again
   // on every following interval, so it never reaches zero during the off time.
   for (int interval = 1; interval <= 10; interval++) {
-    datalayer.battery.status.CAN_battery_still_alive = 1;
+    datalayer.batteries[0].status.CAN_battery_still_alive = 1;
     set_millis64(reset_start + interval * 59000);
     handle_BMSpower();
-    EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, CAN_STILL_ALIVE)
+    EXPECT_EQ(datalayer.batteries[0].status.CAN_battery_still_alive, CAN_STILL_ALIVE)
         << "not refreshed at interval " << interval;
     EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERED_OFF);
   }
 
   // Power-on grants a full window from that moment, so a short remainder of the
   // last interval can't leave the BMS with too little time to rejoin the bus.
-  datalayer.battery.status.CAN_battery_still_alive = 1;
+  datalayer.batteries[0].status.CAN_battery_still_alive = 1;
   set_millis64(reset_start + 600000);
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERING_ON);
-  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, CAN_STILL_ALIVE);
+  EXPECT_EQ(datalayer.batteries[0].status.CAN_battery_still_alive, CAN_STILL_ALIVE);
 
   set_millis64(reset_start + 600000 + bmsWarmupDuration + 1000);
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
 
-  datalayer.battery.settings.user_set_bms_reset_duration_ms = 30000;
+  datalayer.batteries[0].settings.user_set_bms_reset_duration_ms = 30000;
+  delete batteries[0];
+  batteries[0] = nullptr;
   teardown_periodic_reset_test();
 }
 
@@ -424,7 +432,7 @@ TEST(BmsResetTests, LongBmsResetHoldsCanAlive) {
 // alive counter is left alone so a genuinely missing BMS is still detected.
 TEST(BmsResetTests, ShortBmsResetLeavesCanAliveAlone) {
   setup_periodic_reset_test(24);
-  datalayer.battery.settings.user_set_bms_reset_duration_ms = 30000;  // 30 seconds
+  datalayer.batteries[0].settings.user_set_bms_reset_duration_ms = 30000;  // 30 seconds
 
   set_millis64(25 * ONE_HOUR_MS);
   handle_BMSpower();
@@ -432,15 +440,15 @@ TEST(BmsResetTests, ShortBmsResetLeavesCanAliveAlone) {
 
   unsigned long reset_start = 25 * ONE_HOUR_MS;
 
-  datalayer.battery.status.CAN_battery_still_alive = 3;
+  datalayer.batteries[0].status.CAN_battery_still_alive = 3;
   set_millis64(reset_start + 20000);
   handle_BMSpower();
-  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 3);
+  EXPECT_EQ(datalayer.batteries[0].status.CAN_battery_still_alive, 3);
 
   set_millis64(reset_start + 31000);
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERING_ON);
-  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 3);
+  EXPECT_EQ(datalayer.batteries[0].status.CAN_battery_still_alive, 3);
 
   teardown_periodic_reset_test();
 }

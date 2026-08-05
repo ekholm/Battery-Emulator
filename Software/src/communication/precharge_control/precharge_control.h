@@ -25,6 +25,9 @@ bool init_precharge_control();
  *
  * @return void
  */
-void handle_precharge_control(unsigned long currentMillis);
+// Drives the external precharge hardware for one battery instance. Only the
+// primary is wired today - callers pass 0 until per-instance precharge
+// hardware exists.
+void handle_precharge_control(unsigned long currentMillis, int instance);
 
 #endif  // _PRECHARGE_CONTROL_H_

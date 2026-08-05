@@ -20,10 +20,9 @@ size_t format_can_frame(char* buffer, size_t len, const CAN_frame& frame, CAN_In
 class CanReceiver;
 
 typedef struct {
-  CAN_Interface battery;
+  // Per-instance battery interfaces, indexed like batteries[] / datalayer_battery(i).
+  CAN_Interface batteries[MAX_BATTERIES];
   CAN_Interface inverter;
-  CAN_Interface battery_double;
-  CAN_Interface battery_triple;
   CAN_Interface charger;
   CAN_Interface shunt;
 } CAN_Configuration;
