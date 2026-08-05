@@ -8,9 +8,12 @@ class GeelyGeometryCBattery : public CanBattery {
  public:
   GeelyGeometryCBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                         CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.geometryC),
+        extended_data(datalayer_ptr->extended.geometryC) {
+    datalayer_ptr->extended_type = ExtendedDataType::GeometryC;
     datalayer_battery = datalayer_ptr;
-    datalayer_geometryc = &extended_data;
+    datalayer_geometryc = &datalayer_ptr->extended.geometryC;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     battery_voltage = primary ? 3700 : 0;
   }
@@ -27,7 +30,7 @@ class GeelyGeometryCBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
-  DATALAYER_INFO_GEELY_GEOMETRY_C extended_data;
+  DATALAYER_INFO_GEELY_GEOMETRY_C& extended_data;
   GeelyGeometryCHtmlRenderer renderer;
   DATALAYER_INFO_GEELY_GEOMETRY_C* datalayer_geometryc;
 

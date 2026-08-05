@@ -8,7 +8,10 @@ class RivianBattery : public CanBattery {
  public:
   RivianBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                 CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.rivian),
+        extended_data(datalayer_ptr->extended.rivian) {
+    datalayer_ptr->extended_type = ExtendedDataType::Rivian;
     datalayer_battery = datalayer_ptr;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     allows_contactor_closing =
@@ -25,7 +28,7 @@ class RivianBattery : public CanBattery {
  private:
   bool* allows_contactor_closing;
 
-  DATALAYER_INFO_RIVIAN extended_data;
+  DATALAYER_INFO_RIVIAN& extended_data;
   RivianHtmlRenderer renderer;
   uint8_t calculateCRC(CAN_frame rx_frame, uint8_t length, uint8_t initial_value);
 

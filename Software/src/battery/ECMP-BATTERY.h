@@ -11,7 +11,11 @@ class EcmpBattery : public CanBattery {
  public:
   EcmpBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
               CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data), datalayer_ecmp(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.ecmp),
+        datalayer_ecmp(&datalayer_ptr->extended.ecmp),
+        extended_data(datalayer_ptr->extended.ecmp) {
+    datalayer_ptr->extended_type = ExtendedDataType::Ecmp;
     datalayer_battery = datalayer_ptr;
   }
 
@@ -40,7 +44,7 @@ class EcmpBattery : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
-  DATALAYER_INFO_ECMP extended_data;
+  DATALAYER_INFO_ECMP& extended_data;
   DATALAYER_INFO_ECMP* datalayer_ecmp;
   EcmpHtmlRenderer renderer;
   static const int MAX_PACK_VOLTAGE_DV = 4546;

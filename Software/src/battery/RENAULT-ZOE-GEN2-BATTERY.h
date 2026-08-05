@@ -8,12 +8,15 @@ class RenaultZoeGen2Battery : public CanBattery {
  public:
   RenaultZoeGen2Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                         CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.zoePh2),
+        extended_data(datalayer_ptr->extended.zoePh2) {
+    datalayer_ptr->extended_type = ExtendedDataType::ZoePh2;
     datalayer_battery = datalayer_ptr;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     allows_contactor_closing =
         &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
-    datalayer_zoePH2 = &extended_data;
+    datalayer_zoePH2 = &datalayer_ptr->extended.zoePh2;
     if (!primary)
       battery_pack_voltage_periodic_dV =
           0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
@@ -35,7 +38,7 @@ class RenaultZoeGen2Battery : public CanBattery {
   uint8_t calculate_crc_zoe(CAN_frame& frame, uint8_t crc_xor);
 
  private:
-  DATALAYER_INFO_ZOE_PH2 extended_data;
+  DATALAYER_INFO_ZOE_PH2& extended_data;
   RenaultZoeGen2HtmlRenderer renderer;
   DATALAYER_INFO_ZOE_PH2* datalayer_zoePH2;
 

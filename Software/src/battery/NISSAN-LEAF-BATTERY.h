@@ -12,12 +12,15 @@ class NissanLeafBattery : public CanBattery {
  public:
   NissanLeafBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                     CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(datalayer_ptr, &extended_data) {
+      : CanBattery(targetCan),
+        renderer(datalayer_ptr, &datalayer_ptr->extended.nissanLeaf),
+        extended_data(datalayer_ptr->extended.nissanLeaf) {
+    datalayer_ptr->extended_type = ExtendedDataType::NissanLeaf;
     datalayer_battery = datalayer_ptr;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     allows_contactor_closing =
         &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
-    datalayer_nissan = &extended_data;
+    datalayer_nissan = &datalayer_ptr->extended.nissanLeaf;
     if (!primary)
       battery_Total_Voltage2 = 0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
   }
@@ -50,7 +53,7 @@ class NissanLeafBattery : public CanBattery {
   uint8_t calculate_crc(CAN_frame& frame);
 
  private:
-  DATALAYER_INFO_NISSAN_LEAF extended_data;
+  DATALAYER_INFO_NISSAN_LEAF& extended_data;
 
   bool UserRequestDTCreset = false;
   bool UserRequestDTCreadout = false;

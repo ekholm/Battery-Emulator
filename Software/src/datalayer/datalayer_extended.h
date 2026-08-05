@@ -987,6 +987,22 @@ enum class ExtendedDataType : uint8_t {
   BmwIx,
   Meb,
   BydAtto3,
+  BoltAmpera,
+  CellPower,
+  Chademo,
+  CmfaEv,
+  CmpSmart,
+  Ecmp,
+  FordMachE,
+  GeometryC,
+  GeelySea,
+  KiaHyundai64,
+  NissanLeaf,
+  Zoe,
+  ZoePh2,
+  Rivian,
+  VolvoPolestar,
+  VolvoHybrid,
 };
 
 // Per-instance driver-specific extension of the battery schema (one member is
@@ -1000,6 +1016,22 @@ union DATALAYER_BATTERY_EXTENDED_TYPE {
   DATALAYER_INFO_BMWIX bmwix;
   DATALAYER_INFO_MEB meb;
   DATALAYER_INFO_BYDATTO3 bydAtto3;
+  DATALAYER_INFO_BOLTAMPERA boltampera;
+  DATALAYER_INFO_CELLPOWER cellpower;
+  DATALAYER_INFO_CHADEMO chademo;
+  DATALAYER_INFO_CMFAEV cmfaEv;
+  DATALAYER_INFO_CMPSMART cmpSmart;
+  DATALAYER_INFO_ECMP ecmp;
+  DATALAYER_INFO_FORD_MACH_E fordMachE;
+  DATALAYER_INFO_GEELY_GEOMETRY_C geometryC;
+  DATALAYER_INFO_GEELY_SEA geelySea;
+  DATALAYER_INFO_KIAHYUNDAI64 kiaHyundai64;
+  DATALAYER_INFO_NISSAN_LEAF nissanLeaf;
+  DATALAYER_INFO_ZOE zoe;
+  DATALAYER_INFO_ZOE_PH2 zoePh2;
+  DATALAYER_INFO_RIVIAN rivian;
+  DATALAYER_INFO_VOLVO_POLESTAR volvoPolestar;
+  DATALAYER_INFO_VOLVO_HYBRID volvoHybrid;
 };
 static_assert(sizeof(DATALAYER_INFO_TESLA) == sizeof(DATALAYER_BATTERY_EXTENDED_TYPE),
               "keep the largest member first so {} zero-initializes the whole union");

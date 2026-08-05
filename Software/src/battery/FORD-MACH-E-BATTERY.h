@@ -8,7 +8,10 @@ class FordMachEBattery : public CanBattery {
  public:
   FordMachEBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                    CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.fordMachE),
+        extended_data(datalayer_ptr->extended.fordMachE) {
+    datalayer_ptr->extended_type = ExtendedDataType::FordMachE;
     const bool primary = (datalayer_ptr == &datalayer.batteries[0]);
     datalayer_battery = datalayer_ptr;
     allows_contactor_closing =
@@ -29,7 +32,7 @@ class FordMachEBattery : public CanBattery {
  private:
   // If not null, this battery decides when the contactor can be closed and writes the value here.
   bool* allows_contactor_closing;
-  DATALAYER_INFO_FORD_MACH_E extended_data;
+  DATALAYER_INFO_FORD_MACH_E& extended_data;
   FordMachEHtmlRenderer renderer;
   bool UserRequestDTCreset = false;
   bool UserRequestDTCreadout = false;

@@ -7,7 +7,10 @@
 class CmfaEvBattery : public UdsCanBattery {
  public:
   // Use this constructor for the second battery.
-  CmfaEvBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : UdsCanBattery(targetCan) {
+  // One constructor for every instance; the factory passes both explicitly.
+  CmfaEvBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                CAN_Interface targetCan = can_config.batteries[0])
+      : UdsCanBattery(targetCan) {
     datalayer_battery = datalayer_ptr;
     allows_contactor_closing = nullptr;
     dtc = &datalayer_battery->dtc;
@@ -16,11 +19,6 @@ class CmfaEvBattery : public UdsCanBattery {
   }
 
   // Use the default constructor to create the first or single battery.
-  CmfaEvBattery() : UdsCanBattery() {
-    datalayer_battery = &datalayer_battery->;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    dtc = &datalayer_battery->dtc;
-  }
 
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);

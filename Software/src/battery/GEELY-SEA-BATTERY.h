@@ -10,7 +10,10 @@ class GeelySeaBattery : public CanBattery {
  public:
   GeelySeaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                   CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.geelySea),
+        extended_data(datalayer_ptr->extended.geelySea) {
+    datalayer_ptr->extended_type = ExtendedDataType::GeelySea;
     datalayer_battery = datalayer_ptr;
   }
   bool mandatory_charge_taper() { return true; }
@@ -35,7 +38,7 @@ class GeelySeaBattery : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
-  DATALAYER_INFO_GEELY_SEA extended_data;
+  DATALAYER_INFO_GEELY_SEA& extended_data;
   GeelySeaHtmlRenderer renderer;
 
   void readDiagData();

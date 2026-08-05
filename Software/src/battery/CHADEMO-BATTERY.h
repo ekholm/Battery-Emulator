@@ -11,7 +11,10 @@ class ChademoBattery : public CanBattery {
  public:
   ChademoBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                  CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.chademo),
+        extended_data(datalayer_ptr->extended.chademo) {
+    datalayer_ptr->extended_type = ExtendedDataType::Chademo;
     datalayer_battery = datalayer_ptr;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     if (primary) {
@@ -41,7 +44,7 @@ class ChademoBattery : public CanBattery {
   static constexpr const char* Name = "Chademo V2X mode";
 
  private:
-  DATALAYER_INFO_CHADEMO extended_data;
+  DATALAYER_INFO_CHADEMO& extended_data;
   gpio_num_t pin2, pin10, pin4, pin7, pin_lock, precharge, positive_contactor;
   ChademoBatteryHtmlRenderer renderer;
 

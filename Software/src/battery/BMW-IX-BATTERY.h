@@ -22,7 +22,10 @@ class BmwIXBattery : public CanBattery {
   bool mandatory_charge_taper() { return true; }
   BmwIXBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(*this, &extended_data) {
+      : CanBattery(targetCan),
+        renderer(*this, &datalayer_ptr->extended.bmwix),
+        extended_data(datalayer_ptr->extended.bmwix) {
+    datalayer_ptr->extended_type = ExtendedDataType::BmwIx;
     const bool primary = (datalayer_ptr == &datalayer.batteries[0]);
     datalayer_battery = datalayer_ptr;
     allows_contactor_closing =
@@ -68,7 +71,7 @@ class BmwIXBattery : public CanBattery {
   int get_pyro_status_pss6() const;
 
  private:
-  DATALAYER_INFO_BMWIX extended_data;
+  DATALAYER_INFO_BMWIX& extended_data;
   bool* allows_contactor_closing;
   bool userRequestContactorClose = false;
   bool userRequestContactorOpen = false;

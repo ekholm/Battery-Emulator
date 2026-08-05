@@ -10,7 +10,10 @@ class VolvoSpaHybridBattery : public CanBattery {
   // One constructor for every instance.
   VolvoSpaHybridBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                         bool* allows_contactor_closing_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.volvoHybrid),
+        extended_data(datalayer_ptr->extended.volvoHybrid) {
+    datalayer_ptr->extended_type = ExtendedDataType::VolvoHybrid;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     allows_contactor_closing =
@@ -37,7 +40,7 @@ class VolvoSpaHybridBattery : public CanBattery {
  private:
   bool* allows_contactor_closing;
 
-  DATALAYER_INFO_VOLVO_HYBRID extended_data;
+  DATALAYER_INFO_VOLVO_HYBRID& extended_data;
   VolvoSpaHybridHtmlRenderer renderer;
   void readCellVoltages();
 
