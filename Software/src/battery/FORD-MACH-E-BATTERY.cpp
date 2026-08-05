@@ -14,10 +14,10 @@ void FordMachEBattery::parseDTCResponse() {
 
   dtc_read_in_progress = false;
   dtc_rx_active = false;
-  datalayer.battery.dtc.dtc_last_read_millis = millis();
+  datalayer_battery->dtc.dtc_last_read_millis = millis();
 
   if (dtc_rx_len < DTC_HEADER_LEN || dtc_buffer[0] != 0x59 || dtc_buffer[1] != 0x02) {
-    datalayer.battery.dtc.dtc_read_failed = true;
+    datalayer_battery->dtc.dtc_read_failed = true;
     return;
   }
 
@@ -28,64 +28,65 @@ void FordMachEBattery::parseDTCResponse() {
 
   for (uint16_t i = 0; i < count; i++) {
     uint16_t offset = DTC_HEADER_LEN + (i * 4);
-    datalayer.battery.dtc.dtc_codes[i] = ((uint32_t)dtc_buffer[offset] << 16) |
-                                         ((uint32_t)dtc_buffer[offset + 1] << 8) | (uint32_t)dtc_buffer[offset + 2];
-    datalayer.battery.dtc.dtc_status[i] = dtc_buffer[offset + 3];
+    datalayer_battery->dtc.dtc_codes[i] = ((uint32_t)dtc_buffer[offset] << 16) |
+                                          ((uint32_t)dtc_buffer[offset + 1] << 8) | (uint32_t)dtc_buffer[offset + 2];
+    datalayer_battery->dtc.dtc_status[i] = dtc_buffer[offset + 3];
   }
 
-  datalayer.battery.dtc.dtc_count = count;
-  datalayer.battery.dtc.dtc_read_failed = false;
+  datalayer_battery->dtc.dtc_count = count;
+  datalayer_battery->dtc.dtc_read_failed = false;
 }
 
 void FordMachEBattery::update_values() {
 
-  datalayer.battery.status.real_soc = battery_soc;
+  datalayer_battery->status.real_soc = battery_soc;
 
   if (pid_hvb_soh < 101) {
-    datalayer.battery.status.soh_pptt = pid_hvb_soh * 100;
+    datalayer_battery->status.soh_pptt = pid_hvb_soh * 100;
   } else if (pid_hvb_soh < 128) {
-    datalayer.battery.status.soh_pptt = 10000;
+    datalayer_battery->status.soh_pptt = 10000;
   }
 
-  datalayer.battery.status.voltage_dV = battery_voltage * 10;
+  datalayer_battery->status.voltage_dV = battery_voltage * 10;
 
-  datalayer.battery.status.current_dA = -(battery_current * 2);
+  datalayer_battery->status.current_dA = -(battery_current * 2);
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
   if (user_selected_use_estimated_charge_limits) {  //Some packs are locked to 0A all the time (not sure why still) so we need to use user set limits instead of battery reported limits
-    datalayer.battery.status.max_charge_power_W = datalayer.battery.status.override_charge_power_W;
+    datalayer_battery->status.max_charge_power_W = datalayer_battery->status.override_charge_power_W;
 
-    datalayer.battery.status.max_discharge_power_W = datalayer.battery.status.override_discharge_power_W;
+    datalayer_battery->status.max_discharge_power_W = datalayer_battery->status.override_discharge_power_W;
   } else {  //Use limits sent by battery
-    datalayer.battery.status.max_discharge_power_W =
-        (discharge_current_allowed * datalayer.battery.status.voltage_dV) / 100;
+    datalayer_battery->status.max_discharge_power_W =
+        (discharge_current_allowed * datalayer_battery->status.voltage_dV) / 100;
 
-    datalayer.battery.status.max_charge_power_W = (charge_current_allowed * datalayer.battery.status.voltage_dV) / 100;
+    datalayer_battery->status.max_charge_power_W =
+        (charge_current_allowed * datalayer_battery->status.voltage_dV) / 100;
   }
 
-  maximum_cellvoltage_mV = datalayer.battery.status.cell_voltages_mV[0];
-  minimum_cellvoltage_mV = datalayer.battery.status.cell_voltages_mV[0];
+  maximum_cellvoltage_mV = datalayer_battery->status.cell_voltages_mV[0];
+  minimum_cellvoltage_mV = datalayer_battery->status.cell_voltages_mV[0];
 
   // Loop through the array to find min and max cellvoltages, ignoring 0 values
-  for (uint8_t i = 0; i < datalayer.battery.info.number_of_cells; i++) {
-    if (datalayer.battery.status.cell_voltages_mV[i] > 1000) {  // Ignore unavailable values
-      if (datalayer.battery.status.cell_voltages_mV[i] < minimum_cellvoltage_mV) {
-        minimum_cellvoltage_mV = datalayer.battery.status.cell_voltages_mV[i];
+  for (uint8_t i = 0; i < datalayer_battery->info.number_of_cells; i++) {
+    if (datalayer_battery->status.cell_voltages_mV[i] > 1000) {  // Ignore unavailable values
+      if (datalayer_battery->status.cell_voltages_mV[i] < minimum_cellvoltage_mV) {
+        minimum_cellvoltage_mV = datalayer_battery->status.cell_voltages_mV[i];
       }
-      if (datalayer.battery.status.cell_voltages_mV[i] > maximum_cellvoltage_mV) {
-        maximum_cellvoltage_mV = datalayer.battery.status.cell_voltages_mV[i];
+      if (datalayer_battery->status.cell_voltages_mV[i] > maximum_cellvoltage_mV) {
+        maximum_cellvoltage_mV = datalayer_battery->status.cell_voltages_mV[i];
       }
     }
   }
 
   if (maximum_cellvoltage_mV > 0) {
-    datalayer.battery.status.cell_max_voltage_mV = maximum_cellvoltage_mV;
+    datalayer_battery->status.cell_max_voltage_mV = maximum_cellvoltage_mV;
   }
 
   if (minimum_cellvoltage_mV > 0) {
-    datalayer.battery.status.cell_min_voltage_mV = minimum_cellvoltage_mV;
+    datalayer_battery->status.cell_min_voltage_mV = minimum_cellvoltage_mV;
   }
 
   // Initialize highest and lowest to the first element
@@ -101,36 +102,36 @@ void FordMachEBattery::update_values() {
       minimum_temperature = cell_temperature[i];
     }
   }
-  datalayer.battery.status.temperature_min_dC = minimum_temperature * 10;
+  datalayer_battery->status.temperature_min_dC = minimum_temperature * 10;
 
-  datalayer.battery.status.temperature_max_dC = maximum_temperature * 10;
+  datalayer_battery->status.temperature_max_dC = maximum_temperature * 10;
 
   // Loop through the array to find how many cellvoltages we have
   // We should get either 90/94/96/108
   for (uint8_t i = 0; i < MAX_AMOUNT_CELLS; i++) {
-    if (datalayer.battery.status.cell_voltages_mV[i] > 1000) {  //If we have a valid cellvoltage measurement
-      datalayer.battery.info.number_of_cells = i + 1;           //Set amount of cells to that amount
+    if (datalayer_battery->status.cell_voltages_mV[i] > 1000) {  //If we have a valid cellvoltage measurement
+      datalayer_battery->info.number_of_cells = i + 1;           //Set amount of cells to that amount
     }
   }
 
-  if (datalayer.battery.info.number_of_cells == 90) {  //NMC
-    datalayer.battery.info.total_capacity_Wh = MAX_CAPACITY_90S_WH;
-    datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_90S_DV;
-    datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_90S_DV;
-  } else if (datalayer.battery.info.number_of_cells == 96) {  //75.7 kWh NMC LGES
-    datalayer.battery.info.total_capacity_Wh = MAX_CAPACITY_96S_WH;
-    datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_96S_DV;
-    datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_96S_DV;
-  } else if (datalayer.battery.info.number_of_cells == 94) {  //98.8 kWh NMC LGES
-    datalayer.battery.info.total_capacity_Wh = MAX_CAPACITY_94S_WH;
-    datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_94S_DV;
-    datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_94S_DV;
-  } else if (datalayer.battery.info.number_of_cells == 108) {  //78.2 kWh LFP CATL
-    datalayer.battery.info.chemistry = LFP;
-    datalayer.battery.info.total_capacity_Wh = MAX_CAPACITY_108S_WH;
-    datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_108S_DV;
-    datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_108S_DV;
-    datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_LFP_MV;
+  if (datalayer_battery->info.number_of_cells == 90) {  //NMC
+    datalayer_battery->info.total_capacity_Wh = MAX_CAPACITY_90S_WH;
+    datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_90S_DV;
+    datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_90S_DV;
+  } else if (datalayer_battery->info.number_of_cells == 96) {  //75.7 kWh NMC LGES
+    datalayer_battery->info.total_capacity_Wh = MAX_CAPACITY_96S_WH;
+    datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_96S_DV;
+    datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_96S_DV;
+  } else if (datalayer_battery->info.number_of_cells == 94) {  //98.8 kWh NMC LGES
+    datalayer_battery->info.total_capacity_Wh = MAX_CAPACITY_94S_WH;
+    datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_94S_DV;
+    datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_94S_DV;
+  } else if (datalayer_battery->info.number_of_cells == 108) {  //78.2 kWh LFP CATL
+    datalayer_battery->info.chemistry = LFP;
+    datalayer_battery->info.total_capacity_Wh = MAX_CAPACITY_108S_WH;
+    datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_108S_DV;
+    datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_108S_DV;
+    datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_LFP_MV;
   }
 
   // Check vehicle specific safeties
@@ -139,25 +140,23 @@ void FordMachEBattery::update_values() {
   }
 
   //Update More Battery Info page
-  datalayer_extended.fordMachE.pid_hvb_temp = pid_hvb_temp;
-  datalayer_extended.fordMachE.pid_hvb_voltage = pid_hvb_voltage;
-  datalayer_extended.fordMachE.pid_hvb_soc = pid_hvb_soc;
-  datalayer_extended.fordMachE.pid_hvb_soh = pid_hvb_soh;
-  datalayer_extended.fordMachE.pid_hvb_contactor_status = pid_hvb_contactor_status;
-  datalayer_extended.fordMachE.pid_hvb_contactor_positive_leak_voltage = pid_hvb_contactor_positive_leak_voltage;
-  datalayer_extended.fordMachE.pid_hvb_contactor_negative_leak_voltage = pid_hvb_contactor_negative_leak_voltage;
-  datalayer_extended.fordMachE.pid_hvb_contactor_positive_voltage = pid_hvb_contactor_positive_voltage;
-  datalayer_extended.fordMachE.pid_hvb_contactor_negative_voltage = pid_hvb_contactor_negative_voltage;
-  datalayer_extended.fordMachE.pid_hvb_contactor_positive_bus_leak_resistance =
-      pid_hvb_contactor_positive_bus_leak_resistance;
-  datalayer_extended.fordMachE.pid_hvb_contactor_negative_bus_leak_resistance =
-      pid_hvb_contactor_negative_bus_leak_resistance;
-  datalayer_extended.fordMachE.pid_hvb_contactor_overall_leak_resistance = pid_hvb_contactor_overall_leak_resistance;
-  datalayer_extended.fordMachE.pid_hvb_contactor_open_leak_resistance = pid_hvb_contactor_open_leak_resistance;
-  datalayer_extended.fordMachE.pid_hvb_calendar_age_months = pid_hvb_calendar_age_months;
-  datalayer_extended.fordMachE.pid_battery_capacity_ah = pid_battery_capacity_ah;
-  datalayer_extended.fordMachE.pid_maintenance_rebalance_status = pid_maintenance_rebalance_status;
-  datalayer_extended.fordMachE.pid_hvb_max_charge_current = pid_hvb_max_charge_current;
+  extended_data.pid_hvb_temp = pid_hvb_temp;
+  extended_data.pid_hvb_voltage = pid_hvb_voltage;
+  extended_data.pid_hvb_soc = pid_hvb_soc;
+  extended_data.pid_hvb_soh = pid_hvb_soh;
+  extended_data.pid_hvb_contactor_status = pid_hvb_contactor_status;
+  extended_data.pid_hvb_contactor_positive_leak_voltage = pid_hvb_contactor_positive_leak_voltage;
+  extended_data.pid_hvb_contactor_negative_leak_voltage = pid_hvb_contactor_negative_leak_voltage;
+  extended_data.pid_hvb_contactor_positive_voltage = pid_hvb_contactor_positive_voltage;
+  extended_data.pid_hvb_contactor_negative_voltage = pid_hvb_contactor_negative_voltage;
+  extended_data.pid_hvb_contactor_positive_bus_leak_resistance = pid_hvb_contactor_positive_bus_leak_resistance;
+  extended_data.pid_hvb_contactor_negative_bus_leak_resistance = pid_hvb_contactor_negative_bus_leak_resistance;
+  extended_data.pid_hvb_contactor_overall_leak_resistance = pid_hvb_contactor_overall_leak_resistance;
+  extended_data.pid_hvb_contactor_open_leak_resistance = pid_hvb_contactor_open_leak_resistance;
+  extended_data.pid_hvb_calendar_age_months = pid_hvb_calendar_age_months;
+  extended_data.pid_battery_capacity_ah = pid_battery_capacity_ah;
+  extended_data.pid_maintenance_rebalance_status = pid_maintenance_rebalance_status;
+  extended_data.pid_hvb_max_charge_current = pid_hvb_max_charge_current;
 
   // Perform diagnostic if user has requested it
   if (UserRequestDTCreset && !dtc_clear_in_progress) {
@@ -180,7 +179,7 @@ void FordMachEBattery::update_values() {
     dtc_rx_len = 0;
     dtc_rx_expected = 0;
     dtc_request_millis = millis();
-    datalayer.battery.dtc.dtc_read_failed = false;
+    datalayer_battery->dtc.dtc_read_failed = false;
     transmit_can_frame(&FORD_READ_DTC);
   }
 
@@ -188,59 +187,59 @@ void FordMachEBattery::update_values() {
   if (dtc_read_in_progress && (millis() - dtc_request_millis > DTC_TIMEOUT_MS)) {
     dtc_read_in_progress = false;
     dtc_rx_active = false;
-    datalayer.battery.dtc.dtc_read_failed = true;
-    datalayer.battery.dtc.dtc_last_read_millis = millis();
+    datalayer_battery->dtc.dtc_read_failed = true;
+    datalayer_battery->dtc.dtc_last_read_millis = millis();
   }
 }
 
 void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {  //These frames are transmitted by the battery
     case 0x07a:           //10ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       battery_voltage = (((rx_frame.data.u8[2] & 0x03) << 8) | rx_frame.data.u8[3]) / 2;
       break;
     case 0x07b:  //10ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       battery_current = (rx_frame.data.u8[0] << 8) | rx_frame.data.u8[1];
       break;
     case 0x073:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x24b:  //100ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x24c:  //100ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       battery_soc = (rx_frame.data.u8[3] << 8) | rx_frame.data.u8[4];
       display_soc = rx_frame.data.u8[6] / 2;
       break;
     case 0x24d:  //100ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       //charge_power_cand2 = rx_frame.data.u8[0] << 8 | rx_frame.data.u8[1];
       //discharge_power_cand2 = rx_frame.data.u8[2] << 8 | rx_frame.data.u8[3];
       break;
     case 0x24e:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x24f:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x286:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       charge_current_allowed = rx_frame.data.u8[0] << 8 | rx_frame.data.u8[1];
       discharge_current_allowed = rx_frame.data.u8[2] << 8 | rx_frame.data.u8[3];
       break;
     case 0x2e4:  //100ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x444:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x458:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x47d:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       battery_soh = rx_frame.data.u8[1];  //Not correct!
       break;
     case 0x490:  //1s Cellvoltages
@@ -262,7 +261,7 @@ void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
     case 0x4a0:
     case 0x4a1:
     case 0x4a2: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
       const uint8_t start_index = (rx_frame.ID - 0x490) * 5;
 
@@ -286,17 +285,17 @@ void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
           //Voltage measurement is unavailable (Happens on 90/94S battery on last message)
         } else {
           //Voltage measurement is available
-          datalayer.battery.status.cell_voltages_mV[start_index + i] = voltage + 1000;
+          datalayer_battery->status.cell_voltages_mV[start_index + i] = voltage + 1000;
         }
       }
       break;
     }
     case 0x4a3:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       if ((rx_frame.data.u8[0] == 0xFF) && (rx_frame.data.u8[1] == 0xE0)) {
         //Do nothing, no voltage here (for instance on 90/94S battery)
       } else {  //96th voltage resides in this frame
-        datalayer.battery.status.cell_voltages_mV[95] =
+        datalayer_battery->status.cell_voltages_mV[95] =
             ((rx_frame.data.u8[0] << 4) | (rx_frame.data.u8[1] >> 4)) + 1000;
       }
 
@@ -309,7 +308,7 @@ void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       cell_temperature[5] = ((rx_frame.data.u8[7] - CELL_TEMPERATURE_OFFSET) / 2);
       break;
     case 0x4a4:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       //Some batteries have more celltemps here, (LFP 90S), but not the 108S
       //celltemp6 = rx_frame.data.u8[0]
       //celltemp7 = rx_frame.data.u8[1]
@@ -317,11 +316,11 @@ void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       //celltemp9 = rx_frame.data.u8[3]
       break;
     case 0x4a5:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       //Some batteries have more info here, unknown content
       break;
     case 0x4a7:  //1s
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       //Some batteries have more celltemps here
       //celltemp10 = rx_frame.data.u8[0]
       //celltemp11 = rx_frame.data.u8[1]
@@ -330,33 +329,38 @@ void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       //celltemp14 = rx_frame.data.u8[4]
       break;
     case 0x1BC:  //1s cellvoltages (only on 108S)
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
-      datalayer.battery.status.cell_voltages_mV[96] = ((rx_frame.data.u8[0] << 4) | (rx_frame.data.u8[1] >> 4)) + 1000;
-      datalayer.battery.status.cell_voltages_mV[97] = ((rx_frame.data.u8[2] << 4) | (rx_frame.data.u8[3] >> 4)) + 1000;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.cell_voltages_mV[96] = ((rx_frame.data.u8[0] << 4) | (rx_frame.data.u8[1] >> 4)) + 1000;
+      datalayer_battery->status.cell_voltages_mV[97] = ((rx_frame.data.u8[2] << 4) | (rx_frame.data.u8[3] >> 4)) + 1000;
       break;
     case 0x1BD:  //1s cellvoltages (only on 108S)
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
-      datalayer.battery.status.cell_voltages_mV[98] = ((rx_frame.data.u8[0] << 4) | (rx_frame.data.u8[1] >> 4)) + 1000;
-      datalayer.battery.status.cell_voltages_mV[99] =
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.cell_voltages_mV[98] = ((rx_frame.data.u8[0] << 4) | (rx_frame.data.u8[1] >> 4)) + 1000;
+      datalayer_battery->status.cell_voltages_mV[99] =
           (((rx_frame.data.u8[1] & 0x0F) << 8) | rx_frame.data.u8[2]) + 1000;
-      datalayer.battery.status.cell_voltages_mV[100] = ((rx_frame.data.u8[3] << 4) | (rx_frame.data.u8[4] >> 4)) + 1000;
-      datalayer.battery.status.cell_voltages_mV[101] =
+      datalayer_battery->status.cell_voltages_mV[100] =
+          ((rx_frame.data.u8[3] << 4) | (rx_frame.data.u8[4] >> 4)) + 1000;
+      datalayer_battery->status.cell_voltages_mV[101] =
           (((rx_frame.data.u8[4] & 0x0F) << 8) | rx_frame.data.u8[5]) + 1000;
-      datalayer.battery.status.cell_voltages_mV[102] = ((rx_frame.data.u8[6] << 4) | (rx_frame.data.u8[7] >> 4)) + 1000;
+      datalayer_battery->status.cell_voltages_mV[102] =
+          ((rx_frame.data.u8[6] << 4) | (rx_frame.data.u8[7] >> 4)) + 1000;
       break;
     case 0x1BE:  //1s cellvoltages (only on 108S)
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
-      datalayer.battery.status.cell_voltages_mV[103] = ((rx_frame.data.u8[0] << 4) | (rx_frame.data.u8[1] >> 4)) + 1000;
-      datalayer.battery.status.cell_voltages_mV[104] =
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.cell_voltages_mV[103] =
+          ((rx_frame.data.u8[0] << 4) | (rx_frame.data.u8[1] >> 4)) + 1000;
+      datalayer_battery->status.cell_voltages_mV[104] =
           (((rx_frame.data.u8[1] & 0x0F) << 8) | rx_frame.data.u8[2]) + 1000;
-      datalayer.battery.status.cell_voltages_mV[105] = ((rx_frame.data.u8[3] << 4) | (rx_frame.data.u8[4] >> 4)) + 1000;
-      datalayer.battery.status.cell_voltages_mV[106] =
+      datalayer_battery->status.cell_voltages_mV[105] =
+          ((rx_frame.data.u8[3] << 4) | (rx_frame.data.u8[4] >> 4)) + 1000;
+      datalayer_battery->status.cell_voltages_mV[106] =
           (((rx_frame.data.u8[4] & 0x0F) << 8) | rx_frame.data.u8[5]) + 1000;
-      datalayer.battery.status.cell_voltages_mV[107] = ((rx_frame.data.u8[6] << 4) | (rx_frame.data.u8[7] >> 4)) + 1000;
+      datalayer_battery->status.cell_voltages_mV[107] =
+          ((rx_frame.data.u8[6] << 4) | (rx_frame.data.u8[7] >> 4)) + 1000;
       break;
     case 0x46f:  //100ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x7EC:  //OBD2 diag reply from BMS (Replies to both 7DF and 7E4)
 
@@ -365,9 +369,9 @@ void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       // "not read yet": an erase says nothing about what the BMS will report from here on.
       if (dtc_clear_in_progress && rx_frame.data.u8[0] == 0x01 && rx_frame.data.u8[1] == 0x54) {
         dtc_clear_in_progress = false;
-        datalayer.battery.dtc.dtc_count = 0;
-        datalayer.battery.dtc.dtc_read_failed = false;
-        datalayer.battery.dtc.dtc_last_read_millis = 0;
+        datalayer_battery->dtc.dtc_count = 0;
+        datalayer_battery->dtc.dtc_read_failed = false;
+        datalayer_battery->dtc.dtc_last_read_millis = 0;
         break;
       }
 
@@ -418,8 +422,8 @@ void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
         if (rx_frame.data.u8[1] == 0x7F && rx_frame.data.u8[2] == 0x19) {  //Request rejected by BMS
           dtc_read_in_progress = false;
           dtc_rx_active = false;
-          datalayer.battery.dtc.dtc_read_failed = true;
-          datalayer.battery.dtc.dtc_last_read_millis = millis();
+          datalayer_battery->dtc.dtc_read_failed = true;
+          datalayer_battery->dtc.dtc_last_read_millis = millis();
           break;
         }
       }
@@ -674,11 +678,13 @@ void FordMachEBattery::transmit_can(unsigned long currentMillis) {
 void FordMachEBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.total_capacity_Wh = 88000;  //Start in 88kWh mode, update later
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_96S_DV;  //Startup in extreme ends
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_90S_DV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.total_capacity_Wh = 88000;  //Start in 88kWh mode, update later
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_96S_DV;  //Startup in extreme ends
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_90S_DV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
 }

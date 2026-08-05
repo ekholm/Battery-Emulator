@@ -26,35 +26,36 @@ int16_t min_value(int16_t* entries, size_t len) {
 
 void RenaultTwizyBattery::update_values() {
 
-  datalayer.battery.status.real_soc = SOC;
-  datalayer.battery.status.soh_pptt = SOH;
-  datalayer.battery.status.voltage_dV = voltage_dV;  //value is *10 (3700 = 370.0)
-  datalayer.battery.status.current_dA = current_dA;  //value is *10 (150 = 15.0)
-  datalayer.battery.status.remaining_capacity_Wh = remaining_capacity_Wh;
+  datalayer_battery->status.real_soc = SOC;
+  datalayer_battery->status.soh_pptt = SOH;
+  datalayer_battery->status.voltage_dV = voltage_dV;  //value is *10 (3700 = 370.0)
+  datalayer_battery->status.current_dA = current_dA;  //value is *10 (150 = 15.0)
+  datalayer_battery->status.remaining_capacity_Wh = remaining_capacity_Wh;
 
   // The twizy provides two values: one for the maximum charge provided by the on-board charger
   //    and one for the maximum charge during recuperation.
   //    For now we use the lower of the two (usually the charger one)
-  datalayer.battery.status.max_charge_power_W = max_charge_power < max_recup_power ? max_charge_power : max_recup_power;
+  datalayer_battery->status.max_charge_power_W =
+      max_charge_power < max_recup_power ? max_charge_power : max_recup_power;
 
-  datalayer.battery.status.max_discharge_power_W = max_discharge_power;
+  datalayer_battery->status.max_discharge_power_W = max_discharge_power;
 
-  memcpy(datalayer.battery.status.cell_voltages_mV, cellvoltages_mV, sizeof(cellvoltages_mV));
-  datalayer.battery.status.cell_min_voltage_mV =
+  memcpy(datalayer_battery->status.cell_voltages_mV, cellvoltages_mV, sizeof(cellvoltages_mV));
+  datalayer_battery->status.cell_min_voltage_mV =
       min_value(cellvoltages_mV, sizeof(cellvoltages_mV) / sizeof(*cellvoltages_mV));
-  datalayer.battery.status.cell_max_voltage_mV =
+  datalayer_battery->status.cell_max_voltage_mV =
       max_value(cellvoltages_mV, sizeof(cellvoltages_mV) / sizeof(*cellvoltages_mV));
 
-  datalayer.battery.status.temperature_min_dC =
+  datalayer_battery->status.temperature_min_dC =
       min_value(cell_temperatures_dC, sizeof(cell_temperatures_dC) / sizeof(*cell_temperatures_dC));
-  datalayer.battery.status.temperature_max_dC =
+  datalayer_battery->status.temperature_max_dC =
       max_value(cell_temperatures_dC, sizeof(cell_temperatures_dC) / sizeof(*cell_temperatures_dC));
 }
 
 void RenaultTwizyBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x155:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
       // max charge power is in steps of 300W from 0 to 7
       max_charge_power = (uint16_t)rx_frame.data.u8[0] * 300;
@@ -121,11 +122,13 @@ void RenaultTwizyBattery::transmit_can(unsigned long currentMillis) {
 void RenaultTwizyBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.number_of_cells = 14;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.total_capacity_Wh = 6600;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.number_of_cells = 14;
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.total_capacity_Wh = 6600;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
 }

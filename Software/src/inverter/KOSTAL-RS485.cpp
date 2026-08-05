@@ -107,24 +107,24 @@ bool KostalInverterProtocol::check_kostal_frame_crc(int len) {
 void KostalInverterProtocol::update_values() {
 
   average_temperature_dC =
-      ((datalayer.battery.status.temperature_max_dC + datalayer.battery.status.temperature_min_dC) / 2);
-  if (datalayer.battery.status.temperature_min_dC < 0) {
+      ((datalayer.batteries[0].status.temperature_max_dC + datalayer.batteries[0].status.temperature_min_dC) / 2);
+  if (datalayer.batteries[0].status.temperature_min_dC < 0) {
     average_temperature_dC = 0;
   }
 
-  if (datalayer.system.status.battery_allows_contactor_closing &
+  if (datalayer.system.status.battery_link[0].allows_contactor_closing &
       datalayer.system.status.inverter_allows_contactor_closing) {
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.voltage_dV / 10, 6);  // Confirmed OK mapping
+    float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.voltage_dV / 10, 6);  // Confirmed OK mapping
   } else {
     float2frame(CYCLIC_DATA, 0.0, 6);
   }
   // Set nominal voltage to value between min and max voltage set by battery (Example 400 and 300 results in 350V)
   nominal_voltage_dV =
-      (((datalayer.battery.info.max_design_voltage_dV - datalayer.battery.info.min_design_voltage_dV) / 2) +
-       datalayer.battery.info.min_design_voltage_dV);
+      (((datalayer.batteries[0].info.max_design_voltage_dV - datalayer.batteries[0].info.min_design_voltage_dV) / 2) +
+       datalayer.batteries[0].info.min_design_voltage_dV);
   float2frame(BATTERY_INFO, (float)nominal_voltage_dV / 10, 6);
 
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.info.max_design_voltage_dV / 10, 10);
+  float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].info.max_design_voltage_dV / 10, 10);
 
   float2frame(CYCLIC_DATA, (float)average_temperature_dC / 10, 14);
 
@@ -141,9 +141,9 @@ void KostalInverterProtocol::update_values() {
 
     if (datalayer.shunt.precharging || datalayer.shunt.contactors_engaged) {
       CYCLIC_DATA[56] = 1;
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10,
+      float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.max_discharge_current_dA / 10,
                   26);  // Maximum discharge current
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10,
+      float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.max_charge_current_dA / 10,
                   34);  // Maximum charge current
     } else {
       CYCLIC_DATA[56] = 0;
@@ -151,8 +151,8 @@ void KostalInverterProtocol::update_values() {
       float2frame(CYCLIC_DATA, 0.0, 34);
     }
   } else {
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 18);  // Last current
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10,
+    float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.reported_current_dA / 10, 18);  // Last current
+    float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.reported_current_dA / 10,
                 22);  // Should be Avg current(1s)
 
     // Close contactors after 7 battery info frames requested
@@ -170,26 +170,26 @@ void KostalInverterProtocol::update_values() {
     }
   }
 
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_discharge_current_dA / 10, 26);
+  float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.max_discharge_current_dA / 10, 26);
 
   // When SoC is 100%, drop down allowed charge current.
-  if ((datalayer.battery.status.reported_soc / 100) < 100) {
-    float2frame(CYCLIC_DATA, (float)datalayer.battery.status.max_charge_current_dA / 10, 34);
+  if ((datalayer.batteries[0].status.reported_soc / 100) < 100) {
+    float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.max_charge_current_dA / 10, 34);
   } else {
     float2frame(CYCLIC_DATA, 0.0, 34);
   }
 
   if (nominal_voltage_dV > 0) {
-    float2frame(CYCLIC_DATA, (float)(datalayer.battery.info.reported_total_capacity_Wh / nominal_voltage_dV * 10),
+    float2frame(CYCLIC_DATA, (float)(datalayer.batteries[0].info.reported_total_capacity_Wh / nominal_voltage_dV * 10),
                 30);  // Battery capacity Ah
   }
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_max_dC / 10, 38);
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.temperature_min_dC / 10, 42);
+  float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.temperature_max_dC / 10, 38);
+  float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.temperature_min_dC / 10, 42);
 
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.cell_max_voltage_mV / 1000, 46);
-  float2frame(CYCLIC_DATA, (float)datalayer.battery.status.cell_min_voltage_mV / 1000, 50);
+  float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.cell_max_voltage_mV / 1000, 46);
+  float2frame(CYCLIC_DATA, (float)datalayer.batteries[0].status.cell_min_voltage_mV / 1000, 50);
 
-  CYCLIC_DATA[58] = (uint8_t)(datalayer.battery.status.reported_soc / 100);
+  CYCLIC_DATA[58] = (uint8_t)(datalayer.batteries[0].status.reported_soc / 100);
 
   register_content_ok = true;
 
@@ -214,7 +214,7 @@ void KostalInverterProtocol::receive()  // Runs as fast as possible to handle th
     dbg_message("inverter_allows_contactor_closing -> true (Contactor test ended)");
     contactortestTimerActive = false;
   }
-  if (datalayer.system.status.battery_allows_contactor_closing & !contactorMillis) {
+  if (datalayer.system.status.battery_link[0].allows_contactor_closing & !contactorMillis) {
     contactorMillis = currentMillis;
   }
   if ((currentMillis - contactorMillis >= INTERVAL_2_S) && !RX_allow) {

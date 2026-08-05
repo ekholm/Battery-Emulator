@@ -1,10 +1,22 @@
 #ifndef VOLVO_SPA_HYBRID_BATTERY_H
 #define VOLVO_SPA_HYBRID_BATTERY_H
+#include "../datalayer/datalayer.h"
+#include "../datalayer/datalayer_extended.h"
 #include "CanBattery.h"
 #include "VOLVO-SPA-HYBRID-HTML.h"
 
 class VolvoSpaHybridBattery : public CanBattery {
  public:
+  // One constructor for every instance.
+  VolvoSpaHybridBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                        bool* allows_contactor_closing_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    datalayer_battery = datalayer_ptr;
+    allows_contactor_closing =
+        primary ? &datalayer.system.status.battery_link[0].allows_contactor_closing : allows_contactor_closing_ptr;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -12,17 +24,20 @@ class VolvoSpaHybridBattery : public CanBattery {
   static constexpr const char* Name = "Volvo PHEV battery";
 
   bool supports_reset_DTC() { return true; }
-  void reset_DTC() { datalayer_extended.VolvoHybrid.UserRequestDTCreset = true; }
+  void reset_DTC() { extended_data.UserRequestDTCreset = true; }
 
   bool supports_read_DTC() { return true; }
-  void read_DTC() { datalayer_extended.VolvoHybrid.UserRequestDTCreadout = true; }
+  void read_DTC() { extended_data.UserRequestDTCreadout = true; }
 
   bool supports_reset_BECM() { return true; }
-  void reset_BECM() { datalayer_extended.VolvoHybrid.UserRequestBECMecuReset = true; }
+  void reset_BECM() { extended_data.UserRequestBECMecuReset = true; }
 
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
+  bool* allows_contactor_closing;
+
+  DATALAYER_INFO_VOLVO_HYBRID extended_data;
   VolvoSpaHybridHtmlRenderer renderer;
   void readCellVoltages();
 

@@ -1,6 +1,7 @@
 #ifndef BMW_IX_BATTERY_H
 #define BMW_IX_BATTERY_H
 #include <Arduino.h>
+#include "../datalayer/datalayer_extended.h"
 #include "BMW-IX-HTML.h"
 #include "CanBattery.h"
 
@@ -19,7 +20,14 @@ struct UDS_CONTEXT {
 class BmwIXBattery : public CanBattery {
  public:
   bool mandatory_charge_taper() { return true; }
-  BmwIXBattery() : renderer(*this) {}
+  BmwIXBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+               CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(*this, &extended_data) {
+    const bool primary = (datalayer_ptr == &datalayer.batteries[0]);
+    datalayer_battery = datalayer_ptr;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
 
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
@@ -60,6 +68,8 @@ class BmwIXBattery : public CanBattery {
   int get_pyro_status_pss6() const;
 
  private:
+  DATALAYER_INFO_BMWIX extended_data;
+  bool* allows_contactor_closing;
   bool userRequestContactorClose = false;
   bool userRequestContactorOpen = false;
   bool UserRequestDTCreset = false;

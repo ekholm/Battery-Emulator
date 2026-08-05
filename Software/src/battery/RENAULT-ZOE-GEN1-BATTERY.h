@@ -6,19 +6,16 @@
 
 class RenaultZoeGen1Battery : public UdsCanBattery {
  public:
-  // Use this constructor for the second battery.
-  RenaultZoeGen1Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : UdsCanBattery(targetCan) {
+  RenaultZoeGen1Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                        CAN_Interface targetCan = can_config.batteries[0])
+      : UdsCanBattery(targetCan) {
     datalayer_battery = datalayer_ptr;
-    allows_contactor_closing = nullptr;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
     dtc = &datalayer_battery->dtc;
-    calculated_total_pack_voltage_mV = 0;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  RenaultZoeGen1Battery() {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    dtc = &datalayer_battery->dtc;
+    if (datalayer_battery_instance(datalayer_ptr) != 0) {
+      calculated_total_pack_voltage_mV = 0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
+    }
   }
 
   virtual void setup(void);

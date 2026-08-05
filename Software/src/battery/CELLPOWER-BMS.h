@@ -1,11 +1,20 @@
 #ifndef CELLPOWER_BMS_H
 #define CELLPOWER_BMS_H
+#include "../datalayer/datalayer.h"
+#include "../datalayer/datalayer_extended.h"
 #include "CELLPOWER-HTML.h"
 #include "CanBattery.h"
 
 class CellPowerBms : public CanBattery {
  public:
-  CellPowerBms() : CanBattery(CAN_Speed::CAN_SPEED_250KBPS) {}
+  CellPowerBms(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+               CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan, CAN_Speed::CAN_SPEED_250KBPS), renderer(&extended_data) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
 
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
@@ -17,6 +26,9 @@ class CellPowerBms : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
+  DATALAYER_INFO_CELLPOWER extended_data;
+  bool* allows_contactor_closing;
+
   CellpowerHtmlRenderer renderer;
 
   unsigned long previousMillis1s = 0;  // will store last time a 1s CAN Message was sent

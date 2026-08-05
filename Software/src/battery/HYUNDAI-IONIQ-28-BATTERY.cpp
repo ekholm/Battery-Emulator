@@ -412,7 +412,7 @@ void HyundaiIoniq28Battery::setup(void) {  // Performs one time setup at startup
   datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
   datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
   datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer.system.status.battery_link[0].allows_contactor_closing = true;
 }
 
 uint16_t HyundaiIoniq28Battery::get_lead_acid_voltage() const {

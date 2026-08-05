@@ -9,16 +9,10 @@
 
 class EcmpBattery : public CanBattery {
  public:
-  // Use this constructor for the second/third battery.
-  EcmpBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : CanBattery(targetCan) {
+  EcmpBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+              CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data), datalayer_ecmp(&extended_data) {
     datalayer_battery = datalayer_ptr;
-    datalayer_ecmp = NULL;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  EcmpBattery() {
-    datalayer_battery = &datalayer.battery;
-    datalayer_ecmp = &datalayer_extended.stellantisECMP;
   }
 
   virtual void setup(void);
@@ -46,7 +40,7 @@ class EcmpBattery : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
+  DATALAYER_INFO_ECMP extended_data;
   DATALAYER_INFO_ECMP* datalayer_ecmp;
   EcmpHtmlRenderer renderer;
   static const int MAX_PACK_VOLTAGE_DV = 4546;

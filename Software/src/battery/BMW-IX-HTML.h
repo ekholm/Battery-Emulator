@@ -11,9 +11,10 @@ class BmwIXBattery;
 class BmwIXHtmlRenderer : public BatteryHtmlRenderer {
  private:
   BmwIXBattery& batt;
+  DATALAYER_INFO_BMWIX* data;
 
  public:
-  BmwIXHtmlRenderer(BmwIXBattery& b) : batt(b) {}
+  BmwIXHtmlRenderer(BmwIXBattery& b, DATALAYER_INFO_BMWIX* d) : batt(b), data(d) {}
 
   String get_status_html();
 };

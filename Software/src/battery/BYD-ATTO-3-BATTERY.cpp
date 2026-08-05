@@ -3,6 +3,7 @@
 #include <cstring>    //For unit test
 #include "../communication/can/comm_can.h"
 #include "../communication/contactorcontrol/comm_contactorcontrol.h"
+#include "../communication/nvm/comm_nvm.h"
 #include "../datalayer/datalayer.h"
 #include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/events.h"
@@ -184,7 +185,7 @@ void BydAttoBattery::
   // Pack-internal contactors: DC bus is live once the pack confirms the main contactor
   // closed (same 0x344 bit7 feedback used to gate power above). Guarded so the GPIO
   // contactor state machine stays authoritative when enabled.
-  if (!contactor_control_enabled) {
+  if (!be_controls_contactors()) {
     datalayer.system.status.dc_bus_live = (contactor_feedback & BMS_FEEDBACK_MAIN_CLOSED) != 0;
   }
 
@@ -1156,6 +1157,19 @@ void BydAttoBattery::transmit_can(unsigned long currentMillis) {
 }
 
 void BydAttoBattery::setup(void) {  // Performs one time setup at startup
+  // This instance's extended slot: non-zero defaults (previously applied by
+  // the DataLayerExtended constructor), then the NVS-backed calibration
+  // settings with the same values as fallback. Runs here rather than in the
+  // constructor so nothing later clobbers loaded settings.
+  datalayer_bydatto->calibrationTargetSOC = 100;
+  datalayer_bydatto->calibrationTargetAH = 150;
+  datalayer_bydatto->discharge_status = 14;
+  const bool primary = (datalayer_battery_instance(datalayer_battery) == 0);
+  BatteryEmulatorSettingsStore settings(true);
+  datalayer_bydatto->auto_calibrate_soc_drift_percent =
+      settings.getUInt(primary ? "BYDAUTOCALDRIFT" : "BYDAUTOCALDRFT2", 5);
+  datalayer_bydatto->auto_calibrate_soc_enabled = settings.getBool(primary ? "BYDAUTOCALEN" : "BYDAUTOCALEN2", true);
+
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
   datalayer_battery->info.chemistry = battery_chemistry_enum::LFP;

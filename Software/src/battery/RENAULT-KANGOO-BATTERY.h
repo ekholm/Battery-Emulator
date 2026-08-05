@@ -1,12 +1,22 @@
 #ifndef RENAULT_KANGOO_BATTERY_H
 #define RENAULT_KANGOO_BATTERY_H
 
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 extern bool user_selected_use_estimated_SOC;
 
 class RenaultKangooBattery : public CanBattery {
  public:
+  RenaultKangooBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                       CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -17,6 +27,7 @@ class RenaultKangooBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
+  bool* allows_contactor_closing;
   bool UserRequestDTCreset = false;
   static const int MAX_PACK_VOLTAGE_DV = 4150;  //5000 = 500.0V
   static const int MIN_PACK_VOLTAGE_DV = 2500;

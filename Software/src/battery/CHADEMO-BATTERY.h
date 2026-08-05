@@ -9,16 +9,21 @@
 
 class ChademoBattery : public CanBattery {
  public:
-  ChademoBattery() {
-    pin2 = esp32hal->CHADEMO_PIN_2();
-    pin10 = esp32hal->CHADEMO_PIN_10();
-    pin4 = esp32hal->CHADEMO_PIN_4();
-    pin7 = esp32hal->CHADEMO_PIN_7();
-    pin_lock = esp32hal->CHADEMO_LOCK();
-
-    // Assuming these are initialized by contactor control module.
-    precharge = esp32hal->PRECHARGE_PIN();
-    positive_contactor = esp32hal->POSITIVE_CONTACTOR_PIN();
+  ChademoBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                 CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    if (primary) {
+      pin2 = esp32hal->CHADEMO_PIN_2();
+      pin10 = esp32hal->CHADEMO_PIN_10();
+      pin4 = esp32hal->CHADEMO_PIN_4();
+      pin7 = esp32hal->CHADEMO_PIN_7();
+      pin_lock = esp32hal->CHADEMO_LOCK();
+      // Assuming these are initialized by contactor control module.
+      precharge = esp32hal->PRECHARGE_PIN();
+      positive_contactor = esp32hal->POSITIVE_CONTACTOR_PIN();
+    }
   }
 
   virtual void setup(void);
@@ -29,13 +34,14 @@ class ChademoBattery : public CanBattery {
   bool supports_chademo_restart() { return true; }
   bool supports_chademo_stop() { return true; }
 
-  void chademo_restart() { datalayer_extended.chademo.UserRequestRestart = true; }
-  void chademo_stop() { datalayer_extended.chademo.UserRequestStop = true; }
+  void chademo_restart() { extended_data.UserRequestRestart = true; }
+  void chademo_stop() { extended_data.UserRequestStop = true; }
 
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
   static constexpr const char* Name = "Chademo V2X mode";
 
  private:
+  DATALAYER_INFO_CHADEMO extended_data;
   gpio_num_t pin2, pin10, pin4, pin7, pin_lock, precharge, positive_contactor;
   ChademoBatteryHtmlRenderer renderer;
 

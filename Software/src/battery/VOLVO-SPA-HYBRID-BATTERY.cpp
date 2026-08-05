@@ -2,7 +2,6 @@
 #include <cstring>  //For unit test
 #include "../communication/can/comm_can.h"
 #include "../datalayer/datalayer.h"
-#include "../datalayer/datalayer_extended.h"  //For "More battery info" webpage
 #include "../devboard/utils/events.h"
 #include "../devboard/utils/logging.h"
 
@@ -10,72 +9,72 @@ void VolvoSpaHybridBattery::
     update_values() {  //This function maps all the values fetched via CAN to the correct parameters used for the inverter
 
   // Update webserver datalayer
-  datalayer_extended.VolvoHybrid.soc_bms = SOC_BMS;
-  datalayer_extended.VolvoHybrid.soc_calc = SOC_CALC;
-  datalayer_extended.VolvoHybrid.soc_rescaled = datalayer.battery.status.reported_soc;
-  datalayer_extended.VolvoHybrid.soh_bms = datalayer.battery.status.soh_pptt;
+  extended_data.soc_bms = SOC_BMS;
+  extended_data.soc_calc = SOC_CALC;
+  extended_data.soc_rescaled = datalayer_battery->status.reported_soc;
+  extended_data.soh_bms = datalayer_battery->status.soh_pptt;
 
-  datalayer_extended.VolvoHybrid.BECMBatteryVoltage = BATT_U;
-  datalayer_extended.VolvoHybrid.BECMBatteryCurrent = BATT_I;
-  datalayer_extended.VolvoHybrid.BECMUDynMaxLim = MAX_U;
-  datalayer_extended.VolvoHybrid.BECMUDynMinLim = MIN_U;
+  extended_data.BECMBatteryVoltage = BATT_U;
+  extended_data.BECMBatteryCurrent = BATT_I;
+  extended_data.BECMUDynMaxLim = MAX_U;
+  extended_data.BECMUDynMinLim = MIN_U;
 
-  datalayer_extended.VolvoHybrid.HvBattPwrLimDcha1 = HvBattPwrLimDcha1;
-  datalayer_extended.VolvoHybrid.HvBattPwrLimDchaSoft = HvBattPwrLimDchaSoft;
-  //datalayer_extended.VolvoHybrid.HvBattPwrLimDchaSlowAgi = HvBattPwrLimDchaSlowAgi;
-  //datalayer_extended.VolvoHybrid.HvBattPwrLimChrgSlowAgi = HvBattPwrLimChrgSlowAgi;
+  extended_data.HvBattPwrLimDcha1 = HvBattPwrLimDcha1;
+  extended_data.HvBattPwrLimDchaSoft = HvBattPwrLimDchaSoft;
+  //extended_data.HvBattPwrLimDchaSlowAgi = HvBattPwrLimDchaSlowAgi;
+  //extended_data.HvBattPwrLimChrgSlowAgi = HvBattPwrLimChrgSlowAgi;
 
   // Update requests from webserver datalayer
-  if (datalayer_extended.VolvoHybrid.UserRequestDTCreset) {
+  if (extended_data.UserRequestDTCreset) {
     transmit_can_frame(&VOLVO_DTC_Erase);  //Send global DTC erase command
-    datalayer_extended.VolvoHybrid.UserRequestDTCreset = false;
+    extended_data.UserRequestDTCreset = false;
   }
-  if (datalayer_extended.VolvoHybrid.UserRequestBECMecuReset) {
+  if (extended_data.UserRequestBECMecuReset) {
     transmit_can_frame(&VOLVO_BECM_ECUreset);  //Send BECM ecu reset command
-    datalayer_extended.VolvoHybrid.UserRequestBECMecuReset = false;
+    extended_data.UserRequestBECMecuReset = false;
   }
-  if (datalayer_extended.VolvoHybrid.UserRequestDTCreadout) {
+  if (extended_data.UserRequestDTCreadout) {
     transmit_can_frame(&VOLVO_DTCreadout);  //Send DTC readout command
-    datalayer_extended.VolvoHybrid.UserRequestDTCreadout = false;
+    extended_data.UserRequestDTCreadout = false;
   }
 
   remaining_capacity = (18830 - CHARGE_ENERGY);
 
-  //datalayer.battery.status.real_soc = SOC_BMS;			// Use BMS reported SOC, havent figured out how to get the BMS to calibrate empty/full yet
+  //datalayer_battery->status.real_soc = SOC_BMS;			// Use BMS reported SOC, havent figured out how to get the BMS to calibrate empty/full yet
   SOC_CALC = remaining_capacity / 19;  // Use calculated SOC based on remaining_capacity
 
-  datalayer.battery.status.real_soc = SOC_CALC * 10;
+  datalayer_battery->status.real_soc = SOC_CALC * 10;
 
   if (BATT_U > MAX_U)  // Protect if overcharged
   {
-    datalayer.battery.status.real_soc = 10000;
+    datalayer_battery->status.real_soc = 10000;
   } else if (BATT_U < MIN_U)  //Protect if undercharged
   {
-    datalayer.battery.status.real_soc = 0;
+    datalayer_battery->status.real_soc = 0;
   }
 
-  datalayer.battery.status.voltage_dV = BATT_U * 10;
-  datalayer.battery.status.current_dA = BATT_I * 10;
-  datalayer.battery.status.remaining_capacity_Wh = remaining_capacity;
+  datalayer_battery->status.voltage_dV = BATT_U * 10;
+  datalayer_battery->status.current_dA = BATT_I * 10;
+  datalayer_battery->status.remaining_capacity_Wh = remaining_capacity;
 
-  datalayer.battery.status.max_discharge_power_W = 6600;  //default power on charge connector
-  datalayer.battery.status.max_charge_power_W = 6600;     //default power on charge connector
-  datalayer.battery.status.temperature_min_dC = BATT_T_MIN;
-  datalayer.battery.status.temperature_max_dC = BATT_T_MAX;
+  datalayer_battery->status.max_discharge_power_W = 6600;  //default power on charge connector
+  datalayer_battery->status.max_charge_power_W = 6600;     //default power on charge connector
+  datalayer_battery->status.temperature_min_dC = BATT_T_MIN;
+  datalayer_battery->status.temperature_max_dC = BATT_T_MAX;
 
-  datalayer.battery.status.cell_max_voltage_mV = CELL_U_MAX;  // Use min/max reported from BMS
-  datalayer.battery.status.cell_min_voltage_mV = CELL_U_MIN;
+  datalayer_battery->status.cell_max_voltage_mV = CELL_U_MAX;  // Use min/max reported from BMS
+  datalayer_battery->status.cell_min_voltage_mV = CELL_U_MIN;
 
   //Map all cell voltages to the global array
   for (int i = 0; i < 102; ++i) {
-    datalayer.battery.status.cell_voltages_mV[i] = cell_voltages[i];
+    datalayer_battery->status.cell_voltages_mV[i] = cell_voltages[i];
   }
 }
 
 void VolvoSpaHybridBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x3A:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       if ((rx_frame.data.u8[6] & 0x80) == 0x80)
         BATT_I = (0 - ((((rx_frame.data.u8[6] & 0x7F) * 256.0 + rx_frame.data.u8[7]) * 0.1) - 1638));
       else {
@@ -105,22 +104,22 @@ void VolvoSpaHybridBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
 
       if ((rx_frame.data.u8[0] & 0x40) == 0x40)
-        datalayer_extended.VolvoHybrid.HVSysRlySts = ((rx_frame.data.u8[0] & 0x30) >> 4);
+        extended_data.HVSysRlySts = ((rx_frame.data.u8[0] & 0x30) >> 4);
       else
-        datalayer_extended.VolvoHybrid.HVSysRlySts = 0xFF;
+        extended_data.HVSysRlySts = 0xFF;
 
       if ((rx_frame.data.u8[2] & 0x40) == 0x40)
-        datalayer_extended.VolvoHybrid.HVSysDCRlySts1 = ((rx_frame.data.u8[2] & 0x30) >> 4);
+        extended_data.HVSysDCRlySts1 = ((rx_frame.data.u8[2] & 0x30) >> 4);
       else
-        datalayer_extended.VolvoHybrid.HVSysDCRlySts1 = 0xFF;
+        extended_data.HVSysDCRlySts1 = 0xFF;
       if ((rx_frame.data.u8[2] & 0x80) == 0x80)
-        datalayer_extended.VolvoHybrid.HVSysDCRlySts2 = ((rx_frame.data.u8[4] & 0x30) >> 4);
+        extended_data.HVSysDCRlySts2 = ((rx_frame.data.u8[4] & 0x30) >> 4);
       else
-        datalayer_extended.VolvoHybrid.HVSysDCRlySts2 = 0xFF;
+        extended_data.HVSysDCRlySts2 = 0xFF;
       if ((rx_frame.data.u8[0] & 0x80) == 0x80)
-        datalayer_extended.VolvoHybrid.HVSysIsoRMonrSts = ((rx_frame.data.u8[4] & 0xC0) >> 6);
+        extended_data.HVSysIsoRMonrSts = ((rx_frame.data.u8[4] & 0xC0) >> 6);
       else
-        datalayer_extended.VolvoHybrid.HVSysIsoRMonrSts = 0xFF;
+        extended_data.HVSysIsoRMonrSts = 0xFF;
 
       break;
     case 0x1A1:
@@ -219,12 +218,12 @@ void VolvoSpaHybridBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       if ((rx_frame.data.u8[0] == 0x07) && (rx_frame.data.u8[1] == 0x62) && (rx_frame.data.u8[2] == 0x49) &&
           (rx_frame.data.u8[3] == 0x6D))  // SOH response frame
       {
-        datalayer.battery.status.soh_pptt = ((rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
+        datalayer_battery->status.soh_pptt = ((rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
         transmit_can_frame(&VOLVO_BECMsupplyVoltage_Req);  //Send BECM supply voltage req
       } else if ((rx_frame.data.u8[0] == 0x05) && (rx_frame.data.u8[1] == 0x62) && (rx_frame.data.u8[2] == 0xF4) &&
                  (rx_frame.data.u8[3] == 0x42))  // BECM module voltage supply
       {
-        datalayer_extended.VolvoHybrid.BECMsupplyVoltage = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]);
+        extended_data.BECMsupplyVoltage = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]);
       } else if ((rx_frame.data.u8[0] == 0x10) && (rx_frame.data.u8[1] == 0xCF) && (rx_frame.data.u8[2] == 0x62) &&
                  (rx_frame.data.u8[3] == 0x48) &&
                  (rx_frame.data.u8[4] == 0x06))  // First response frame of cell voltages //changed
@@ -475,10 +474,10 @@ void VolvoSpaHybridBattery::transmit_can(unsigned long currentMillis) {
     transmit_can_frame(&VOLVO_372);  //Send 0x372 ECMAmbientTempCalculated
 
     if ((datalayer.system.status.system_status == ACTIVE) && startedUp) {
-      datalayer.system.status.battery_allows_contactor_closing = true;
+      *allows_contactor_closing = true;
       //transmit_can_frame(&VOLVO_140_CLOSE);  //Send 0x140 Close contactors message
-    } else {  //datalayer.battery.status.bms_status == FAULT , OR inverter requested opening contactors, OR system not started yet
-      datalayer.system.status.battery_allows_contactor_closing = false;
+    } else {  //datalayer_battery->status.bms_status == FAULT , OR inverter requested opening contactors, OR system not started yet
+      *allows_contactor_closing = false;
       transmit_can_frame(&VOLVO_140_OPEN);  //Send 0x140 Open contactors message
     }
   }
@@ -503,10 +502,10 @@ void VolvoSpaHybridBattery::transmit_can(unsigned long currentMillis) {
 void VolvoSpaHybridBattery::setup(void) {                     // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);  //changed
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.number_of_cells = 102;  //was 108, changed
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  datalayer_battery->info.number_of_cells = 102;  //was 108, changed
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
 }

@@ -14,32 +14,32 @@ correctly receives data, it will respond with CAN ID 0x305 containing “00 00 0
 void SolArkLvInverter::update_values() {
 
   // Set "Charge voltage limit" to battery max value OR user supplied value
-  uint16_t charge_voltage_dV = datalayer.battery.info.max_design_voltage_dV;
-  if (datalayer.battery.settings.user_set_voltage_limits_active)
-    charge_voltage_dV = datalayer.battery.settings.max_user_set_charge_voltage_dV;
-  if (charge_voltage_dV > datalayer.battery.info.max_design_voltage_dV)
-    charge_voltage_dV = datalayer.battery.info.max_design_voltage_dV;
+  uint16_t charge_voltage_dV = datalayer.batteries[0].info.max_design_voltage_dV;
+  if (datalayer.batteries[0].settings.user_set_voltage_limits_active)
+    charge_voltage_dV = datalayer.batteries[0].settings.max_user_set_charge_voltage_dV;
+  if (charge_voltage_dV > datalayer.batteries[0].info.max_design_voltage_dV)
+    charge_voltage_dV = datalayer.batteries[0].info.max_design_voltage_dV;
   SOLARK_351.data.u8[0] = charge_voltage_dV & 0xff;
   SOLARK_351.data.u8[1] = charge_voltage_dV >> 8;
   //Rest of setpoints in deci-units
-  SOLARK_351.data.u8[2] = datalayer.battery.status.max_charge_current_dA & 0xff;
-  SOLARK_351.data.u8[3] = datalayer.battery.status.max_charge_current_dA >> 8;
-  SOLARK_351.data.u8[4] = datalayer.battery.status.max_discharge_current_dA & 0xff;
-  SOLARK_351.data.u8[5] = datalayer.battery.status.max_discharge_current_dA >> 8;
-  SOLARK_351.data.u8[6] = datalayer.battery.info.min_design_voltage_dV & 0xff;
-  SOLARK_351.data.u8[7] = datalayer.battery.info.min_design_voltage_dV >> 8;
+  SOLARK_351.data.u8[2] = datalayer.batteries[0].status.max_charge_current_dA & 0xff;
+  SOLARK_351.data.u8[3] = datalayer.batteries[0].status.max_charge_current_dA >> 8;
+  SOLARK_351.data.u8[4] = datalayer.batteries[0].status.max_discharge_current_dA & 0xff;
+  SOLARK_351.data.u8[5] = datalayer.batteries[0].status.max_discharge_current_dA >> 8;
+  SOLARK_351.data.u8[6] = datalayer.batteries[0].info.min_design_voltage_dV & 0xff;
+  SOLARK_351.data.u8[7] = datalayer.batteries[0].info.min_design_voltage_dV >> 8;
 
-  SOLARK_355.data.u8[0] = (datalayer.battery.status.reported_soc / 100) & 0xff;
-  SOLARK_355.data.u8[1] = (datalayer.battery.status.reported_soc / 100) >> 8;
-  SOLARK_355.data.u8[2] = (datalayer.battery.status.soh_pptt / 100) & 0xff;
-  SOLARK_355.data.u8[3] = (datalayer.battery.status.soh_pptt / 100) >> 8;
+  SOLARK_355.data.u8[0] = (datalayer.batteries[0].status.reported_soc / 100) & 0xff;
+  SOLARK_355.data.u8[1] = (datalayer.batteries[0].status.reported_soc / 100) >> 8;
+  SOLARK_355.data.u8[2] = (datalayer.batteries[0].status.soh_pptt / 100) & 0xff;
+  SOLARK_355.data.u8[3] = (datalayer.batteries[0].status.soh_pptt / 100) >> 8;
 
   int16_t average_temperature =
-      (datalayer.battery.status.temperature_min_dC + datalayer.battery.status.temperature_max_dC) / 2;
-  SOLARK_356.data.u8[0] = datalayer.battery.status.voltage_dV & 0xff;
-  SOLARK_356.data.u8[1] = datalayer.battery.status.voltage_dV >> 8;
-  SOLARK_356.data.u8[2] = datalayer.battery.status.reported_current_dA & 0xff;
-  SOLARK_356.data.u8[3] = datalayer.battery.status.reported_current_dA >> 8;
+      (datalayer.batteries[0].status.temperature_min_dC + datalayer.batteries[0].status.temperature_max_dC) / 2;
+  SOLARK_356.data.u8[0] = datalayer.batteries[0].status.voltage_dV & 0xff;
+  SOLARK_356.data.u8[1] = datalayer.batteries[0].status.voltage_dV >> 8;
+  SOLARK_356.data.u8[2] = datalayer.batteries[0].status.reported_current_dA & 0xff;
+  SOLARK_356.data.u8[3] = datalayer.batteries[0].status.reported_current_dA >> 8;
   SOLARK_356.data.u8[4] = average_temperature & 0xff;
   SOLARK_356.data.u8[5] = average_temperature >> 8;
 
@@ -54,17 +54,18 @@ void SolArkLvInverter::update_values() {
   SOLARK_359.data.u8[7] = 0x00;  //Unused, should be 00
 
   // Protection Byte 1 Bitfield: (If a bit is set, one of these caused batt self-protection mode)
-  if (datalayer.battery.status.reported_current_dA >= (datalayer.battery.status.max_discharge_current_dA + 50))
+  if (datalayer.batteries[0].status.reported_current_dA >=
+      (datalayer.batteries[0].status.max_discharge_current_dA + 50))
     SOLARK_359.data.u8[0] |= 0x80;
-  if (datalayer.battery.status.temperature_min_dC <= BATTERY_MINTEMPERATURE)
+  if (datalayer.batteries[0].status.temperature_min_dC <= BATTERY_MINTEMPERATURE)
     SOLARK_359.data.u8[0] |= 0x10;
-  if (datalayer.battery.status.temperature_max_dC >= BATTERY_MAXTEMPERATURE)
+  if (datalayer.batteries[0].status.temperature_max_dC >= BATTERY_MAXTEMPERATURE)
     SOLARK_359.data.u8[0] |= 0x0C;
-  if (datalayer.battery.status.voltage_dV <= datalayer.battery.info.min_design_voltage_dV)
+  if (datalayer.batteries[0].status.voltage_dV <= datalayer.batteries[0].info.min_design_voltage_dV)
     SOLARK_359.data.u8[0] |= 0x04;
   if (datalayer.system.status.system_status == FAULT)
     SOLARK_359.data.u8[1] |= 0x80;
-  if (datalayer.battery.status.reported_current_dA <= -1 * datalayer.battery.status.max_charge_current_dA)
+  if (datalayer.batteries[0].status.reported_current_dA <= -1 * datalayer.batteries[0].status.max_charge_current_dA)
     SOLARK_359.data.u8[1] |= 0x01;
 
   // WARNINGS (using same rules as errors but reporting earlier)
@@ -73,15 +74,15 @@ void SolArkLvInverter::update_values() {
   SOLARK_35C.data.u8[0] = 0xC0;  // enable charging and discharging
   if (datalayer.system.status.system_status == FAULT)
     SOLARK_35C.data.u8[0] = 0x00;  // disable all
-  else if (datalayer.battery.settings.user_set_voltage_limits_active &&
-           datalayer.battery.status.voltage_dV > datalayer.battery.settings.max_user_set_charge_voltage_dV)
+  else if (datalayer.batteries[0].settings.user_set_voltage_limits_active &&
+           datalayer.batteries[0].status.voltage_dV > datalayer.batteries[0].settings.max_user_set_charge_voltage_dV)
     SOLARK_35C.data.u8[0] = 0x40;  // only allow discharging
-  else if (datalayer.battery.settings.user_set_voltage_limits_active &&
-           datalayer.battery.status.voltage_dV < datalayer.battery.settings.max_user_set_discharge_voltage_dV)
+  else if (datalayer.batteries[0].settings.user_set_voltage_limits_active &&
+           datalayer.batteries[0].status.voltage_dV < datalayer.batteries[0].settings.max_user_set_discharge_voltage_dV)
     SOLARK_35C.data.u8[0] = 0xA0;  // enable charing, set charge immediately
-  else if (datalayer.battery.status.real_soc <= datalayer.battery.settings.min_percentage)
+  else if (datalayer.batteries[0].status.real_soc <= datalayer.batteries[0].settings.min_percentage)
     SOLARK_35C.data.u8[0] = 0xA0;  // enable charing, set charge immediately
-  else if (datalayer.battery.status.real_soc >= datalayer.battery.settings.max_percentage)
+  else if (datalayer.batteries[0].status.real_soc >= datalayer.batteries[0].settings.max_percentage)
     SOLARK_35C.data.u8[0] = 0x40;  // enable discharging only
 
   // SOLARK_35E is pre-filled with the manufacturer name (BAT-EMU)

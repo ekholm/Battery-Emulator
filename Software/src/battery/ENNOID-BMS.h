@@ -1,11 +1,20 @@
 #ifndef ENNOID_BMS_H
 #define ENNOID_BMS_H
 
+#include "../datalayer/datalayer.h"
 #include "../system_settings.h"
 #include "CanBattery.h"
 
 class EnnoidBms : public CanBattery {
  public:
+  EnnoidBms(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+            CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -14,6 +23,8 @@ class EnnoidBms : public CanBattery {
   static constexpr const char* Name = "ENNOID BMS via VESC, DIY battery";
 
  private:
+  bool* allows_contactor_closing;
+
   static const int MAX_CHARGE_POWER_WHEN_TOPBALANCING_W = 500;
   static const int RAMPDOWN_SOC =
       9000;  // (90.00) SOC% to start ramping down from max charge power towards 0 at 100.00%

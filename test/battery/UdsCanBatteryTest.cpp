@@ -676,8 +676,8 @@ TEST_F(UdsCanBatteryTest, InFlightStepGivesUpWhenPausedRetryWouldBeBlocked) {
 // held and starts once the pause expires (previously the first step send was
 // refused and the request was lost forever).
 TEST_F(UdsCanBatteryTest, SequenceStartedDuringPauseIsHeldUntilPauseExpires) {
-  battery->dtc = &datalayer.battery.dtc;
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  battery->dtc = &datalayer.batteries[0].dtc;
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 
   battery->pause_uds(3, UdsCanBattery::UdsPriority::Custom);  // Blocks everything.
   battery->read_DTC();                                        // Queued while paused.
@@ -698,8 +698,8 @@ TEST_F(UdsCanBatteryTest, SequenceStartedDuringPauseIsHeldUntilPauseExpires) {
 // The 5 s external-tool backoff must not eat a DTC read request: the queued
 // read is sent once the backoff expires.
 TEST_F(UdsCanBatteryTest, DtcReadDuringExternalToolBackoffIsNotLost) {
-  battery->dtc = &datalayer.battery.dtc;
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  battery->dtc = &datalayer.batteries[0].dtc;
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 
   battery->handle_incoming_uds_can_frame(make_frame(0x7DF, {0x02, 0x3E, 0x00}));  // Tool on the bus.
   battery->read_DTC();
@@ -811,8 +811,8 @@ TEST_F(UdsCanBatteryTest, StrayResponseDoesNotPinTheAddress) {
 // ---------------------------------------------------------------------------
 
 TEST_F(UdsCanBatteryTest, ReadDtcParsesSingleFrameResponse) {
-  battery->dtc = &datalayer.battery.dtc;
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  battery->dtc = &datalayer.batteries[0].dtc;
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 
   battery->read_DTC();
   tick(1000);
@@ -826,17 +826,17 @@ TEST_F(UdsCanBatteryTest, ReadDtcParsesSingleFrameResponse) {
   // 59 02 FF <U019B status FF>  -> one code: C1 9B 00.
   feed_response({0x59, 0x02, 0xFF, 0xC1, 0x9B, 0x00, 0xFF});
 
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 1);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0xC19B00u);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_status[0], 0xFF);
-  EXPECT_NE(datalayer.battery.dtc.dtc_last_read_millis, 0u);
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 1);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0xC19B00u);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_status[0], 0xFF);
+  EXPECT_NE(datalayer.batteries[0].dtc.dtc_last_read_millis, 0u);
   EXPECT_FALSE(battery->uds_is_busy());
 }
 
 TEST_F(UdsCanBatteryTest, ReadDtcParsesMultiFrameResponse) {
-  battery->dtc = &datalayer.battery.dtc;
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  battery->dtc = &datalayer.batteries[0].dtc;
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 
   battery->read_DTC();
   tick(1000);
@@ -846,32 +846,32 @@ TEST_F(UdsCanBatteryTest, ReadDtcParsesMultiFrameResponse) {
   battery->handle_incoming_uds_can_frame(make_frame(0x7BB, {0x21, 0x4E, 0x33, 0xD7, 0x00, 0x4E, 0x33, 0xD9}));
   battery->handle_incoming_uds_can_frame(make_frame(0x7BB, {0x22, 0x00, 0x4E, 0x33, 0xDD, 0x00, 0x4E, 0xFF}));
 
-  EXPECT_FALSE(datalayer.battery.dtc.dtc_read_failed);
-  ASSERT_EQ(datalayer.battery.dtc.dtc_count, 4);
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[0], 0xD00000u);  // U1000
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[1], 0x33D700u);  // P33D7
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[2], 0x33D900u);  // P33D9
-  EXPECT_EQ(datalayer.battery.dtc.dtc_codes[3], 0x33DD00u);  // P33DD
+  EXPECT_FALSE(datalayer.batteries[0].dtc.dtc_read_failed);
+  ASSERT_EQ(datalayer.batteries[0].dtc.dtc_count, 4);
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[0], 0xD00000u);  // U1000
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[1], 0x33D700u);  // P33D7
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[2], 0x33D900u);  // P33D9
+  EXPECT_EQ(datalayer.batteries[0].dtc.dtc_codes[3], 0x33DD00u);  // P33DD
   for (int i = 0; i < 4; i++) {
-    EXPECT_EQ(datalayer.battery.dtc.dtc_status[i], 0x4E);
+    EXPECT_EQ(datalayer.batteries[0].dtc.dtc_status[i], 0x4E);
   }
 }
 
 TEST_F(UdsCanBatteryTest, ReadDtcNegativeResponseMarksReadFailed) {
-  battery->dtc = &datalayer.battery.dtc;
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  battery->dtc = &datalayer.batteries[0].dtc;
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 
   battery->read_DTC();
   tick(1000);
 
   feed_response({0x7F, 0x19, 0x12});
-  EXPECT_TRUE(datalayer.battery.dtc.dtc_read_failed);
-  EXPECT_NE(datalayer.battery.dtc.dtc_last_read_millis, 0u);
+  EXPECT_TRUE(datalayer.batteries[0].dtc.dtc_read_failed);
+  EXPECT_NE(datalayer.batteries[0].dtc.dtc_last_read_millis, 0u);
 }
 
 TEST_F(UdsCanBatteryTest, ClearDtcSequenceCompletesOnAcknowledgment) {
-  battery->dtc = &datalayer.battery.dtc;
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  battery->dtc = &datalayer.batteries[0].dtc;
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
 
   battery->reset_DTC();
   tick(1000);
@@ -902,8 +902,8 @@ TEST_F(UdsCanBatteryTest, RendererShowsInfoAndDtcSection) {
   EXPECT_EQ(html.find("Diagnostic Trouble Codes"), std::string::npos);
 
   // With a dtc pointer the standard DTC section appears.
-  battery->dtc = &datalayer.battery.dtc;
-  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  battery->dtc = &datalayer.batteries[0].dtc;
+  datalayer.batteries[0].dtc = DATALAYER_BATTERY_DTC_TYPE{};
   html = renderer.get_status_html().c_str();
   EXPECT_NE(html.find("TEST-INFO"), std::string::npos);
   EXPECT_NE(html.find("Diagnostic Trouble Codes"), std::string::npos);

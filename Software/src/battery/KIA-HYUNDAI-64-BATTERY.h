@@ -7,22 +7,16 @@
 
 class KiaHyundai64Battery : public CanBattery {
  public:
-  // Use this constructor for the second battery.
-  KiaHyundai64Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_KIAHYUNDAI64* extended_ptr,
-                      bool* contactor_closing_allowed_ptr, CAN_Interface targetCan)
-      : CanBattery(targetCan), renderer(extended_ptr) {
+  // One constructor for every instance.
+  KiaHyundai64Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                      bool* contactor_closing_allowed_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     contactor_closing_allowed = contactor_closing_allowed_ptr;
-    allows_contactor_closing = nullptr;
-    datalayer_battery_extended = extended_ptr;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  KiaHyundai64Battery() : renderer(&datalayer_extended.KiaHyundai64) {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    contactor_closing_allowed = nullptr;
-    datalayer_battery_extended = &datalayer_extended.KiaHyundai64;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+    datalayer_battery_extended = &extended_data;
   }
 
   virtual void setup(void);
@@ -38,9 +32,8 @@ class KiaHyundai64Battery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
+  DATALAYER_INFO_KIAHYUNDAI64 extended_data;
   KiaHyundai64HtmlRenderer renderer;
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
   DATALAYER_INFO_KIAHYUNDAI64* datalayer_battery_extended;
 
   bool UserRequestDTCreset = false;

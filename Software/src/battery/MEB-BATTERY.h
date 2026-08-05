@@ -15,16 +15,17 @@ enum class VAGPlatform : uint8_t {
 class MebBattery : public CanBattery, public IsoTp {
  public:
   // Use this constructor for the second battery.
-  MebBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_MEB* extended, CAN_Interface targetCan)
-      : CanBattery(targetCan) {
+  // One constructor for every instance; the extended data comes from the
+  // instance's own schema slot rather than a shared singleton.
+  MebBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+             CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&datalayer_ptr->extended.meb) {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
-    datalayer_meb = extended;
-    BMS_voltage = 0;
-  }
-  // Use the default constructor to create the first or single battery.
-  MebBattery() {
-    datalayer_battery = &datalayer.battery;
-    datalayer_meb = &datalayer_extended.meb;
+    datalayer_meb = &datalayer_ptr->extended.meb;
+    if (!primary) {
+      BMS_voltage = 0;
+    }
   }
 
   virtual void setup(void);
@@ -35,11 +36,11 @@ class MebBattery : public CanBattery, public IsoTp {
   bool supports_insulation_resistance() { return true; }
   bool supports_charged_energy() { return true; }
   bool supports_reset_DTC() { return true; }
-  void reset_DTC() { datalayer_extended.meb.UserRequestDTCreset = true; }
+  void reset_DTC() { datalayer_meb->UserRequestDTCreset = true; }
   bool supports_read_DTC() { return true; }
-  void read_DTC() { datalayer_extended.meb.UserRequestDTCreadout = true; }
+  void read_DTC() { datalayer_meb->UserRequestDTCreadout = true; }
   bool supports_reset_crash() { return true; }
-  void reset_crash() { datalayer_extended.meb.UserRequestCrashReset = true; }
+  void reset_crash() { datalayer_meb->UserRequestCrashReset = true; }
   bool supports_reset_BMS() { return true; }
   void reset_BMS() { datalayer_meb->UserRequestBMSReset = true; }
   static constexpr const char* Name = "VW Group MEB platform via CAN-FD";
@@ -689,9 +690,9 @@ class MebBattery : public CanBattery, public IsoTp {
 // MQB Evo shares all of the MEB CAN handling; only the one-time setup differs.
 class MqbEvoBattery : public MebBattery {
  public:
-  MqbEvoBattery() = default;
-  MqbEvoBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_MEB* extended, CAN_Interface targetCan)
-      : MebBattery(datalayer_ptr, extended, targetCan) {}
+  MqbEvoBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                CAN_Interface targetCan = can_config.batteries[0])
+      : MebBattery(datalayer_ptr, targetCan) {}
   static constexpr const char* Name = "VW Group MQB Evo 2024+ via CAN-FD";
   void setup(void) override;
 };

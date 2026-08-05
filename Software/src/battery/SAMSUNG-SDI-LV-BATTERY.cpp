@@ -20,38 +20,38 @@ TODO: Implement the error bit handling for easier visualization if the battery s
 
 void SamsungSdiLVBattery::update_values() {
 
-  datalayer.battery.status.real_soc = system_SOC * 100;
+  datalayer_battery->status.real_soc = system_SOC * 100;
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
-  datalayer.battery.status.soh_pptt = system_SOH * 100;
+  datalayer_battery->status.soh_pptt = system_SOH * 100;
 
-  datalayer.battery.status.voltage_dV = system_voltage / 10;
+  datalayer_battery->status.voltage_dV = system_voltage / 10;
 
-  datalayer.battery.status.current_dA = system_current * 10;
+  datalayer_battery->status.current_dA = system_current * 10;
 
-  datalayer.battery.status.max_charge_power_W = system_voltage * charge_current_limit;
+  datalayer_battery->status.max_charge_power_W = system_voltage * charge_current_limit;
 
-  datalayer.battery.status.max_discharge_power_W = system_voltage * discharge_current_limit;
+  datalayer_battery->status.max_discharge_power_W = system_voltage * discharge_current_limit;
 
-  datalayer.battery.status.temperature_min_dC = (int16_t)(minimum_cell_temperature * 10);
+  datalayer_battery->status.temperature_min_dC = (int16_t)(minimum_cell_temperature * 10);
 
-  datalayer.battery.status.temperature_max_dC = (int16_t)(maximum_cell_temperature * 10);
+  datalayer_battery->status.temperature_max_dC = (int16_t)(maximum_cell_temperature * 10);
 
-  datalayer.battery.status.cell_max_voltage_mV = maximum_cell_voltage;
+  datalayer_battery->status.cell_max_voltage_mV = maximum_cell_voltage;
 
-  datalayer.battery.status.cell_min_voltage_mV = minimum_cell_voltage;
+  datalayer_battery->status.cell_min_voltage_mV = minimum_cell_voltage;
 
-  datalayer.battery.info.max_design_voltage_dV = battery_charge_voltage;
+  datalayer_battery->info.max_design_voltage_dV = battery_charge_voltage;
 
-  datalayer.battery.info.min_design_voltage_dV = battery_discharge_voltage;
+  datalayer_battery->info.min_design_voltage_dV = battery_discharge_voltage;
 }
 
 void SamsungSdiLVBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x500:  //Voltage, current, SOC, SOH
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       system_voltage = ((rx_frame.data.u8[0] << 8) | rx_frame.data.u8[1]);
       system_current = ((rx_frame.data.u8[2] << 8) | rx_frame.data.u8[3]);
       system_SOC = rx_frame.data.u8[4];
@@ -93,10 +93,12 @@ void SamsungSdiLVBattery::transmit_can(unsigned long currentMillis) {
 void SamsungSdiLVBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.system.status.battery_allows_contactor_closing = true;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.total_capacity_Wh = 5000;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.total_capacity_Wh = 5000;
 }

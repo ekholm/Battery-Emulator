@@ -29,66 +29,66 @@ void findMinMaxCellvoltages(const uint16_t arr[], size_t size, uint16_t& Minimum
 
 void OrionBms::update_values() {
 
-  datalayer.battery.status.real_soc = Pack_SOC_ppt * 10;
+  datalayer_battery->status.real_soc = Pack_SOC_ppt * 10;
 
-  datalayer.battery.status.soh_pptt = Pack_Health * 100;
+  datalayer_battery->status.soh_pptt = Pack_Health * 100;
 
-  datalayer.battery.status.voltage_dV = (Pack_Summed_Voltage / 10);
+  datalayer_battery->status.voltage_dV = (Pack_Summed_Voltage / 10);
 
-  datalayer.battery.status.current_dA = Average_Current;
+  datalayer_battery->status.current_dA = Average_Current;
 
-  datalayer.battery.status.max_charge_power_W = (Pack_CCL * datalayer.battery.status.voltage_dV) / 100;
+  datalayer_battery->status.max_charge_power_W = (Pack_CCL * datalayer_battery->status.voltage_dV) / 100;
 
-  datalayer.battery.status.max_discharge_power_W = (Pack_DCL * datalayer.battery.status.voltage_dV) / 100;
+  datalayer_battery->status.max_discharge_power_W = (Pack_DCL * datalayer_battery->status.voltage_dV) / 100;
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
-  datalayer.battery.status.temperature_min_dC = (High_Temperature - 10);
+  datalayer_battery->status.temperature_min_dC = (High_Temperature - 10);
 
-  datalayer.battery.status.temperature_max_dC = High_Temperature;
+  datalayer_battery->status.temperature_max_dC = High_Temperature;
 
   //Map all cell voltages to the global array
-  memcpy(datalayer.battery.status.cell_voltages_mV, cellvoltages, MAX_AMOUNT_CELLS * sizeof(uint16_t));
+  memcpy(datalayer_battery->status.cell_voltages_mV, cellvoltages, MAX_AMOUNT_CELLS * sizeof(uint16_t));
 
   //Find min and max cellvoltage from the array
   findMinMaxCellvoltages(cellvoltages, MAX_AMOUNT_CELLS, Minimum_Cell_Voltage, Maximum_Cell_Voltage);
 
-  datalayer.battery.status.cell_max_voltage_mV = Maximum_Cell_Voltage;
+  datalayer_battery->status.cell_max_voltage_mV = Maximum_Cell_Voltage;
 
-  datalayer.battery.status.cell_min_voltage_mV = Minimum_Cell_Voltage;
+  datalayer_battery->status.cell_min_voltage_mV = Minimum_Cell_Voltage;
 
   //Use the reported number of cells to avoid needing to configure it
   if (amount_of_detected_cells < MAX_AMOUNT_CELLS) {
-    datalayer.battery.info.number_of_cells = amount_of_detected_cells;
+    datalayer_battery->info.number_of_cells = amount_of_detected_cells;
   }
 }
 
 void OrionBms::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x356:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       Pack_Summed_Voltage = (rx_frame.data.u8[1] << 8) | rx_frame.data.u8[0];
       Average_Current = (rx_frame.data.u8[3] << 8) | rx_frame.data.u8[2];
       High_Temperature = (rx_frame.data.u8[5] << 8) | rx_frame.data.u8[4];
       break;
     case 0x351:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       Maximum_Pack_Voltage = (rx_frame.data.u8[1] << 8) | rx_frame.data.u8[0];
       Pack_CCL = (rx_frame.data.u8[3] << 8) | rx_frame.data.u8[2];
       Pack_DCL = (rx_frame.data.u8[5] << 8) | rx_frame.data.u8[4];
       Minimum_Pack_Voltage = (rx_frame.data.u8[7] << 8) | rx_frame.data.u8[6];
       break;
     case 0x355:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       Pack_Health = (rx_frame.data.u8[3] << 8) | rx_frame.data.u8[2];
       Pack_SOC_ppt = (rx_frame.data.u8[5] << 8) | rx_frame.data.u8[4];
       break;
     case 0x35A:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x36:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       CellID = rx_frame.data.u8[0];
       CellBalancing = (rx_frame.data.u8[3] & 0x80) >> 7;
       CellVoltage = (rx_frame.data.u8[1] << 8) | rx_frame.data.u8[2];
@@ -116,9 +116,11 @@ void OrionBms::transmit_can(unsigned long currentMillis) {
 void OrionBms::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
-  datalayer.battery.info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
-  datalayer.battery.info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
-  datalayer.battery.info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
+  datalayer_battery->info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
+  datalayer_battery->info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
+  datalayer_battery->info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
 }

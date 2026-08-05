@@ -1,10 +1,19 @@
 #ifndef RIVIAN_BATTERY_H
 #define RIVIAN_BATTERY_H
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 #include "RIVIAN-HTML.h"
 
 class RivianBattery : public CanBattery {
  public:
+  RivianBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -14,6 +23,9 @@ class RivianBattery : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
+  bool* allows_contactor_closing;
+
+  DATALAYER_INFO_RIVIAN extended_data;
   RivianHtmlRenderer renderer;
   uint8_t calculateCRC(CAN_frame rx_frame, uint8_t length, uint8_t initial_value);
 

@@ -128,23 +128,23 @@ void ChargebyteCCSBattery::update_values() {
   CHARGEBYTE_302.data.u8[3] = presentVoltage_dV >> 8;
 
   if (inPrecharge)
-    datalayer.battery.status.real_bms_status = BMS_STANDBY;
+    datalayer_battery->status.real_bms_status = BMS_STANDBY;
   else if (inCharge)
-    datalayer.battery.status.real_bms_status = BMS_ACTIVE;
+    datalayer_battery->status.real_bms_status = BMS_ACTIVE;
   else if (hasLowLevelError || hasChargebyteError)
-    datalayer.battery.status.real_bms_status = BMS_FAULT;
+    datalayer_battery->status.real_bms_status = BMS_FAULT;
   else
-    datalayer.battery.status.real_bms_status = BMS_DISCONNECTED;
+    datalayer_battery->status.real_bms_status = BMS_DISCONNECTED;
 
-  datalayer.battery.status.real_soc = soc;
-  datalayer.battery.status.voltage_dV = presentVoltage_dV;
-  datalayer.battery.status.current_dA = presentCurrent_dA;
-  datalayer.battery.status.remaining_capacity_Wh = energyCapacity_Wh * soc / 10000;
-  datalayer.battery.info.total_capacity_Wh = energyCapacity_Wh;
-  datalayer.battery.info.max_design_voltage_dV = maxVoltage_dV;
+  datalayer_battery->status.real_soc = soc;
+  datalayer_battery->status.voltage_dV = presentVoltage_dV;
+  datalayer_battery->status.current_dA = presentCurrent_dA;
+  datalayer_battery->status.remaining_capacity_Wh = energyCapacity_Wh * soc / 10000;
+  datalayer_battery->info.total_capacity_Wh = energyCapacity_Wh;
+  datalayer_battery->info.max_design_voltage_dV = maxVoltage_dV;
 
-  datalayer.battery.status.max_charge_power_W = maxPower_W;
-  datalayer.battery.status.max_discharge_power_W = maxPower_W;
+  datalayer_battery->status.max_charge_power_W = maxPower_W;
+  datalayer_battery->status.max_discharge_power_W = maxPower_W;
 }
 
 void ChargebyteCCSBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -191,7 +191,7 @@ void ChargebyteCCSBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   }
 
   if (isChargebyteFrame)
-    datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+    datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 }
 
 void ChargebyteCCSBattery::transmit_can(unsigned long now) {
@@ -221,21 +221,21 @@ void ChargebyteCCSBattery::setup() {
 
   strncpy(datalayer.system.info.battery_protocol, "CCS using chargebyte CME/CCF", 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.min_design_voltage_dV = 1000;
-  datalayer.battery.info.max_design_voltage_dV = 5000;
-  datalayer.battery.info.max_cell_voltage_mV = 4200;
-  datalayer.battery.info.min_cell_voltage_mV = 3200;
+  datalayer_battery->info.min_design_voltage_dV = 1000;
+  datalayer_battery->info.max_design_voltage_dV = 5000;
+  datalayer_battery->info.max_cell_voltage_mV = 4200;
+  datalayer_battery->info.min_cell_voltage_mV = 3200;
 
   // fake data
-  datalayer.battery.info.number_of_cells = 4;
-  datalayer.battery.status.cell_voltages_mV[0] = 4000;
-  datalayer.battery.status.cell_voltages_mV[1] = 4000;
-  datalayer.battery.status.cell_voltages_mV[2] = 4000;
-  datalayer.battery.status.cell_voltages_mV[3] = 4000;
-  datalayer.battery.status.cell_min_voltage_mV = 4000;
-  datalayer.battery.status.cell_max_voltage_mV = 4000;
-  datalayer.battery.status.temperature_min_dC = 200;
-  datalayer.battery.status.temperature_max_dC = 200;
+  datalayer_battery->info.number_of_cells = 4;
+  datalayer_battery->status.cell_voltages_mV[0] = 4000;
+  datalayer_battery->status.cell_voltages_mV[1] = 4000;
+  datalayer_battery->status.cell_voltages_mV[2] = 4000;
+  datalayer_battery->status.cell_voltages_mV[3] = 4000;
+  datalayer_battery->status.cell_min_voltage_mV = 4000;
+  datalayer_battery->status.cell_max_voltage_mV = 4000;
+  datalayer_battery->status.temperature_min_dC = 200;
+  datalayer_battery->status.temperature_max_dC = 200;
 
   i2c_master_bus_config_t bus_config = {
       .i2c_port = -1,

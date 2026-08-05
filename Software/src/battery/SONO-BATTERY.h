@@ -1,10 +1,20 @@
 #ifndef SONO_BATTERY_H
 #define SONO_BATTERY_H
 
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 class SonoBattery : public CanBattery {
  public:
+  SonoBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+              CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -12,6 +22,8 @@ class SonoBattery : public CanBattery {
   static constexpr const char* Name = "Sono Motors Sion 64kWh LFP ";
 
  private:
+  bool* allows_contactor_closing;
+
   static const int MAX_PACK_VOLTAGE_DV = 5000;  //5000 = 500.0V
   static const int MIN_PACK_VOLTAGE_DV = 2500;
   static const int MAX_CELL_DEVIATION_MV = 250;

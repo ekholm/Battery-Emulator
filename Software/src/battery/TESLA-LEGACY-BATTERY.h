@@ -1,9 +1,19 @@
 #ifndef TESLA_LEGACY_BATTERY_H
 #define TESLA_LEGACY_BATTERY_H
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 class TeslaLegacyBattery : public CanBattery {
  public:
+  TeslaLegacyBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                     CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -14,6 +24,9 @@ class TeslaLegacyBattery : public CanBattery {
   void reset_BMS() { user_requests_bms_reset = true; }
 
  private:
+  // If not null, this battery decides when the contactor can be closed and writes the value here.
+  bool* allows_contactor_closing;
+
   static const int MAX_PACK_VOLTAGE_60_DV = 5000;  //TODO, set
   static const int MIN_PACK_VOLTAGE_60_DV = 3000;
   static const int MAX_PACK_VOLTAGE_70_DV = 5000;  //TODO, set

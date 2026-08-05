@@ -91,7 +91,7 @@ void RelionBattery::update_values() {
 
   //We have not found allowed charge power yet. Estimate it for now absed on UI setting. TODO. remove this once found
   // Charge power is manually set from webserver, and ramped down at high soc from inverter function
-  datalayer.battery.status.max_charge_power_W = datalayer.battery.status.override_charge_power_W;
+  datalayer_battery->status.max_charge_power_W = datalayer_battery->status.override_charge_power_W;
 
   datalayer_battery->status.temperature_min_dC = max_cell_temperature * 10;
 
@@ -250,5 +250,5 @@ void RelionBattery::setup(void) {  // Performs one time setup at startup
     datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
   }
 
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  *allows_contactor_closing = true;
 }

@@ -6,15 +6,10 @@
 
 class CmpSmartCarBattery : public UdsCanBattery {
  public:
-  // Use this constructor for the second battery.
-  CmpSmartCarBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : UdsCanBattery(targetCan) {
+  CmpSmartCarBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                     CAN_Interface targetCan = can_config.batteries[0])
+      : UdsCanBattery(targetCan) {
     datalayer_battery = datalayer_ptr;
-    dtc = &datalayer_battery->dtc;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  CmpSmartCarBattery() : UdsCanBattery() {
-    datalayer_battery = &datalayer.battery;
     dtc = &datalayer_battery->dtc;
   }
 

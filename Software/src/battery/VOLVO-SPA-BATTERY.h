@@ -6,6 +6,12 @@
 
 class VolvoSpaBattery : public CanBattery {
  public:
+  VolvoSpaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                  CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
+    datalayer_battery = datalayer_ptr;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -25,6 +31,7 @@ class VolvoSpaBattery : public CanBattery {
 
  private:
   VolvoSpaHtmlRenderer renderer;
+  DATALAYER_INFO_VOLVO_POLESTAR extended_data;
 
   bool UserRequestDTCreset = false;
   bool UserRequestDTCreadout = false;

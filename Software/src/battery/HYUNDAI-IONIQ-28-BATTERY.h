@@ -8,8 +8,11 @@
 
 class HyundaiIoniq28Battery : public CanBattery {
  public:
-  // Use the default constructor to create the first or single battery.
-  HyundaiIoniq28Battery() : renderer(*this) { datalayer_battery = &datalayer.battery; }
+  HyundaiIoniq28Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                        CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(*this) {
+    datalayer_battery = datalayer_ptr;
+  }
 
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
@@ -32,9 +35,6 @@ class HyundaiIoniq28Battery : public CanBattery {
 
  private:
   HyundaiIoniq28BatteryHtmlRenderer renderer;
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
-
   bool UserRequestDTCreset = false;
 
   static const int MAX_PACK_VOLTAGE_DV = 4050;  //5000 = 500.0V

@@ -17,7 +17,7 @@ class CmfaEvBattery : public UdsCanBattery {
 
   // Use the default constructor to create the first or single battery.
   CmfaEvBattery() : UdsCanBattery() {
-    datalayer_battery = &datalayer.battery;
+    datalayer_battery = &datalayer_battery->;
     allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
     dtc = &datalayer_battery->dtc;
   }

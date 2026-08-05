@@ -6,18 +6,13 @@
 
 class GeelyGeometryCBattery : public CanBattery {
  public:
-  // Use this constructor for the second battery.
-  GeelyGeometryCBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_GEELY_GEOMETRY_C* extended,
-                        CAN_Interface targetCan)
-      : CanBattery(targetCan) {
+  GeelyGeometryCBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                        CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
     datalayer_battery = datalayer_ptr;
-
-    battery_voltage = 0;
-  }
-  // Use the default constructor to create the first or single battery.
-  GeelyGeometryCBattery() {
-    datalayer_battery = &datalayer.battery;
-    datalayer_geometryc = &datalayer_extended.geometryC;
+    datalayer_geometryc = &extended_data;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    battery_voltage = primary ? 3700 : 0;
   }
 
   virtual void setup(void);
@@ -32,9 +27,8 @@ class GeelyGeometryCBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
+  DATALAYER_INFO_GEELY_GEOMETRY_C extended_data;
   GeelyGeometryCHtmlRenderer renderer;
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
   DATALAYER_INFO_GEELY_GEOMETRY_C* datalayer_geometryc;
 
   bool UserRequestDTCreset = false;

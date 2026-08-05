@@ -7,10 +7,12 @@
 
 class ChademoBatteryHtmlRenderer : public BatteryHtmlRenderer {
  public:
+  explicit ChademoBatteryHtmlRenderer(DATALAYER_INFO_CHADEMO* d) : data(d) {}
+
   String get_status_html() {
     String content;
     content += "<h4>Chademo state: ";
-    switch (datalayer_extended.chademo.CHADEMO_Status) {
+    switch (data->CHADEMO_Status) {
       case 0:
         content += String("FAULT</h4>");
         break;
@@ -48,22 +50,22 @@ class ChademoBatteryHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
         break;
     }
-    if (datalayer_extended.chademo.FaultBatteryCurrentDeviation) {
+    if (data->FaultBatteryCurrentDeviation) {
       content += "<h4>FAULT: Battery Current Deviation</h4>";
     }
-    if (datalayer_extended.chademo.FaultBatteryOverVoltage) {
+    if (data->FaultBatteryOverVoltage) {
       content += "<h4>FAULT: Battery Overvoltage</h4>";
     }
-    if (datalayer_extended.chademo.FaultBatteryUnderVoltage) {
+    if (data->FaultBatteryUnderVoltage) {
       content += "<h4>FAULT: Battery Undervoltage</h4>";
     }
-    if (datalayer_extended.chademo.FaultBatteryVoltageDeviation) {
+    if (data->FaultBatteryVoltageDeviation) {
       content += "<h4>FAULT: Battery Voltage Deviation</h4>";
     }
-    if (datalayer_extended.chademo.FaultHighBatteryTemperature) {
+    if (data->FaultHighBatteryTemperature) {
       content += "<h4>FAULT: Battery Temperature</h4>";
     }
-    content += "<h4>Protocol: " + String(datalayer_extended.chademo.ControlProtocolNumberEV) + "</h4>";
+    content += "<h4>Protocol: " + String(data->ControlProtocolNumberEV) + "</h4>";
 
     //Script for refreshing page
     content += "<script>";
@@ -72,6 +74,9 @@ class ChademoBatteryHtmlRenderer : public BatteryHtmlRenderer {
 
     return content;
   }
+
+ private:
+  DATALAYER_INFO_CHADEMO* data;
 };
 
 #endif

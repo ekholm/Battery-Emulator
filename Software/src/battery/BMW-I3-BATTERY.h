@@ -9,25 +9,24 @@
 
 class BmwI3Battery : public CanBattery {
  public:
-  // Use this constructor for the second battery.
-  BmwI3Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr, bool* contactor_closing_allowed_ptr, CAN_Interface targetCan,
-               gpio_num_t wakeup)
+  // One constructor for every instance. The wakeup pin is per-instance and
+  // comes from the caller (the factory passes WUP_PIN1/WUP_PIN2); the
+  // default keeps plain construction behaving like the old primary ctor.
+  BmwI3Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+               bool* contactor_closing_allowed_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0],
+               gpio_num_t wakeup = esp32hal->WUP_PIN1())
       : CanBattery(targetCan), renderer(*this) {
     datalayer_battery = datalayer_ptr;
     contactor_closing_allowed = contactor_closing_allowed_ptr;
-    allows_contactor_closing = nullptr;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
     wakeup_pin = wakeup;
-
-    //Init voltage to 0 to allow contactor check to operate without fear of default values colliding
-    battery_volts = 0;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  BmwI3Battery() : renderer(*this) {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    contactor_closing_allowed = nullptr;
-    wakeup_pin = esp32hal->WUP_PIN1();
+    if (datalayer_battery_instance(datalayer_ptr) != 0) {
+      // An extra instance must not report the 3700 placeholder voltage: the
+      // parallel-join check would read two identical defaults as matched
+      // packs. Zero keeps the join gate closed until real data arrives.
+      battery_volts = 0;
+    }
   }
 
   virtual void setup(void);
@@ -125,9 +124,6 @@ class BmwI3Battery : public CanBattery {
   const int MAX_PACK_VOLTAGE_120AH = 4032;  // Charge stops if pack voltage exceeds this value
   const int MIN_PACK_VOLTAGE_120AH = 2680;  // Discharge stops if pack voltage exceeds this value
   const int NUMBER_OF_CELLS = 96;
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
-
   // If not null, this battery decides when the contactor can be closed and writes the value here.
   bool* allows_contactor_closing;
 

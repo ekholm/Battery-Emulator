@@ -10,21 +10,16 @@ extern bool user_selected_LEAF_interlock_mandatory;
 
 class NissanLeafBattery : public CanBattery {
  public:
-  // Use the default constructor to create the first or single battery.battery_Total_Voltage2
-  NissanLeafBattery() : renderer(&datalayer.battery, &datalayer_extended.nissanleaf) {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    datalayer_nissan = &datalayer_extended.nissanleaf;
-  }
-  // Use this constructor for the second battery.
-  NissanLeafBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_NISSAN_LEAF* extended,
-                    CAN_Interface targetCan)
-      : CanBattery(targetCan), renderer(datalayer_ptr, extended) {
+  NissanLeafBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                    CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(datalayer_ptr, &extended_data) {
     datalayer_battery = datalayer_ptr;
-    allows_contactor_closing = nullptr;
-    datalayer_nissan = extended;
-
-    battery_Total_Voltage2 = 0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+    datalayer_nissan = &extended_data;
+    if (!primary)
+      battery_Total_Voltage2 = 0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
   }
 
   virtual void setup(void);
@@ -45,7 +40,7 @@ class NissanLeafBattery : public CanBattery {
 
   bool soc_plausible() {
     // When pack voltage is close to max, and SOC% is still low (<65.0%), SOC is not plausible
-    return !((datalayer.battery.status.voltage_dV > (datalayer.battery.info.max_design_voltage_dV - 100)) &&
+    return !((datalayer_battery->status.voltage_dV > (datalayer_battery->info.max_design_voltage_dV - 100)) &&
              (battery_SOC < 650));
   }
 
@@ -55,6 +50,8 @@ class NissanLeafBattery : public CanBattery {
   uint8_t calculate_crc(CAN_frame& frame);
 
  private:
+  DATALAYER_INFO_NISSAN_LEAF extended_data;
+
   bool UserRequestDTCreset = false;
   bool UserRequestDTCreadout = false;
   bool UserRequestSOHreset = false;
@@ -75,8 +72,6 @@ class NissanLeafBattery : public CanBattery {
 
   bool is_message_corrupt(CAN_frame rx_frame);
   void clearSOH(void);
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
   DATALAYER_INFO_NISSAN_LEAF* datalayer_nissan;
 
   // If not null, this battery decides when the contactor can be closed and writes the value here.

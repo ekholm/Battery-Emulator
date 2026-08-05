@@ -302,8 +302,6 @@ Battery* create_battery(BatteryType type, int instance) {
 #endif
     case BatteryType::MgGen1:
       return new MgGen1Battery(dl, can, acc);
-    case BatteryType::MgHsPhev:
-      return new MgHsPHEVBattery(dl, can);
     case BatteryType::NissanLeaf:
       return new NissanLeafBattery(dl, can);
     case BatteryType::Pylon:

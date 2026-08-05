@@ -1,9 +1,18 @@
 #ifndef KIA_HYUNDAI_HYBRID_BATTERY_H
 #define KIA_HYUNDAI_HYBRID_BATTERY_H
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 class KiaHyundaiHybridBattery : public CanBattery {
  public:
+  KiaHyundaiHybridBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                          CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -14,6 +23,8 @@ class KiaHyundaiHybridBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
+  bool* allows_contactor_closing;
+
   bool UserRequestDTCreset = false;
   static const int MAX_PACK_VOLTAGE_HEV_DV = 2550;
   static const int MIN_PACK_VOLTAGE_HEV_DV = 1700;

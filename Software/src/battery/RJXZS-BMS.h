@@ -1,13 +1,21 @@
 #ifndef RJXZS_BMS_H
 #define RJXZS_BMS_H
 
+#include "../datalayer/datalayer.h"
 #include "../system_settings.h"
 #include "CanBattery.h"
 
 class RjxzsBms : public CanBattery {
  public:
   bool mandatory_charge_taper() { return true; }
-  RjxzsBms() : CanBattery(CAN_Speed::CAN_SPEED_250KBPS) {}
+  RjxzsBms(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+           CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan, CAN_Speed::CAN_SPEED_250KBPS) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
 
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
@@ -16,6 +24,8 @@ class RjxzsBms : public CanBattery {
   static constexpr const char* Name = "RJXZS BMS, DIY battery";
 
  private:
+  bool* allows_contactor_closing;
+
   static const int MAX_CHARGE_POWER_WHEN_TOPBALANCING_W = 500;
 
   unsigned long previousMillis10s = 0;  // will store last time a 10s CAN Message was sent

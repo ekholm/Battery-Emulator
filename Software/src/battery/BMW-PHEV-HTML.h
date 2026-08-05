@@ -7,6 +7,10 @@
 
 class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
  public:
+  // dtc_data points at the instance's bmwix union slot: the PHEV re-uses the
+  // iX DTC arrays to save a duplicate struct.
+  BmwPhevHtmlRenderer(DATALAYER_INFO_BMWPHEV* dl, DATALAYER_INFO_BMWIX* dtc_data) : data(dl), dtc_data_(dtc_data) {}
+
   String get_status_html() {
     String content;
 
@@ -14,16 +18,14 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
     content +=
         "<h3 style='color: #1e88e5; border-bottom: 2px solid #1e88e5; padding-bottom: 5px;'>⚡ Power & Voltage</h3>";
     content += "<div style='margin-left: 15px;'>";
+    content += "<h4>Battery Voltage (After Contactor): " + String(data->battery_voltage_after_contactor) + " dV</h4>";
+    content += "<h4>Max Design Voltage: " + String(datalayer.batteries[0].info.max_design_voltage_dV) + " dV</h4>";
+    content += "<h4>Min Design Voltage: " + String(datalayer.batteries[0].info.min_design_voltage_dV) + " dV</h4>";
+    content += "<h4>Allowed Charge Power: " + String(datalayer.batteries[0].status.max_charge_power_W) + " W</h4>";
     content +=
-        "<h4>Battery Voltage (After Contactor): " + String(datalayer_extended.bmwphev.battery_voltage_after_contactor) +
-        " dV</h4>";
-    content += "<h4>Max Design Voltage: " + String(datalayer.battery.info.max_design_voltage_dV) + " dV</h4>";
-    content += "<h4>Min Design Voltage: " + String(datalayer.battery.info.min_design_voltage_dV) + " dV</h4>";
-    content += "<h4>Allowed Charge Power: " + String(datalayer.battery.status.max_charge_power_W) + " W</h4>";
-    content += "<h4>Allowed Discharge Power: " + String(datalayer.battery.status.max_discharge_power_W) + " W</h4>";
-    content += "<h4>BMS Allowed Charge Amps: " + String(datalayer_extended.bmwphev.allowable_charge_amps) + " A</h4>";
-    content +=
-        "<h4>BMS Allowed Discharge Amps: " + String(datalayer_extended.bmwphev.allowable_discharge_amps) + " A</h4>";
+        "<h4>Allowed Discharge Power: " + String(datalayer.batteries[0].status.max_discharge_power_W) + " W</h4>";
+    content += "<h4>BMS Allowed Charge Amps: " + String(data->allowable_charge_amps) + " A</h4>";
+    content += "<h4>BMS Allowed Discharge Amps: " + String(data->allowable_discharge_amps) + " A</h4>";
     content += "</div>";
 
     // Contactor Status Section
@@ -31,7 +33,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         "<h3 style='color: #43a047; border-bottom: 2px solid #43a047; padding-bottom: 5px;'>🔌 Contactor Status</h3>";
     content += "<div style='margin-left: 15px;'>";
     content += "<h4>Contactor Status: ";
-    switch (datalayer_extended.bmwphev.ST_DCSW) {
+    switch (data->ST_DCSW) {
       case 0:
         content += String("Contactors Open</h4>");
         break;
@@ -48,7 +50,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Precharge Status: ";
-    switch (datalayer_extended.bmwphev.ST_precharge) {
+    switch (data->ST_precharge) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -65,7 +67,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Contactor Weld Status: ";
-    switch (datalayer_extended.bmwphev.ST_WELD) {
+    switch (data->ST_WELD) {
       case 0:
         content += String("Contactors OK</h4>");
         break;
@@ -82,7 +84,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Request Open Contactors: ";
-    switch (datalayer_extended.bmwphev.battery_request_open_contactors) {
+    switch (data->battery_request_open_contactors) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -99,7 +101,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Request Open Contactors (Fast): ";
-    switch (datalayer_extended.bmwphev.battery_request_open_contactors_fast) {
+    switch (data->battery_request_open_contactors_fast) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -116,7 +118,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Request Open Contactors (Instantly): ";
-    switch (datalayer_extended.bmwphev.battery_request_open_contactors_instantly) {
+    switch (data->battery_request_open_contactors_instantly) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -139,7 +141,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         "<h3 style='color: #e53935; border-bottom: 2px solid #e53935; padding-bottom: 5px;'>🛡️ Safety Systems</h3>";
     content += "<div style='margin-left: 15px;'>";
     content += "<h4>Interlock: ";
-    switch (datalayer_extended.bmwphev.ST_interlock) {
+    switch (data->ST_interlock) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -156,7 +158,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Emergency Status: ";
-    switch (datalayer_extended.bmwphev.ST_EMG) {
+    switch (data->ST_EMG) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -180,7 +182,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         "Monitoring</h3>";
     content += "<div style='margin-left: 15px;'>";
     content += "<h4>Overall Isolation Status: ";
-    switch (datalayer_extended.bmwphev.ST_isolation) {
+    switch (data->ST_isolation) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -197,7 +199,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Internal Isolation: ";
-    switch (datalayer_extended.bmwphev.ST_iso_int) {
+    switch (data->ST_iso_int) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -214,7 +216,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>External Isolation: ";
-    switch (datalayer_extended.bmwphev.ST_iso_ext) {
+    switch (data->ST_iso_ext) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -230,14 +232,14 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
       default:
         content += String("Unknown</h4>");
     }
-    content += "<h4>Isolation Resistance: " + String(datalayer_extended.bmwphev.iso_safety_kohm) + " kΩ</h4>";
-    content += "<h4>Isolation Quality: " + String(datalayer_extended.bmwphev.iso_safety_kohm_quality) + "</h4>";
-    content += "<h4>Internal Resistance: " + String(datalayer_extended.bmwphev.iso_safety_int_kohm) + " kΩ " +
-               (datalayer_extended.bmwphev.iso_safety_int_plausible ? "(Plausible)" : "(Not Plausible)") + "</h4>";
-    content += "<h4>External Resistance: " + String(datalayer_extended.bmwphev.iso_safety_ext_kohm) + " kΩ " +
-               (datalayer_extended.bmwphev.iso_safety_ext_plausible ? "(Plausible)" : "(Not Plausible)") + "</h4>";
-    content += "<h4>Trigger Resistance: " + String(datalayer_extended.bmwphev.iso_safety_trg_kohm) + " kΩ " +
-               (datalayer_extended.bmwphev.iso_safety_trg_plausible ? "(Plausible)" : "(Not Plausible)") + "</h4>";
+    content += "<h4>Isolation Resistance: " + String(data->iso_safety_kohm) + " kΩ</h4>";
+    content += "<h4>Isolation Quality: " + String(data->iso_safety_kohm_quality) + "</h4>";
+    content += "<h4>Internal Resistance: " + String(data->iso_safety_int_kohm) + " kΩ " +
+               (data->iso_safety_int_plausible ? "(Plausible)" : "(Not Plausible)") + "</h4>";
+    content += "<h4>External Resistance: " + String(data->iso_safety_ext_kohm) + " kΩ " +
+               (data->iso_safety_ext_plausible ? "(Plausible)" : "(Not Plausible)") + "</h4>";
+    content += "<h4>Trigger Resistance: " + String(data->iso_safety_trg_kohm) + " kΩ " +
+               (data->iso_safety_trg_plausible ? "(Plausible)" : "(Not Plausible)") + "</h4>";
     content += "</div>";
 
     // Thermal Management Section
@@ -245,7 +247,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         "<h3 style='color: #00acc1; border-bottom: 2px solid #00acc1; padding-bottom: 5px;'>❄️ Thermal Management</h3>";
     content += "<div style='margin-left: 15px;'>";
     content += "<h4>Cooling Valve Status: ";
-    switch (datalayer_extended.bmwphev.ST_valve_cooling) {
+    switch (data->ST_valve_cooling) {
       case 0:
         content += String("Not Evaluated</h4>");
         break;
@@ -262,7 +264,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Cold Shutoff Valve: ";
-    switch (datalayer_extended.bmwphev.ST_cold_shutoff_valve) {
+    switch (data->ST_cold_shutoff_valve) {
       case 0:
         content += String("OK</h4>");
         break;
@@ -291,13 +293,11 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
     content +=
         "<h3 style='color: #8e24aa; border-bottom: 2px solid #8e24aa; padding-bottom: 5px;'>📊 Cell Information</h3>";
     content += "<div style='margin-left: 15px;'>";
-    content += "<h4>Detected Cell Count: " + String(datalayer.battery.info.number_of_cells) + "</h4>";
-    content += "<h4>Max Cell Design Voltage: " + String(datalayer.battery.info.max_cell_voltage_mV) + " mV</h4>";
-    content += "<h4>Min Cell Design Voltage: " + String(datalayer.battery.info.min_cell_voltage_mV) + " mV</h4>";
-    content +=
-        "<h4>Min Cell Voltage Data Age: " + String(datalayer_extended.bmwphev.min_cell_voltage_data_age) + " ms</h4>";
-    content +=
-        "<h4>Max Cell Voltage Data Age: " + String(datalayer_extended.bmwphev.max_cell_voltage_data_age) + " ms</h4>";
+    content += "<h4>Detected Cell Count: " + String(datalayer.batteries[0].info.number_of_cells) + "</h4>";
+    content += "<h4>Max Cell Design Voltage: " + String(datalayer.batteries[0].info.max_cell_voltage_mV) + " mV</h4>";
+    content += "<h4>Min Cell Design Voltage: " + String(datalayer.batteries[0].info.min_cell_voltage_mV) + " mV</h4>";
+    content += "<h4>Min Cell Voltage Data Age: " + String(data->min_cell_voltage_data_age) + " ms</h4>";
+    content += "<h4>Max Cell Voltage Data Age: " + String(data->max_cell_voltage_data_age) + " ms</h4>";
     content += "</div>";
 
     // Balancing Status Section
@@ -310,7 +310,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         "\"Inactive - Cells Not at Rest (Wait 10 min)\" below). It is blocked while the contactors are "
         "closed.</p>";
     content += "<h4>Balancing: ";
-    switch (datalayer_extended.bmwphev.balancing_status) {
+    switch (data->balancing_status) {
       case 0:
         content += String("Inactive - Not Needed</h4>");
         break;
@@ -330,14 +330,16 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Balancing Request: ";
-    content += datalayer.battery.settings.user_requests_balancing ? String("<span style='color: #43a047;'>True</span>")
-                                                                  : String("False");
+    content += datalayer.batteries[0].settings.user_requests_balancing
+                   ? String("<span style='color: #43a047;'>True</span>")
+                   : String("False");
     content += "</h4>";
     // Max balancing time before the safety timer auto-cancels the request (shared
     // balancing_max_time_ms, default 1h). Editable here via the existing /BalTime route, since the
     // PHEV uses supports_balancing_request() and so doesn't get the Tesla manual-balancing settings UI.
-    content += "<h4>Balancing Max Time: " + String(datalayer.battery.settings.balancing_max_time_ms / 60000.0f, 1) +
-               " min <button onclick='editPhevBalTime()'>Edit</button></h4>";
+    content +=
+        "<h4>Balancing Max Time: " + String(datalayer.batteries[0].settings.balancing_max_time_ms / 60000.0f, 1) +
+        " min <button onclick='editPhevBalTime()'>Edit</button></h4>";
     content +=
         "<script>"
         "function editPhevBalTime(){"
@@ -356,8 +358,7 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
     // Diagnostics Section
     content += "<h3 style='color: #757575; border-bottom: 2px solid #757575; padding-bottom: 5px;'>🔧 Diagnostics</h3>";
     content += "<div style='margin-left: 15px;'>";
-    content += "<h4>Charging Condition Delta: " + String(datalayer_extended.bmwphev.battery_charging_condition_delta) +
-               "</h4>";
+    content += "<h4>Charging Condition Delta: " + String(data->battery_charging_condition_delta) + "</h4>";
     content += "</div>";
 
     content +=
@@ -365,18 +366,18 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         "Codes</h3>";
     content += "<div style='margin-left: 15px; margin-right: 15px;'>";
 
-    if (datalayer_extended.bmwphev.dtc_read_failed) {
+    if (data->dtc_read_failed) {
       content += "<p style='color: #d32f2f;'>⚠ Last DTC read failed or not supported</p>";
-    } else if (datalayer_extended.bmwphev.dtc_count == 0) {
+    } else if (data->dtc_count == 0) {
       content += "<p style='color: #4CAF50;'>✓ No DTCs present</p>";
-      if (datalayer_extended.bmwix.dtc_last_read_millis > 0) {
-        content += "<p><strong>Last Read:</strong> " +
-                   String((millis() - datalayer_extended.bmwix.dtc_last_read_millis) / 1000) + "s ago</p>";
+      if (dtc_data_->dtc_last_read_millis > 0) {
+        content += "<p><strong>Last Read:</strong> " + String((millis() - dtc_data_->dtc_last_read_millis) / 1000) +
+                   "s ago</p>";
       }
     } else {
-      content += "<p><strong>DTC Count:</strong> " + String(datalayer_extended.bmwphev.dtc_count) + "</p>";
-      content += "<p><strong>Last Read:</strong> " +
-                 String((millis() - datalayer_extended.bmwix.dtc_last_read_millis) / 1000) + "s ago</p>";
+      content += "<p><strong>DTC Count:</strong> " + String(data->dtc_count) + "</p>";
+      content +=
+          "<p><strong>Last Read:</strong> " + String((millis() - dtc_data_->dtc_last_read_millis) / 1000) + "s ago</p>";
 
       content += "<div style='overflow-x: auto; margin-top: 10px; margin-bottom: 15px;'>";
       content +=
@@ -394,9 +395,9 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
 
       content += "<tbody>";
 
-      for (int i = 0; i < datalayer_extended.bmwphev.dtc_count; i++) {
-        uint32_t code = datalayer_extended.bmwix.dtc_codes[i];    //Note we re-use datalayer for iX to save space
-        uint8_t status = datalayer_extended.bmwix.dtc_status[i];  //Note we re-use datalayer for iX to save space
+      for (int i = 0; i < data->dtc_count; i++) {
+        uint32_t code = dtc_data_->dtc_codes[i];    //Note we re-use datalayer for iX to save space
+        uint8_t status = dtc_data_->dtc_status[i];  //Note we re-use datalayer for iX to save space
 
         char dtcStr[12];
         sprintf(dtcStr, "%06lX", code);
@@ -438,6 +439,10 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
 
     return content;
   }
+
+ private:
+  DATALAYER_INFO_BMWPHEV* data;
+  DATALAYER_INFO_BMWIX* dtc_data_;
 };
 
 #endif

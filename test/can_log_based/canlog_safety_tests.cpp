@@ -174,7 +174,7 @@ class BaseValuesPresentTest : public CanLogTestFixture {
     EXPECT_GT(datalayer.batteries[0].status.CAN_battery_still_alive, 10);
     EXPECT_NE(datalayer.batteries[0].status.voltage_dV, 0);
     // TODO: Current isn't actually a requirement? check power instead?
-    //EXPECT_NE(datalayer.battery.status.current_dA, INT16_MIN);
+    //EXPECT_NE(datalayer.batteries[0].status.current_dA, INT16_MIN);
     EXPECT_NE(datalayer.batteries[0].status.cell_min_voltage_mV, 0);
     EXPECT_NE(datalayer.batteries[0].status.cell_max_voltage_mV, 0);
     EXPECT_NE(datalayer.batteries[0].status.real_soc, UINT16_MAX);

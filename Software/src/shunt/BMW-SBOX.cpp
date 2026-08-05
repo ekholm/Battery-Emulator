@@ -105,7 +105,7 @@ void BmwSbox::transmit_can(unsigned long currentMillis) {
       datalayer.system.status.dc_bus_live = false;
       SBOX_100.data.u8[0] = 0x55;  // All open
 
-      if (datalayer.system.status.battery_allows_contactor_closing &&
+      if (datalayer.system.status.battery_link[0].allows_contactor_closing &&
           datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active &&
           (datalayer.shunt.measured_voltage_mV > MINIMUM_INPUT_VOLTAGE * 1000)) {
         contactorStatus = PRECHARGE;

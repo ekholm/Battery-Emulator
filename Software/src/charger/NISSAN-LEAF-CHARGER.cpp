@@ -104,15 +104,15 @@ void NissanLeafCharger::transmit_can(unsigned long currentMillis) {
       // VCM message, containing info if battery should sleep or stay awake
       transmit_can_frame(&LEAF_50B);  // HCM_WakeUpSleepCommand == 11b == WakeUp, and CANMASK = 1
 
-      uint16_t Vbatt = (datalayer.battery.status.voltage_dV / 10) * 2;  //0-450V, 0.5V/bit
-      uint16_t Ibatt = (datalayer.battery.status.current_dA / 10) * 2;
+      uint16_t Vbatt = (datalayer.batteries[0].status.voltage_dV / 10) * 2;  //0-450V, 0.5V/bit
+      uint16_t Ibatt = (datalayer.batteries[0].status.current_dA / 10) * 2;
       LEAF_1DB.data.u8[0] = Ibatt >> 3;  //MSB current. 11 bit signed MSBit first
       LEAF_1DB.data.u8[1] = (Ibatt & 0x07)
                             << 5;  //LSB current bits 7-5. Dont need to mess with bits 0-4 for now as 0 works.
       LEAF_1DB.data.u8[2] = Vbatt >> 2;
       LEAF_1DB.data.u8[3] =
           (((Vbatt & 0x07) << 6) | (0x2b));  //0x2b should give no cut req, main rly on permission,normal p limit.
-      LEAF_1DB.data.u8[4] = (datalayer.battery.status.reported_soc / 100);  //SOC for dash
+      LEAF_1DB.data.u8[4] = (datalayer.batteries[0].status.reported_soc / 100);  //SOC for dash
       LEAF_1DB.data.u8[5] = 0x00;
       LEAF_1DB.data.u8[6] = mprun10;
       LEAF_1DB.data.u8[7] = calculate_CRC_Nissan(&LEAF_1DB);
@@ -152,13 +152,14 @@ void NissanLeafCharger::transmit_can(unsigned long currentMillis) {
       }
 
       // if actual battery_voltage is less than setpoint got to max power set from web ui
-      if (datalayer.battery.status.voltage_dV < (datalayer.charger.charger_setpoint_HV_VDC *
-                                                 10)) {  //datalayer.battery.status.voltage_dV = V+1,  0-500.0 (0-5000)
+      if (datalayer.batteries[0].status.voltage_dV <
+          (datalayer.charger.charger_setpoint_HV_VDC *
+           10)) {  //datalayer.batteries[0].status.voltage_dV = V+1,  0-500.0 (0-5000)
         OBCpower = OBCpowerSetpoint;
       }
 
       // decrement charger power if volt setpoint is reached
-      if (datalayer.battery.status.voltage_dV >= (datalayer.charger.charger_setpoint_HV_VDC * 10)) {
+      if (datalayer.batteries[0].status.voltage_dV >= (datalayer.charger.charger_setpoint_HV_VDC * 10)) {
         if (OBCpower > 0x64) {
           OBCpower--;
         }

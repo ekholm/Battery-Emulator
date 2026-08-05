@@ -30,14 +30,14 @@ void RenaultKangooBattery::
     update_values() {  //This function maps all the values fetched via CAN to the correct parameters
 
   if (user_selected_use_estimated_SOC) {
-    datalayer.battery.status.real_soc = estimate_SOC_from_voltage(datalayer.battery.status.voltage_dV);
+    datalayer_battery->status.real_soc = estimate_SOC_from_voltage(datalayer_battery->status.voltage_dV);
   } else {
-    datalayer.battery.status.real_soc = (LB_SOC * 100);  //increase LB_SOC range from 0-100 -> 100.00
+    datalayer_battery->status.real_soc = (LB_SOC * 100);  //increase LB_SOC range from 0-100 -> 100.00
   }
 
-  datalayer.battery.status.soh_pptt = (LB_SOH * 100);  //Increase range from 99% -> 99.00%
-  if (datalayer.battery.status.soh_pptt > 10000) {     // Cap value if glitched out
-    datalayer.battery.status.soh_pptt = 10000;
+  datalayer_battery->status.soh_pptt = (LB_SOH * 100);  //Increase range from 99% -> 99.00%
+  if (datalayer_battery->status.soh_pptt > 10000) {     // Cap value if glitched out
+    datalayer_battery->status.soh_pptt = 10000;
   }
 
   if (LB_Battery_Voltage == 3700) {
@@ -45,47 +45,47 @@ void RenaultKangooBattery::
     uint16_t avg_cellvoltage = 0;
 
     avg_cellvoltage = (LB_Cell_Min_Voltage + LB_Cell_Max_Voltage) / 2;
-    datalayer.battery.status.voltage_dV = (avg_cellvoltage * 96) / 100;
+    datalayer_battery->status.voltage_dV = (avg_cellvoltage * 96) / 100;
   } else {  //Use the PID polled value
-    datalayer.battery.status.voltage_dV = LB_Battery_Voltage;
+    datalayer_battery->status.voltage_dV = LB_Battery_Voltage;
   }
 
-  datalayer.battery.status.current_dA = LB_Current * 10;
+  datalayer_battery->status.current_dA = LB_Current * 10;
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
   if (user_selected_use_estimated_charge_limits) {  //Some packs are locked? and do not report allowed charge/discharge power
-    datalayer.battery.status.max_charge_power_W = datalayer.battery.status.override_charge_power_W;
+    datalayer_battery->status.max_charge_power_W = datalayer_battery->status.override_charge_power_W;
 
-    datalayer.battery.status.max_discharge_power_W = datalayer.battery.status.override_discharge_power_W;
+    datalayer_battery->status.max_discharge_power_W = datalayer_battery->status.override_discharge_power_W;
   } else {  //Use sane limits sent by battery
-    datalayer.battery.status.max_discharge_power_W = (LB_Discharge_Power_Limit * 500);
-    datalayer.battery.status.max_charge_power_W =
+    datalayer_battery->status.max_discharge_power_W = (LB_Discharge_Power_Limit * 500);
+    datalayer_battery->status.max_charge_power_W =
         (LB_Charge_Power_Limit * 500);  //Note, LB_MaxChargeAllowed_W also present on some packs
   }
 
-  datalayer.battery.status.temperature_min_dC = (LB_MIN_TEMPERATURE * 10);
+  datalayer_battery->status.temperature_min_dC = (LB_MIN_TEMPERATURE * 10);
 
-  datalayer.battery.status.temperature_max_dC = (LB_MAX_TEMPERATURE * 10);
+  datalayer_battery->status.temperature_max_dC = (LB_MAX_TEMPERATURE * 10);
 
-  datalayer.battery.status.cell_min_voltage_mV = LB_Cell_Min_Voltage;
+  datalayer_battery->status.cell_min_voltage_mV = LB_Cell_Min_Voltage;
 
-  datalayer.battery.status.cell_max_voltage_mV = LB_Cell_Max_Voltage;
+  datalayer_battery->status.cell_max_voltage_mV = LB_Cell_Max_Voltage;
 }
 
 void RenaultKangooBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
   switch (rx_frame.ID) {
     case 0x155:  //BMS1
-      datalayer.battery.status.CAN_battery_still_alive =
+      datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //Indicate that we are still getting CAN messages from the BMS
       LB_MaxChargeAllowed_W = (rx_frame.data.u8[0] * 300);
       LB_Current = word((rx_frame.data.u8[1] & 0xF), rx_frame.data.u8[2]) * 0.25 - 500;  //OK!
       LB_SOC = ((rx_frame.data.u8[4] << 8) | (rx_frame.data.u8[5])) * 0.0025;            //OK!
       break;
     case 0x424:  //BMS2
-      datalayer.battery.status.CAN_battery_still_alive =
+      datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //Indicate that we are still getting CAN messages from the BMS
       LB_EOCR = (rx_frame.data.u8[0] & 0x03);
       LB_HVBUV = (rx_frame.data.u8[0] & 0x0C) >> 2;
@@ -102,12 +102,12 @@ void RenaultKangooBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       LB_MAX_TEMPERATURE = ((rx_frame.data.u8[7]) - 40);  //OK!
       break;
     case 0x425:
-      datalayer.battery.status.CAN_battery_still_alive =
+      datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //Indicate that we are still getting CAN messages from the BMS
       LB_kWh_Remaining = word((rx_frame.data.u8[0] & 0x1), rx_frame.data.u8[1]) / 10;  //OK!
       break;
     case 0x445:
-      datalayer.battery.status.CAN_battery_still_alive =
+      datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //Indicate that we are still getting CAN messages from the BMS
       LB_Cell_Max_Voltage = 1000 + word((rx_frame.data.u8[3] & 0x1), rx_frame.data.u8[4]) * 10;  //OK!
       LB_Cell_Min_Voltage = 1000 + (word(rx_frame.data.u8[5], rx_frame.data.u8[6]) >> 7) * 10;   //OK!
@@ -119,7 +119,7 @@ void RenaultKangooBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
       break;
     case 0x7BB:
-      datalayer.battery.status.CAN_battery_still_alive =
+      datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //Indicate that we are still getting CAN messages from the BMS
 
       if (pollgroup == 1) {                 //Group 01
@@ -137,12 +137,12 @@ void RenaultKangooBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       } else if (pollgroup == 2) {          //Group 41 cellvoltages
         if (rx_frame.data.u8[0] == 0x10) {  //1st response Bytes 0-7
           transmit_can_frame(&KANGOO_79B_Continue);
-          datalayer.battery.status.cell_voltages_mV[0] = word(rx_frame.data.u8[4], rx_frame.data.u8[5]);  // Bytes 0-1
-          datalayer.battery.status.cell_voltages_mV[1] = word(rx_frame.data.u8[6], rx_frame.data.u8[7]);  // Bytes 2-3
+          datalayer_battery->status.cell_voltages_mV[0] = word(rx_frame.data.u8[4], rx_frame.data.u8[5]);  // Bytes 0-1
+          datalayer_battery->status.cell_voltages_mV[1] = word(rx_frame.data.u8[6], rx_frame.data.u8[7]);  // Bytes 2-3
         } else if (rx_frame.data.u8[0] == 0x21) {  //2nd response Bytes 8-15
-          datalayer.battery.status.cell_voltages_mV[2] = word(rx_frame.data.u8[1], rx_frame.data.u8[2]);
-          datalayer.battery.status.cell_voltages_mV[3] = word(rx_frame.data.u8[3], rx_frame.data.u8[4]);
-          datalayer.battery.status.cell_voltages_mV[4] = word(rx_frame.data.u8[5], rx_frame.data.u8[6]);
+          datalayer_battery->status.cell_voltages_mV[2] = word(rx_frame.data.u8[1], rx_frame.data.u8[2]);
+          datalayer_battery->status.cell_voltages_mV[3] = word(rx_frame.data.u8[3], rx_frame.data.u8[4]);
+          datalayer_battery->status.cell_voltages_mV[4] = word(rx_frame.data.u8[5], rx_frame.data.u8[6]);
           //CellVoltHighbyte = rx_frame.data.u8[7];  // Byte 10
         } else if (rx_frame.data.u8[0] == 0x22) {  //3rd response Bytes 16-23
         } else if (rx_frame.data.u8[0] == 0x23) {  //4th response Bytes 16-23
@@ -216,11 +216,13 @@ void RenaultKangooBattery::transmit_can(unsigned long currentMillis) {
 void RenaultKangooBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.system.status.battery_allows_contactor_closing = true;
-  datalayer.battery.info.number_of_cells = 96;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
+  datalayer_battery->info.number_of_cells = 96;
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
 }

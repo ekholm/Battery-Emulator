@@ -6,23 +6,19 @@
 
 class RenaultZoeGen2Battery : public CanBattery {
  public:
-  // Use this constructor for the second battery.
-  RenaultZoeGen2Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_ZOE_PH2* extended,
-                        CAN_Interface targetCan)
-      : CanBattery(targetCan) {
+  RenaultZoeGen2Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                        CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
     datalayer_battery = datalayer_ptr;
-    allows_contactor_closing = nullptr;
-    datalayer_zoePH2 = extended;
-
-    battery_pack_voltage_periodic_dV = 0;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+    datalayer_zoePH2 = &extended_data;
+    if (!primary)
+      battery_pack_voltage_periodic_dV =
+          0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
   }
 
-  // Use the default constructor to create the first or single battery.
-  RenaultZoeGen2Battery() {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    datalayer_zoePH2 = &datalayer_extended.zoePH2;
-  }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -30,7 +26,7 @@ class RenaultZoeGen2Battery : public CanBattery {
   static constexpr const char* Name = "Renault Zoe Gen2 50kWh";
 
   bool supports_reset_NVROL() { return true; }
-  void reset_NVROL() { datalayer_extended.zoePH2.UserRequestNVROLReset = true; }
+  void reset_NVROL() { datalayer_zoePH2->UserRequestNVROLReset = true; }
   bool supports_reset_DTC() { return true; }
   void reset_DTC() { UserRequestedDTCReset = true; }
 
@@ -39,9 +35,8 @@ class RenaultZoeGen2Battery : public CanBattery {
   uint8_t calculate_crc_zoe(CAN_frame& frame, uint8_t crc_xor);
 
  private:
+  DATALAYER_INFO_ZOE_PH2 extended_data;
   RenaultZoeGen2HtmlRenderer renderer;
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
   DATALAYER_INFO_ZOE_PH2* datalayer_zoePH2;
 
   // If not null, this battery decides when the contactor can be closed and writes the value here.

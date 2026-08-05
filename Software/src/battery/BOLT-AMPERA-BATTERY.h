@@ -8,19 +8,14 @@
 class BoltAmperaBattery : public CanBattery {
  public:
   bool mandatory_charge_taper() { return true; }
-  // Default constructor - first or single battery
-  BoltAmperaBattery() : renderer(&datalayer_extended.boltampera) {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    datalayer_boltampera = &datalayer_extended.boltampera;
-  }
-
-  // Second battery constructor
-  BoltAmperaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_BOLTAMPERA* extended, CAN_Interface targetCan)
-      : CanBattery(targetCan), renderer(extended) {
+  BoltAmperaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                    CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
-    allows_contactor_closing = nullptr;
-    datalayer_boltampera = extended;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+    datalayer_boltampera = &extended_data;
   }
 
   virtual void setup(void);
@@ -36,8 +31,8 @@ class BoltAmperaBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
+  DATALAYER_INFO_BOLTAMPERA extended_data;
   BoltAmperaHtmlRenderer renderer;
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
   DATALAYER_INFO_BOLTAMPERA* datalayer_boltampera;
   bool* allows_contactor_closing;
   bool UserRequestDTCreset = false;

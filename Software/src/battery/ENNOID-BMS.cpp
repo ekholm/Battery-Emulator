@@ -6,45 +6,45 @@
 
 void EnnoidBms::update_values() {
 
-  datalayer.battery.status.real_soc = SOC;
+  datalayer_battery->status.real_soc = SOC;
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
-  datalayer.battery.status.soh_pptt = SOH;
+  datalayer_battery->status.soh_pptt = SOH;
 
-  datalayer.battery.status.voltage_dV = packVoltage;
+  datalayer_battery->status.voltage_dV = packVoltage;
 
-  datalayer.battery.status.current_dA = (int16_t)packCurrent1;
+  datalayer_battery->status.current_dA = (int16_t)packCurrent1;
 
   // Charge power is manually set
-  if (datalayer.battery.status.real_soc > 9900) {
-    datalayer.battery.status.max_charge_power_W = MAX_CHARGE_POWER_WHEN_TOPBALANCING_W;
-  } else if (datalayer.battery.status.real_soc > RAMPDOWN_SOC) {
+  if (datalayer_battery->status.real_soc > 9900) {
+    datalayer_battery->status.max_charge_power_W = MAX_CHARGE_POWER_WHEN_TOPBALANCING_W;
+  } else if (datalayer_battery->status.real_soc > RAMPDOWN_SOC) {
     // When real SOC is between RAMPDOWN_SOC-99%, ramp the value between Max<->0
-    datalayer.battery.status.max_charge_power_W =
-        datalayer.battery.status.override_charge_power_W *
-        (1 - (datalayer.battery.status.real_soc - RAMPDOWN_SOC) / (10000.0 - RAMPDOWN_SOC));
+    datalayer_battery->status.max_charge_power_W =
+        datalayer_battery->status.override_charge_power_W *
+        (1 - (datalayer_battery->status.real_soc - RAMPDOWN_SOC) / (10000.0 - RAMPDOWN_SOC));
   } else {  // No limits, max charging power allowed
-    datalayer.battery.status.max_charge_power_W = datalayer.battery.status.override_charge_power_W;
+    datalayer_battery->status.max_charge_power_W = datalayer_battery->status.override_charge_power_W;
   }
 
   // Discharge power is manually set
-  datalayer.battery.status.max_discharge_power_W = datalayer.battery.status.override_discharge_power_W;
+  datalayer_battery->status.max_discharge_power_W = datalayer_battery->status.override_discharge_power_W;
 
-  datalayer.battery.status.temperature_min_dC = tBattHi;
+  datalayer_battery->status.temperature_min_dC = tBattHi;
 
-  datalayer.battery.status.temperature_max_dC = tBattHi - 1;
+  datalayer_battery->status.temperature_max_dC = tBattHi - 1;
 
-  datalayer.battery.info.number_of_cells = NoOfCells;  // 1-192S
+  datalayer_battery->info.number_of_cells = NoOfCells;  // 1-192S
 
-  //datalayer.battery.info.max_design_voltage_dV;  // TODO: Set according to cells?
+  //datalayer_battery->info.max_design_voltage_dV;  // TODO: Set according to cells?
 
-  //datalayer.battery.info.min_design_voltage_dV;  // TODO: Set according to cells?
+  //datalayer_battery->info.min_design_voltage_dV;  // TODO: Set according to cells?
 
-  datalayer.battery.status.cell_max_voltage_mV = cellVoltageHigh;
+  datalayer_battery->status.cell_max_voltage_mV = cellVoltageHigh;
 
-  datalayer.battery.status.cell_min_voltage_mV = cellVoltageLow;
+  datalayer_battery->status.cell_min_voltage_mV = cellVoltageLow;
 }
 
 void EnnoidBms::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -93,9 +93,11 @@ void EnnoidBms::transmit_can(unsigned long currentMillis) {
 void EnnoidBms::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
-  datalayer.battery.info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
-  datalayer.battery.info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
-  datalayer.battery.info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
+  datalayer_battery->info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
+  datalayer_battery->info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
+  datalayer_battery->info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
 }

@@ -690,7 +690,7 @@ void CmpSmartCarBattery::setup(void) {  // Performs one time setup at startup
   datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
   datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_100S_DV;
   datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_100S_DV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer.system.status.battery_link[0].allows_contactor_closing = true;
 
   // UDS: send requests to 0x6B4, accept replies from the BMS on 0x694.
   setup_uds(0x6B4, 0x694);

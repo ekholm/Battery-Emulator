@@ -11,11 +11,11 @@ String BmwIXHtmlRenderer::get_status_html() {
   content += "<div style='margin-left: 15px;'>";
   content +=
       "<h4>Battery Voltage (After Contactor): " + String(batt.get_battery_voltage_after_contactor()) + " dV</h4>";
-  content += "<h4>Max Design Voltage: " + String(datalayer.battery.info.max_design_voltage_dV) + " dV</h4>";
-  content += "<h4>Min Design Voltage: " + String(datalayer.battery.info.min_design_voltage_dV) + " dV</h4>";
+  content += "<h4>Max Design Voltage: " + String(datalayer.batteries[0].info.max_design_voltage_dV) + " dV</h4>";
+  content += "<h4>Min Design Voltage: " + String(datalayer.batteries[0].info.min_design_voltage_dV) + " dV</h4>";
   content += "<h4>T30 Terminal Voltage: " + String(batt.get_T30_Voltage()) + " mV</h4>";
-  content += "<h4>Allowed Charge Power: " + String(datalayer.battery.status.max_charge_power_W) + " W</h4>";
-  content += "<h4>Allowed Discharge Power: " + String(datalayer.battery.status.max_discharge_power_W) + " W</h4>";
+  content += "<h4>Allowed Charge Power: " + String(datalayer.batteries[0].status.max_charge_power_W) + " W</h4>";
+  content += "<h4>Allowed Discharge Power: " + String(datalayer.batteries[0].status.max_discharge_power_W) + " W</h4>";
   content += "<h4>BMS Allowed Charge Amps: " + String(batt.get_allowable_charge_amps()) + " A</h4>";
   content += "<h4>BMS Allowed Discharge Amps: " + String(batt.get_allowable_discharge_amps()) + " A</h4>";
   content += "</div>";
@@ -24,9 +24,9 @@ String BmwIXHtmlRenderer::get_status_html() {
   content +=
       "<h3 style='color: #8e24aa; border-bottom: 2px solid #8e24aa; padding-bottom: 5px;'>📊 Cell Information</h3>";
   content += "<div style='margin-left: 15px;'>";
-  content += "<h4>Detected Cell Count: " + String(datalayer.battery.info.number_of_cells) + "</h4>";
-  content += "<h4>Max Cell Design Voltage: " + String(datalayer.battery.info.max_cell_voltage_mV) + " mV</h4>";
-  content += "<h4>Min Cell Design Voltage: " + String(datalayer.battery.info.min_cell_voltage_mV) + " mV</h4>";
+  content += "<h4>Detected Cell Count: " + String(datalayer.batteries[0].info.number_of_cells) + "</h4>";
+  content += "<h4>Max Cell Design Voltage: " + String(datalayer.batteries[0].info.max_cell_voltage_mV) + " mV</h4>";
+  content += "<h4>Min Cell Design Voltage: " + String(datalayer.batteries[0].info.min_cell_voltage_mV) + " mV</h4>";
   content += "<h4>Min Cell Voltage Data Age: " + String(batt.get_min_cell_voltage_data_age()) + " ms</h4>";
   content += "<h4>Max Cell Voltage Data Age: " + String(batt.get_max_cell_voltage_data_age()) + " ms</h4>";
   content += "</div>";
@@ -186,19 +186,19 @@ String BmwIXHtmlRenderer::get_status_html() {
       "Codes</h3>";
   content += "<div style='margin-left: 15px; margin-right: 15px;'>";
 
-  if (datalayer_extended.bmwix.dtc_last_read_millis == 0) {
+  if (data->dtc_last_read_millis == 0) {
     // No DTC read has been performed yet
     content +=
         "<p style='color: #ff9800;'>ℹ DTCs have not been read yet. Click 'Read DTC' to scan for fault codes.</p>";
-  } else if (datalayer_extended.bmwix.dtc_read_failed) {
+  } else if (data->dtc_read_failed) {
     content += "<p style='color: #d32f2f;'>⚠ Last DTC read failed or not supported</p>";
-  } else if (datalayer_extended.bmwix.dtc_count == 0) {
+  } else if (data->dtc_count == 0) {
     content += "<p style='color: #4CAF50;'>✓ No DTCs present</p>";
   } else {
-    content += "<p><strong>DTC Count:</strong> " + String(datalayer_extended.bmwix.dtc_count) + "</p>";
+    content += "<p><strong>DTC Count:</strong> " + String(data->dtc_count) + "</p>";
 
     // Convert last read time to days:hours:minutes:seconds format
-    unsigned long last_read_seconds = (millis() - datalayer_extended.bmwix.dtc_last_read_millis) / 1000;
+    unsigned long last_read_seconds = (millis() - data->dtc_last_read_millis) / 1000;
     unsigned long read_days = last_read_seconds / 86400;
     unsigned long read_hours = (last_read_seconds % 86400) / 3600;
     unsigned long read_minutes = (last_read_seconds % 3600) / 60;
@@ -228,9 +228,9 @@ String BmwIXHtmlRenderer::get_status_html() {
 
     content += "<tbody>";
 
-    for (int i = 0; i < datalayer_extended.bmwix.dtc_count; i++) {
-      uint32_t code = datalayer_extended.bmwix.dtc_codes[i];
-      uint8_t status = datalayer_extended.bmwix.dtc_status[i];
+    for (int i = 0; i < data->dtc_count; i++) {
+      uint32_t code = data->dtc_codes[i];
+      uint8_t status = data->dtc_status[i];
 
       char dtcStr[12];
       sprintf(dtcStr, "%06lX", code);

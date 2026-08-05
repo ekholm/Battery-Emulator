@@ -1,9 +1,19 @@
 #ifndef FOXESS_BATTERY_H
 #define FOXESS_BATTERY_H
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 class FoxessBattery : public CanBattery {
  public:
+  FoxessBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    const bool primary = (datalayer_ptr == &datalayer.batteries[0]);
+    datalayer_battery = datalayer_ptr;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -11,6 +21,8 @@ class FoxessBattery : public CanBattery {
   static constexpr const char* Name = "FoxESS HV2600/ECS4100 OEM battery";
 
  private:
+  bool* allows_contactor_closing;
+
   static const int MAX_PACK_VOLTAGE_DV = 4672;  //467.2V for HS20.8 (used during startup, refined later)
   static const int MIN_PACK_VOLTAGE_DV = 800;   //80.V for HS5.2 (used during startup, refined later)
   static const int MAX_CELL_DEVIATION_MV = 250;

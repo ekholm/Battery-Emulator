@@ -1,5 +1,6 @@
 #ifndef KIA_E_GMP_BATTERY_H
 #define KIA_E_GMP_BATTERY_H
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 #include "KIA-E-GMP-HTML.h"
 
@@ -8,7 +9,15 @@ extern bool user_selected_use_estimated_SOC;
 class KiaEGmpBattery : public CanBattery {
  public:
   bool mandatory_charge_taper() { return true; }
-  KiaEGmpBattery() : renderer(*this) {}
+
+  KiaEGmpBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                 CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(*this) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -28,6 +37,9 @@ class KiaEGmpBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
+  // If not null, this battery decides when the contactor can be closed and writes the value here.
+  bool* allows_contactor_closing;
+
   bool UserRequestDTCreset = false;
   KiaEGMPHtmlRenderer renderer;
   uint16_t estimateSOC(uint16_t packVoltage, uint16_t cellCount, int16_t currentAmps);

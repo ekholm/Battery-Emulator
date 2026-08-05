@@ -2,26 +2,24 @@
 #define ATTO_3_BATTERY_H
 
 #include "../datalayer/datalayer.h"
-#include "../datalayer/datalayer_extended.h"
 
 #include "BYD-ATTO-3-HTML.h"
 #include "CanBattery.h"
 
 class BydAttoBattery : public CanBattery {
  public:
-  // Use this constructor for the second battery.
-  BydAttoBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_BYDATTO3* extended, CAN_Interface targetCan)
-      : CanBattery(targetCan), renderer(extended, "2") {
+  // One constructor for every instance. The renderer suffix ("" primary, "2"
+  // secondary) and the contactor wiring derive from which datalayer instance
+  // was injected.
+  BydAttoBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                 DATALAYER_INFO_BYDATTO3* extended = &datalayer.batteries[0].extended.bydAtto3,
+                 CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(extended, datalayer_ptr == &datalayer.batteries[0] ? "" : "2") {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     datalayer_bydatto = extended;
-    allows_contactor_closing = nullptr;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  BydAttoBattery() : renderer(&datalayer_extended.bydAtto3) {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    datalayer_bydatto = &datalayer_extended.bydAtto3;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
   }
 
   virtual void setup(void);
@@ -49,7 +47,6 @@ class BydAttoBattery : public CanBattery {
 
  private:
   BydAtto3HtmlRenderer renderer;
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
   DATALAYER_INFO_BYDATTO3* datalayer_bydatto;
   bool* allows_contactor_closing;
 

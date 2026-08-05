@@ -282,7 +282,7 @@ void BmwPhevBattery::PhevCloseContactors(void) {
   // instead of startRoutine) AND kick off a short pre-close phase that sends several guarded
   // stopRoutine frames (one per UDS-guard window). 0x10B close is held off until those are sent
   // (see phev_pre_close_stops_remaining gating in the 20ms block).
-  datalayer.battery.settings.user_requests_balancing = false;
+  datalayer_battery->settings.user_requests_balancing = false;
   phev_pre_close_stops_remaining = PHEV_PRE_CLOSE_STOP_COUNT;
   phev_pre_close_stop_last_ms = 0;  // 0 = send the first stop immediately
   contactorCloseReq = true;
@@ -347,13 +347,13 @@ void BmwPhevBattery::parseDTCResponse() {
     logging.print("DTC request rejected by battery. Reason code: 0x");
     logging.print(gUDSContext.UDS_buffer[2], HEX);
     logging.println();
-    datalayer_extended.bmwphev.dtc_read_failed = true;
+    extended_data.dtc_read_failed = true;
     return;
   }
 
   if (gUDSContext.UDS_buffer[0] != 0x59 || gUDSContext.UDS_buffer[1] != 0x02) {
     logging.println("Invalid DTC response header");
-    datalayer_extended.bmwphev.dtc_read_failed = true;
+    extended_data.dtc_read_failed = true;
     return;
   }
 
@@ -395,8 +395,8 @@ void BmwPhevBattery::parseDTCResponse() {
     }
 
     // Store valid DTC
-    datalayer_extended.bmwix.dtc_codes[validDtcCount] = dtcCode;
-    datalayer_extended.bmwix.dtc_status[validDtcCount] = dtcStatus;
+    datalayer_battery->extended.bmwix.dtc_codes[validDtcCount] = dtcCode;
+    datalayer_battery->extended.bmwix.dtc_status[validDtcCount] = dtcStatus;
 
     // Log each DTC for debugging
     logging.print("  DTC #");
@@ -421,13 +421,13 @@ void BmwPhevBattery::parseDTCResponse() {
     validDtcCount++;  //  Increment only for valid DTCs
   }
 
-  datalayer_extended.bmwphev.dtc_count = validDtcCount;  //  Store actual count
+  extended_data.dtc_count = validDtcCount;  //  Store actual count
 
   logging.print("Total valid DTCs: ");
   logging.println(validDtcCount);
 
-  datalayer_extended.bmwix.dtc_last_read_millis = millis();  //Note we re-use ix struct to save memory
-  datalayer_extended.bmwphev.dtc_read_failed = false;
+  datalayer_battery->extended.bmwix.dtc_last_read_millis = millis();  //Note we re-use ix struct to save memory
+  extended_data.dtc_read_failed = false;
 }
 void BmwPhevBattery::processCellVoltages() {
   const int startByte = 3;     // Start reading at byte 3
@@ -443,7 +443,7 @@ void BmwPhevBattery::processCellVoltages() {
     uint16_t voltageRaw = (gUDSContext.UDS_buffer[byteIndex] << 8) | gUDSContext.UDS_buffer[byteIndex + 1];
 
     // Store the result in the destination array
-    datalayer.battery.status.cell_voltages_mV[voltage_index] = voltageRaw;
+    datalayer_battery->status.cell_voltages_mV[voltage_index] = voltageRaw;
 
     // Increment the destination array index
     voltage_index++;
@@ -479,110 +479,110 @@ void BmwPhevBattery::wake_battery_via_canbus() {
 
 void BmwPhevBattery::update_values() {  //This function maps all the values fetched via CAN to the battery datalayer
 
-  datalayer.battery.status.real_soc = avg_soc_state;
-  datalayer.battery.status.voltage_dV = battery_voltage;
-  datalayer.battery.status.current_dA = battery_current / 10;  // battery_current is in mA, convert to dA
+  datalayer_battery->status.real_soc = avg_soc_state;
+  datalayer_battery->status.voltage_dV = battery_voltage;
+  datalayer_battery->status.current_dA = battery_current / 10;  // battery_current is in mA, convert to dA
   // Pack capacity always comes from the BMS (0x431 energy-content-maximum). The web UI "Battery
   // capacity" field is not authoritative for this battery - it gets refreshed from the BMS every
   // cycle. NOTE: battery_energy_content_maximum_kWh is integer kWh (the 0x431 raw value is divided
   // by 50 at parse, truncating fractional kWh), so this lands on 1000 Wh steps.
-  datalayer.battery.info.total_capacity_Wh = (battery_energy_content_maximum_kWh * 1000);  // Convert kWh to Wh
-  datalayer.battery.status.remaining_capacity_Wh = battery_predicted_energy_charge_condition;
-  datalayer.battery.status.soh_pptt = min_soh_state;
+  datalayer_battery->info.total_capacity_Wh = (battery_energy_content_maximum_kWh * 1000);  // Convert kWh to Wh
+  datalayer_battery->status.remaining_capacity_Wh = battery_predicted_energy_charge_condition;
+  datalayer_battery->status.soh_pptt = min_soh_state;
 
-  datalayer.battery.status.max_discharge_power_W = battery_BEV_available_power_longterm_discharge;
+  datalayer_battery->status.max_discharge_power_W = battery_BEV_available_power_longterm_discharge;
 
-  datalayer.battery.status.max_charge_power_W =
+  datalayer_battery->status.max_charge_power_W =
       battery_BEV_available_power_longterm_charge;  //Value is ramped down by Inverter function (TODO: needed?)
 
-  datalayer.battery.status.temperature_min_dC = battery_temperature_min * 10;  // Add a decimal
-  datalayer.battery.status.temperature_max_dC = battery_temperature_max * 10;  // Add a decimal
+  datalayer_battery->status.temperature_min_dC = battery_temperature_min * 10;  // Add a decimal
+  datalayer_battery->status.temperature_max_dC = battery_temperature_max * 10;  // Add a decimal
 
   //Check stale values. As values dont change much during idle only consider stale if both parts of this message freeze.
   bool isMinCellVoltageStale =
-      isStale(min_cell_voltage, datalayer.battery.status.cell_min_voltage_mV, min_cell_voltage_lastchanged);
+      isStale(min_cell_voltage, datalayer_battery->status.cell_min_voltage_mV, min_cell_voltage_lastchanged);
   bool isMaxCellVoltageStale =
-      isStale(max_cell_voltage, datalayer.battery.status.cell_max_voltage_mV, max_cell_voltage_lastchanged);
+      isStale(max_cell_voltage, datalayer_battery->status.cell_max_voltage_mV, max_cell_voltage_lastchanged);
 
   if (isMinCellVoltageStale && isMaxCellVoltageStale &&
-      battery_current != 0) {                             //Ignore stale values if there is no current flowing
-    datalayer.battery.status.cell_min_voltage_mV = 9999;  //Stale values force stop
-    datalayer.battery.status.cell_max_voltage_mV = 9999;  //Stale values force stop
-    set_event(EVENT_STALE_VALUE, 0);                      // also printing a log entry
+      battery_current != 0) {                              //Ignore stale values if there is no current flowing
+    datalayer_battery->status.cell_min_voltage_mV = 9999;  //Stale values force stop
+    datalayer_battery->status.cell_max_voltage_mV = 9999;  //Stale values force stop
+    set_event(EVENT_STALE_VALUE, 0);                       // also printing a log entry
   } else {
 
-    datalayer.battery.status.cell_min_voltage_mV = min_cell_voltage;  //Value is alive
-    datalayer.battery.status.cell_max_voltage_mV = max_cell_voltage;  //Value is alive
+    datalayer_battery->status.cell_min_voltage_mV = min_cell_voltage;  //Value is alive
+    datalayer_battery->status.cell_max_voltage_mV = max_cell_voltage;  //Value is alive
   }
 
-  datalayer.battery.info.max_design_voltage_dV = max_design_voltage;
+  datalayer_battery->info.max_design_voltage_dV = max_design_voltage;
 
-  datalayer.battery.info.min_design_voltage_dV = min_design_voltage;
+  datalayer_battery->info.min_design_voltage_dV = min_design_voltage;
 
-  datalayer_extended.bmwphev.min_cell_voltage_data_age = (millis() - min_cell_voltage_lastchanged);
+  extended_data.min_cell_voltage_data_age = (millis() - min_cell_voltage_lastchanged);
 
-  datalayer_extended.bmwphev.max_cell_voltage_data_age = (millis() - max_cell_voltage_lastchanged);
+  extended_data.max_cell_voltage_data_age = (millis() - max_cell_voltage_lastchanged);
 
-  //datalayer_extended.bmwphev.hvil_status = hvil_status; //TODO, not implemented
+  //extended_data.hvil_status = hvil_status; //TODO, not implemented
 
-  datalayer_extended.bmwphev.allowable_charge_amps = allowable_charge_amps;
+  extended_data.allowable_charge_amps = allowable_charge_amps;
 
-  datalayer_extended.bmwphev.allowable_discharge_amps = allowable_discharge_amps;
+  extended_data.allowable_discharge_amps = allowable_discharge_amps;
 
-  datalayer_extended.bmwphev.balancing_status = balancing_status;
+  extended_data.balancing_status = balancing_status;
 
   // Map PHEV balancing_status raw value to the shared datalayer enum so MQTT picks it up.
   // PHEV values (from BMW-PHEV-HTML.h): 0=inactive not needed, 1=active, 2=not resting,
   // 3=inactive, 4=unknown/qualifier invalid.
   switch (balancing_status) {
     case 1:
-      datalayer.battery.status.balancing_status = BALANCING_STATUS_ACTIVE;
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_ACTIVE;
       break;
     case 0:  // Inactive - not needed
     case 3:  // Inactive
-      datalayer.battery.status.balancing_status = BALANCING_STATUS_READY;
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_READY;
       break;
     case 2:  // Cells not at rest — balancing blocked until they settle
-      datalayer.battery.status.balancing_status = BALANCING_STATUS_BLOCKED;
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_BLOCKED;
       break;
     case 4:
-      datalayer.battery.status.balancing_status = BALANCING_STATUS_ERROR;
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_ERROR;
       break;
     default:
-      datalayer.battery.status.balancing_status = BALANCING_STATUS_UNKNOWN;
+      datalayer_battery->status.balancing_status = BALANCING_STATUS_UNKNOWN;
       break;
   }
 
-  datalayer_extended.bmwphev.battery_voltage_after_contactor = battery_voltage_after_contactor;
+  extended_data.battery_voltage_after_contactor = battery_voltage_after_contactor;
 
   // Update webserver datalayer
 
-  datalayer_extended.bmwphev.ST_iso_ext = battery_status_error_isolation_external_Bordnetz;
-  datalayer_extended.bmwphev.ST_iso_int = battery_status_error_isolation_internal_Bordnetz;
-  datalayer_extended.bmwphev.ST_valve_cooling = battery_status_valve_cooling;
-  datalayer_extended.bmwphev.ST_interlock = battery_status_error_locking;
-  datalayer_extended.bmwphev.ST_precharge = battery_status_precharge_locked;
-  datalayer_extended.bmwphev.ST_DCSW = battery_status_disconnecting_switch;
-  datalayer_extended.bmwphev.ST_EMG = battery_status_emergency_mode;
-  datalayer_extended.bmwphev.ST_WELD = battery_status_error_disconnecting_switch;
-  datalayer_extended.bmwphev.ST_isolation = battery_status_warning_isolation;
-  datalayer_extended.bmwphev.ST_cold_shutoff_valve = battery_status_cold_shutoff_valve;
-  datalayer_extended.bmwphev.iso_safety_int_kohm = iso_safety_int_kohm;
-  datalayer_extended.bmwphev.iso_safety_ext_kohm = iso_safety_ext_kohm;
-  datalayer_extended.bmwphev.iso_safety_trg_kohm = iso_safety_trg_kohm;
-  datalayer_extended.bmwphev.iso_safety_ext_plausible = iso_safety_ext_plausible;
-  datalayer_extended.bmwphev.iso_safety_int_plausible = iso_safety_int_plausible;
-  datalayer_extended.bmwphev.iso_safety_kohm = iso_safety_kohm;
-  datalayer_extended.bmwphev.iso_safety_kohm_quality = iso_safety_kohm_quality;
-  datalayer_extended.bmwphev.battery_request_open_contactors = battery_request_open_contactors;
-  datalayer_extended.bmwphev.battery_request_open_contactors_instantly = battery_request_open_contactors_instantly;
-  datalayer_extended.bmwphev.battery_request_open_contactors_fast = battery_request_open_contactors_fast;
-  datalayer_extended.bmwphev.battery_charging_condition_delta = battery_charging_condition_delta;
+  extended_data.ST_iso_ext = battery_status_error_isolation_external_Bordnetz;
+  extended_data.ST_iso_int = battery_status_error_isolation_internal_Bordnetz;
+  extended_data.ST_valve_cooling = battery_status_valve_cooling;
+  extended_data.ST_interlock = battery_status_error_locking;
+  extended_data.ST_precharge = battery_status_precharge_locked;
+  extended_data.ST_DCSW = battery_status_disconnecting_switch;
+  extended_data.ST_EMG = battery_status_emergency_mode;
+  extended_data.ST_WELD = battery_status_error_disconnecting_switch;
+  extended_data.ST_isolation = battery_status_warning_isolation;
+  extended_data.ST_cold_shutoff_valve = battery_status_cold_shutoff_valve;
+  extended_data.iso_safety_int_kohm = iso_safety_int_kohm;
+  extended_data.iso_safety_ext_kohm = iso_safety_ext_kohm;
+  extended_data.iso_safety_trg_kohm = iso_safety_trg_kohm;
+  extended_data.iso_safety_ext_plausible = iso_safety_ext_plausible;
+  extended_data.iso_safety_int_plausible = iso_safety_int_plausible;
+  extended_data.iso_safety_kohm = iso_safety_kohm;
+  extended_data.iso_safety_kohm_quality = iso_safety_kohm_quality;
+  extended_data.battery_request_open_contactors = battery_request_open_contactors;
+  extended_data.battery_request_open_contactors_instantly = battery_request_open_contactors_instantly;
+  extended_data.battery_request_open_contactors_fast = battery_request_open_contactors_fast;
+  extended_data.battery_charging_condition_delta = battery_charging_condition_delta;
 
   if (pack_limit_info_available) {
     // If we have pack limit data from battery - override the defaults to suit
-    datalayer.battery.info.max_design_voltage_dV = max_design_voltage;
-    datalayer.battery.info.min_design_voltage_dV = min_design_voltage;
+    datalayer_battery->info.max_design_voltage_dV = max_design_voltage;
+    datalayer_battery->info.min_design_voltage_dV = min_design_voltage;
   }
 }
 void BmwPhevBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -599,7 +599,7 @@ void BmwPhevBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       battery_request_open_contactors_instantly = (rx_frame.data.u8[6] & 0x03);
       battery_request_open_contactors_fast = (rx_frame.data.u8[6] & 0x0C) >> 2;
       battery_charging_condition_delta = (rx_frame.data.u8[6] & 0xF0) >> 4;
-      datalayer.battery.status.CAN_battery_still_alive =
+      datalayer_battery->status.CAN_battery_still_alive =
           CAN_STILL_ALIVE;  //This message is only sent if 30C (Wakeup pin on battery) is energized with 12V
       break;
     case 0x2F5:  //BMS [100ms] High-Voltage Battery Charge/Discharge Limitations
@@ -672,8 +672,8 @@ void BmwPhevBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
           if (rx_frame.DLC == 8 && rx_frame.data.u8[2] == 0x62 && rx_frame.data.u8[3] == 0xD6 &&
               rx_frame.data.u8[4] == 0xD9) {                                     // Isolation Reading 2
             iso_safety_kohm = (rx_frame.data.u8[5] << 8 | rx_frame.data.u8[6]);  //STAT_R_ISO_ROH_01_WERT
-            datalayer.battery.status.insulation_resistance_kOhm = iso_safety_kohm;
-            datalayer.battery.status.insulation_resistance_available = true;
+            datalayer_battery->status.insulation_resistance_kOhm = iso_safety_kohm;
+            datalayer_battery->status.insulation_resistance_available = true;
             iso_safety_kohm_quality =
                 (rx_frame.data.u8[7]);  //STAT_R_ISO_ROH_QAL_01_INFO Quality of measurement 0-21 (higher better)
           }
@@ -972,22 +972,22 @@ void BmwPhevBattery::transmit_can(unsigned long currentMillis) {
   }
   if (battery_awake) {
     // Update requests from webserver datalayer
-    if (datalayer_extended.bmwphev.UserRequestDTCreset) {
+    if (extended_data.UserRequestDTCreset) {
       logging.println("User requested DTC reset");
       transmit_can_frame(&BMWPHEV_6F1_REQUEST_CLEAR_DTC);  // Send DTC erase command
-      datalayer_extended.bmwphev.UserRequestDTCreset = false;
+      extended_data.UserRequestDTCreset = false;
       uds_one_shot_sent_ms = currentMillis;  // Silence polls for UDS_ONE_SHOT_SILENCE_MS
     }
-    if (datalayer_extended.bmwphev.UserRequestBMSReset) {
+    if (extended_data.UserRequestBMSReset) {
       logging.println("User requested SME reset");
       transmit_can_frame(&BMW_6F1_REQUEST_HARD_RESET);  // Send SME reset command
-      datalayer_extended.bmwphev.UserRequestBMSReset = false;
+      extended_data.UserRequestBMSReset = false;
       uds_one_shot_sent_ms = currentMillis;  // Silence polls for UDS_ONE_SHOT_SILENCE_MS
     }
-    if (datalayer_extended.bmwphev.UserRequestIsolationTest) {
+    if (extended_data.UserRequestIsolationTest) {
       logging.println("User requested isolation test");
       transmit_can_frame(&BMWPHEV_6F1_REQUEST_ISOLATION_TEST);  // Start isolation test routine (0xAD61)
-      datalayer_extended.bmwphev.UserRequestIsolationTest = false;
+      extended_data.UserRequestIsolationTest = false;
       uds_one_shot_sent_ms = currentMillis;  // Silence polls for UDS_ONE_SHOT_SILENCE_MS
     }
 
@@ -996,7 +996,7 @@ void BmwPhevBattery::transmit_can(unsigned long currentMillis) {
     // Earlier firmware sent startRoutine unconditionally every 10s, so the routine can be left
     // latched ON - causing autonomous balancing + precharge block once the cells reach rest (~10 min).
     // Clearing it once on every boot guarantees we start from a known "not balancing" state.
-    if (!phev_balancing_stop_sent && !datalayer.battery.settings.user_requests_balancing) {
+    if (!phev_balancing_stop_sent && !datalayer_battery->settings.user_requests_balancing) {
       logging.println("Clearing any latched balancing routine in SME (stopRoutine)");
       transmit_can_frame(&BMWPHEV_6F1_REQUEST_BALANCING_STOP);
       phev_balancing_stop_sent = true;
@@ -1021,9 +1021,9 @@ void BmwPhevBattery::transmit_can(unsigned long currentMillis) {
     // toggles balancing, fire several guarded frames of the new desired state (startRoutine when
     // requested, stopRoutine when cancelled), one per UDS-guard window, so the latching routine takes.
     // NOTE: balancing only works with contactors OPEN and it BLOCKS contactor close while active.
-    if (datalayer.battery.settings.user_requests_balancing != phev_last_balancing_request) {
-      phev_last_balancing_request = datalayer.battery.settings.user_requests_balancing;
-      phev_balancing_burst_start = datalayer.battery.settings.user_requests_balancing;
+    if (datalayer_battery->settings.user_requests_balancing != phev_last_balancing_request) {
+      phev_last_balancing_request = datalayer_battery->settings.user_requests_balancing;
+      phev_balancing_burst_start = datalayer_battery->settings.user_requests_balancing;
       phev_balancing_bursts_remaining = PHEV_BALANCING_BURST_COUNT;
       phev_balancing_burst_last_ms = 0;  // 0 = send the first frame immediately
     }
@@ -1061,7 +1061,7 @@ void BmwPhevBattery::transmit_can(unsigned long currentMillis) {
       //  - the emulator is not equipment-stopped. An equipment stop must always force contactors open;
       //    HandleEquipmentStopRequest already clears contactorCloseReq on the stop edge, this is a belt
       //    in case the request gets re-set (e.g. by the inverter) while the stop is active.
-      bool allow_can_close = (!contactor_control_enabled) && contactorCloseReq && (startup_counter_contactor >= 160) &&
+      bool allow_can_close = (!be_controls_contactors()) && contactorCloseReq && (startup_counter_contactor >= 160) &&
                              (phev_53a_state == PHEV_53A_ESCALATED || phev_53a_state == PHEV_53A_STEADY) &&
                              (phev_pre_close_stops_remaining == 0) && (!datalayer.system.info.equipment_stop_active);
       if (allow_can_close) {
@@ -1076,7 +1076,7 @@ void BmwPhevBattery::transmit_can(unsigned long currentMillis) {
 
       alive_counter_20ms = increment_alive_counter(alive_counter_20ms);
 
-      //if (datalayer.battery.status.bms_status == FAULT) {  //ALLOW ANY TIME - TEST ONLY
+      //if (datalayer_battery->status.bms_status == FAULT) {  //ALLOW ANY TIME - TEST ONLY
       //}  //If battery is not in Fault mode, allow contactor to close by sending 10B
       //else {
 
@@ -1245,15 +1245,17 @@ void BmwPhevBattery::transmit_can(unsigned long currentMillis) {
 void BmwPhevBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.number_of_cells = 96;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.number_of_cells = 96;
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
   // PHEV-specific default max balancing time: 5h (the shared datalayer default is 1h). This is the
   // ceiling the safety timer uses before it auto-cancels a balancing request. NOTE: a value changed
   // via the web UI is NOT persisted to NVS yet, so this 5h default is restored on every boot.
-  datalayer.battery.settings.balancing_max_time_ms = 5UL * 60UL * 60UL * 1000UL;  // 5 hours
+  datalayer_battery->settings.balancing_max_time_ms = 5UL * 60UL * 60UL * 1000UL;  // 5 hours
 }

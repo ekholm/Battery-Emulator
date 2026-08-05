@@ -16,8 +16,14 @@
 //  500 kbit/s, extended identifier used in this codebase.
 class GrowattHvArkBattery : public CanBattery {
  public:
-  // Use the default constructor to create the first or single battery.
-  GrowattHvArkBattery() {}
+  GrowattHvArkBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                      CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
 
   ~GrowattHvArkBattery() {}
 
@@ -29,6 +35,8 @@ class GrowattHvArkBattery : public CanBattery {
   static constexpr const char* Name = "Growatt HV ARK battery (battery-facing CAN)";
 
  private:
+  bool* allows_contactor_closing;
+
   // --- Outgoing (PCS -> Battery) ---
   CAN_frame PCS_3010 = {.FD = false,
                         .ext_ID = true,

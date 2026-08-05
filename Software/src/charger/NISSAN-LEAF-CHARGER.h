@@ -20,13 +20,13 @@ class NissanLeafCharger : public CanCharger {
 
   float HVDC_output_current() {
     // P/U=I
-    if (datalayer.battery.status.voltage_dV > 0) {
-      return outputPowerDC() / (datalayer.battery.status.voltage_dV / 10);
+    if (datalayer.batteries[0].status.voltage_dV > 0) {
+      return outputPowerDC() / (datalayer.batteries[0].status.voltage_dV / 10);
     }
     return 0;
   }
 
-  float HVDC_output_voltage() { return static_cast<float>(datalayer.battery.status.voltage_dV / 10); }
+  float HVDC_output_voltage() { return static_cast<float>(datalayer.batteries[0].status.voltage_dV / 10); }
 
  private:
   /* CAN cycles and timers */

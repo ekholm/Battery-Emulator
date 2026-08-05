@@ -6,6 +6,15 @@
 
 class SamsungSdiLVBattery : public CanBattery {
  public:
+  SamsungSdiLVBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                      CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -13,6 +22,8 @@ class SamsungSdiLVBattery : public CanBattery {
   static constexpr const char* Name = "Samsung SDI LV Battery";
 
  private:
+  bool* allows_contactor_closing;
+
   static const int MAX_PACK_VOLTAGE_DV = 600;  //5000 = 500.0V
   static const int MIN_PACK_VOLTAGE_DV = 300;
   static const int MAX_CELL_DEVIATION_MV = 250;

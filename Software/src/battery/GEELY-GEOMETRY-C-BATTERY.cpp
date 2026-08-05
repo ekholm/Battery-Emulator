@@ -2,7 +2,6 @@
 #include <cstring>  //For unit test
 #include "../communication/can/comm_can.h"
 #include "../datalayer/datalayer.h"
-#include "../datalayer/datalayer_extended.h"
 #include "../devboard/utils/common_functions.h"  //For CRC table
 #include "../devboard/utils/events.h"
 
@@ -642,7 +641,7 @@ void GeelyGeometryCBattery::transmit_can(unsigned long currentMillis) {
 void GeelyGeometryCBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer.system.status.battery_link[0].allows_contactor_closing = true;
   datalayer_battery->info.number_of_cells = 102;                           //70kWh pack has 102S, startup in this mode
   datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_70_DV;  //Startup in extreme ends
   datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_53_DV;  //Before pack size determined

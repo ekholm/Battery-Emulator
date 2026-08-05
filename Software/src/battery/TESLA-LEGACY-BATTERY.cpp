@@ -47,17 +47,17 @@ void TeslaLegacyBattery::update_values() {
     case 39:
     case 42:
     case 50:
-      datalayer.battery.info.total_capacity_Wh = 60000;
+      datalayer_battery->info.total_capacity_Wh = 60000;
       break;
     case 61:  //70kWh
     case 65:
     case 67:
-      datalayer.battery.info.total_capacity_Wh = 70000;
+      datalayer_battery->info.total_capacity_Wh = 70000;
       break;
     case 74:  //75kWh
     case 80:
     case 84:
-      datalayer.battery.info.total_capacity_Wh = 75000;
+      datalayer_battery->info.total_capacity_Wh = 75000;
       break;
     case 24:  //85kWh
     case 31:
@@ -70,7 +70,7 @@ void TeslaLegacyBattery::update_values() {
     case 69:
     case 70:
     case 86:
-      datalayer.battery.info.total_capacity_Wh = 85000;
+      datalayer_battery->info.total_capacity_Wh = 85000;
       break;
     case 68:  //90kWh
     case 71:
@@ -83,41 +83,42 @@ void TeslaLegacyBattery::update_values() {
     case 83:
     case 85:
     case 94:
-      datalayer.battery.info.total_capacity_Wh = 90000;
+      datalayer_battery->info.total_capacity_Wh = 90000;
       break;
     case 79:  //100kWh
     case 89:
-      datalayer.battery.info.total_capacity_Wh = 70000;
+      datalayer_battery->info.total_capacity_Wh = 70000;
       break;
     default:  //Unknown hwID. Raise event
       set_event(EVENT_BATTERY_VALUE_UNAVAILABLE, battery_hwID, battery_index);
       break;
   }
 
-  datalayer.battery.status.soh_pptt = BMS_CAC_min / 2316;  // uitgelezen minimale CAC / CAC bij nieuw (231,6 Ah)
+  datalayer_battery->status.soh_pptt = BMS_CAC_min / 2316;  // uitgelezen minimale CAC / CAC bij nieuw (231,6 Ah)
 
-  datalayer.battery.status.real_soc = (battery_soc_ui * 10);  //increase SOC range from 0-100.0 -> 100.00
+  datalayer_battery->status.real_soc = (battery_soc_ui * 10);  //increase SOC range from 0-100.0 -> 100.00
 
-  datalayer.battery.status.voltage_dV = (battery_volts * 10);  //One more decimal needed (370 -> 3700)
+  datalayer_battery->status.voltage_dV = (battery_volts * 10);  //One more decimal needed (370 -> 3700)
 
-  datalayer.battery.status.current_dA = (battery_amps * 10);  //13.0A
+  datalayer_battery->status.current_dA = (battery_amps * 10);  //13.0A
 
   //Calculate the remaining Wh amount from SOC% and max Wh value.
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
-  datalayer.battery.status.max_charge_power_W = (datalayer.battery.status.voltage_dV * battery_max_charge_current) / 10;
+  datalayer_battery->status.max_charge_power_W =
+      (datalayer_battery->status.voltage_dV * battery_max_charge_current) / 10;
 
-  datalayer.battery.status.max_discharge_power_W =
-      (datalayer.battery.status.voltage_dV * battery_max_discharge_current) / 10;
+  datalayer_battery->status.max_discharge_power_W =
+      (datalayer_battery->status.voltage_dV * battery_max_discharge_current) / 10;
 
-  datalayer.battery.status.temperature_min_dC = battery_min_temp;
+  datalayer_battery->status.temperature_min_dC = battery_min_temp;
 
-  datalayer.battery.status.temperature_max_dC = battery_max_temp;
+  datalayer_battery->status.temperature_max_dC = battery_max_temp;
 
-  datalayer.battery.status.cell_max_voltage_mV = battery_cell_max_v;
+  datalayer_battery->status.cell_max_voltage_mV = battery_cell_max_v;
 
-  datalayer.battery.status.cell_min_voltage_mV = battery_cell_min_v;
+  datalayer_battery->status.cell_min_voltage_mV = battery_cell_min_v;
 }
 
 void TeslaLegacyBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -195,27 +196,27 @@ void TeslaLegacyBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
       if (mux <= 23) {
         volts = (((rx_frame.data.u8[2] & 0x3F) << 8) | rx_frame.data.u8[1]) * 0.30517578125;
-        datalayer.battery.status.cell_voltages_mV[mux * 4] = volts;
+        datalayer_battery->status.cell_voltages_mV[mux * 4] = volts;
 
         volts =
             (((rx_frame.data.u8[4] & 0x0F) << 10) | (rx_frame.data.u8[3] << 2) | (rx_frame.data.u8[2] & 0xC0) >> 6) *
             0.30517578125;
-        datalayer.battery.status.cell_voltages_mV[mux * 4 + 1] = volts;
+        datalayer_battery->status.cell_voltages_mV[mux * 4 + 1] = volts;
 
         volts =
             (((rx_frame.data.u8[6] & 0x03) << 12) | (rx_frame.data.u8[5] << 4) | (rx_frame.data.u8[4] & 0xF0) >> 4) *
             0.30517578125;
-        datalayer.battery.status.cell_voltages_mV[mux * 4 + 2] = volts;
+        datalayer_battery->status.cell_voltages_mV[mux * 4 + 2] = volts;
 
         volts = ((rx_frame.data.u8[7] << 6) | (rx_frame.data.u8[6] & 0xFC) >> 2) * 0.30517578125;
-        datalayer.battery.status.cell_voltages_mV[mux * 4 + 3] = volts;
+        datalayer_battery->status.cell_voltages_mV[mux * 4 + 3] = volts;
 
         mux_max = (mux > mux_max) ? mux : mux_max;
         if (mux_zero_counter < 2 && mux == 0u) {
           mux_zero_counter++;
           if (mux_zero_counter == 2u) {
             // The max index will be 2 + mux_max * 3 (see above), so "+ 1" for the number of cells
-            datalayer.battery.info.number_of_cells = (4 * mux_max) + 4;
+            datalayer_battery->info.number_of_cells = (4 * mux_max) + 4;
             mux_zero_counter++;
           }
         }
@@ -232,8 +233,8 @@ void TeslaLegacyBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
           (((rx_frame.data.u8[7] & 0x3F) << 8) | rx_frame.data.u8[6]) * 0.128;  // 48|14@1+ (0.128,0) [0|2096.896] "A"
       break;
 
-    case 0x302:                                                            // BMS_socStatus (Nieuwe CAN-ID)
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;  //We are getting CAN messages from the BMS
+    case 0x302:                                                             // BMS_socStatus (Nieuwe CAN-ID)
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;  //We are getting CAN messages from the BMS
       battery_soc_ui = ((rx_frame.data.u8[1] & 0x03) << 8) | rx_frame.data.u8[0];  // 0|10@1+ (0.1,0) [0|102.2] "%"
       break;
     case 0x612: {
@@ -417,11 +418,13 @@ void TeslaLegacyBattery::transmit_can(unsigned long currentMillis) {
 void TeslaLegacyBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.number_of_cells = 14;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_100_DV;  //Startup in wide range
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_60_DV;   //Autodetect later
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.number_of_cells = 14;
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_100_DV;  //Startup in wide range
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_60_DV;   //Autodetect later
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
 }

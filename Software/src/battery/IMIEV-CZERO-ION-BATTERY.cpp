@@ -10,21 +10,21 @@
 
 void ImievCZeroIonBattery::
     update_values() {  //This function maps all the values fetched via CAN to the correct parameters used for modbus
-  datalayer.battery.status.real_soc = (uint16_t)(BMU_SOC * 100);  //increase BMU_SOC range from 0-100 -> 100.00
+  datalayer_battery->status.real_soc = (uint16_t)(BMU_SOC * 100);  //increase BMU_SOC range from 0-100 -> 100.00
 
-  datalayer.battery.status.voltage_dV = (uint16_t)(BMU_PackVoltage * 10);  // Multiply by 10 and cast to uint16_t
+  datalayer_battery->status.voltage_dV = (uint16_t)(BMU_PackVoltage * 10);  // Multiply by 10 and cast to uint16_t
 
-  datalayer.battery.status.current_dA = (BMU_Current * 10);  //Todo, scaling?
+  datalayer_battery->status.current_dA = (BMU_Current * 10);  //Todo, scaling?
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
   //We do not know the max charge/discharge power is sent by the battery. We hardcode value for now.
-  datalayer.battery.status.max_charge_power_W =
-      datalayer.battery.status.override_charge_power_W;  //TODO: Fix when CAN is decoded
+  datalayer_battery->status.max_charge_power_W =
+      datalayer_battery->status.override_charge_power_W;  //TODO: Fix when CAN is decoded
 
-  datalayer.battery.status.max_discharge_power_W =
-      datalayer.battery.status.override_discharge_power_W;  //TODO: Fix when CAN is decoded
+  datalayer_battery->status.max_discharge_power_W =
+      datalayer_battery->status.override_discharge_power_W;  //TODO: Fix when CAN is decoded
 
   static int n = sizeof(cell_voltages) / sizeof(cell_voltages[0]);
   max_volt_cel = cell_voltages[0];  // Initialize max with the first element of the array
@@ -58,23 +58,23 @@ void ImievCZeroIonBattery::
 
   //Map all cell voltages to the global array
   for (int i = 0; i < 88; ++i) {
-    datalayer.battery.status.cell_voltages_mV[i] = (uint16_t)(cell_voltages[i] * 1000);
+    datalayer_battery->status.cell_voltages_mV[i] = (uint16_t)(cell_voltages[i] * 1000);
   }
-  datalayer.battery.info.number_of_cells = 88;
+  datalayer_battery->info.number_of_cells = 88;
   if (max_volt_cel > 2.2f) {  // Only update cellvoltage when we have a value
-    datalayer.battery.status.cell_max_voltage_mV = (uint16_t)(max_volt_cel * 1000);
+    datalayer_battery->status.cell_max_voltage_mV = (uint16_t)(max_volt_cel * 1000);
   }
 
   if (min_volt_cel > 2.2f) {  // Only update cellvoltage when we have a value
-    datalayer.battery.status.cell_min_voltage_mV = (uint16_t)(min_volt_cel * 1000);
+    datalayer_battery->status.cell_min_voltage_mV = (uint16_t)(min_volt_cel * 1000);
   }
 
   if (min_temp_cel > -49) {  // Only update temperature when we have a value
-    datalayer.battery.status.temperature_min_dC = (int16_t)(min_temp_cel * 10);
+    datalayer_battery->status.temperature_min_dC = (int16_t)(min_temp_cel * 10);
   }
 
   if (max_temp_cel > -49) {  // Only update temperature when we have a value
-    datalayer.battery.status.temperature_max_dC = (int16_t)(max_temp_cel * 10);
+    datalayer_battery->status.temperature_max_dC = (int16_t)(max_temp_cel * 10);
   }
 
   if (!BMU_Detected) {
@@ -86,7 +86,7 @@ void ImievCZeroIonBattery::
 void ImievCZeroIonBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x374:  //BMU message, 10ms - SOC
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       temp_value = ((rx_frame.data.u8[1] - 10) / 2);
 
       if (temp_value == 205) {
@@ -103,7 +103,7 @@ void ImievCZeroIonBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
       break;
     case 0x373:  //BMU message, 100ms - Pack Voltage and current
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       BMU_Current = ((((((rx_frame.data.u8[2] * 256.0f) + rx_frame.data.u8[3])) - 32768)) * 0.01f);
       BMU_PackVoltage = ((rx_frame.data.u8[4] * 256.0f + rx_frame.data.u8[5]) * 0.1f);
       BMU_Power = (BMU_Current * BMU_PackVoltage);
@@ -112,7 +112,7 @@ void ImievCZeroIonBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
     case 0x6e2:
     case 0x6e3:
     case 0x6e4:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       BMU_Detected = 1;
       //Pid index 0-3
       pid_index = (rx_frame.ID) - 1761;
@@ -174,10 +174,12 @@ void ImievCZeroIonBattery::transmit_can(unsigned long currentMillis) {
 void ImievCZeroIonBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
 }

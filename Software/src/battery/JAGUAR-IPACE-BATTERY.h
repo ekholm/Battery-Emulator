@@ -1,10 +1,20 @@
 #ifndef JAGUAR_IPACE_BATTERY_H
 #define JAGUAR_IPACE_BATTERY_H
 
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 class JaguarIpaceBattery : public CanBattery {
  public:
+  JaguarIpaceBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                     CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -17,6 +27,7 @@ class JaguarIpaceBattery : public CanBattery {
   static const int MAX_CELL_DEVIATION_MV = 250;
   static const int MAX_CELL_VOLTAGE_MV = 4250;  //Battery is put into emergency stop if one cell goes over this value
   static const int MIN_CELL_VOLTAGE_MV = 2700;  //Battery is put into emergency stop if one cell goes below this value
+  bool* allows_contactor_closing;
 };
 
 #endif

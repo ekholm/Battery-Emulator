@@ -15,7 +15,7 @@ class BydAtto3HtmlRenderer : public BatteryHtmlRenderer {
   String get_status_html() {
     String content;
 
-    const auto& dl_bat = s.length() ? datalayer.battery2 : datalayer.battery;
+    const auto& dl_bat = datalayer_battery(s.length() ? 1 : 0);
     content += "<h4>Detected cells: " + String(dl_bat.info.number_of_cells) + "</h4>";
     content += "<h4>BE contactor state: ";
     switch (byd_datalayer->contactor_control_state) {
@@ -446,7 +446,7 @@ class BydAtto3HtmlRenderer : public BatteryHtmlRenderer {
     }
     content += "</script>";
 
-    auto& dtc = s.length() ? datalayer.battery2.dtc : datalayer.battery.dtc;
+    auto& dtc = datalayer_battery(s.length() ? 1 : 0).dtc;
     content += BatteryHtmlRenderer::render_dtc_section_html(dtc, "byd_atto3_dtc.json", true);
 
     return content;

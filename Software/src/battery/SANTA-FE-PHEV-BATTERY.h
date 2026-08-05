@@ -5,16 +5,13 @@
 
 class SantaFePhevBattery : public CanBattery {
  public:
-  // Use this constructor for the second battery.
-  SantaFePhevBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : CanBattery(targetCan) {
+  SantaFePhevBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                     CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
     datalayer_battery = datalayer_ptr;
-    allows_contactor_closing = nullptr;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  SantaFePhevBattery() {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
   }
 
   virtual void setup(void);
@@ -27,8 +24,6 @@ class SantaFePhevBattery : public CanBattery {
   void reset_DTC() { UserRequestedDTCReset = true; }
 
  private:
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
-
   // If not null, this battery decides when the contactor can be closed and writes the value here.
   bool* allows_contactor_closing;
 

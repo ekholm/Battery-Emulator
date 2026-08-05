@@ -30,20 +30,22 @@ void GrowattHvArkBattery::setup(void) {
   datalayer.system.info.battery_protocol[63] = '\0';
 
   // Provide sane defaults (will be overwritten by incoming frames once the battery is talking)
-  datalayer.battery.info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
-  datalayer.battery.info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
-  datalayer.battery.info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
-  datalayer.battery.info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = 150;
+  datalayer_battery->info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
+  datalayer_battery->info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
+  datalayer_battery->info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
+  datalayer_battery->info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = 150;
 
   // Allow contactor closing once we have a healthy, awake battery.
-  datalayer.system.status.battery_allows_contactor_closing = false;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = false;
+  }
 }
 
 void GrowattHvArkBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x3110: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
       max_charge_voltage_dV = read_u16_be(rx_frame, 0);
       max_charge_current_dA = (int16_t)read_u16_be(rx_frame, 2);
@@ -64,11 +66,11 @@ void GrowattHvArkBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
     case 0x3120:
       // Protection + Alarm bitfields (not yet mapped into the generic datalayer)
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
 
     case 0x3130: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
       pack_voltage_dV = read_u16_be(rx_frame, 0);
       pack_current_dA = read_s16_be(rx_frame, 2);
@@ -79,14 +81,14 @@ void GrowattHvArkBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
     }
 
     case 0x3140: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       remaining_capacity_10mAh = read_u16_be(rx_frame, 0);
       full_capacity_10mAh = read_u16_be(rx_frame, 2);
       break;
     }
 
     case 0x3150: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       discharge_cutoff_voltage_dV = read_u16_be(rx_frame, 0);
       // Byte2-3: main control unit temperature (0.1C)
       // We treat it as an additional temperature source; max already comes from 0x3130.
@@ -95,29 +97,29 @@ void GrowattHvArkBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       // const uint16_t modules_series = read_u16_be(rx_frame, 6);
 
       if (total_cells > 0) {
-        datalayer.battery.info.number_of_cells = total_cells;
+        datalayer_battery->info.number_of_cells = total_cells;
       }
       break;
     }
 
     case 0x3160: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       temp_min_dC = read_s16_be(rx_frame, 6);
       break;
     }
 
     case 0x3190: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       cell_max_mV = read_u16_be(rx_frame, 1);
       cell_min_mV = read_u16_be(rx_frame, 3);
       break;
     }
 
     case 0x3200: {
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       const uint16_t cell_charge_cutoff_mV = read_u16_be(rx_frame, 6);
       if (cell_charge_cutoff_mV > 0) {
-        datalayer.battery.info.max_cell_voltage_mV = cell_charge_cutoff_mV;
+        datalayer_battery->info.max_cell_voltage_mV = cell_charge_cutoff_mV;
       }
       break;
     }
@@ -130,55 +132,57 @@ void GrowattHvArkBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
 void GrowattHvArkBattery::update_values() {
   // Core measurements
-  datalayer.battery.status.voltage_dV = pack_voltage_dV;
-  datalayer.battery.status.current_dA = pack_current_dA;
-  datalayer.battery.status.temperature_max_dC = temp_max_dC;
-  datalayer.battery.status.temperature_min_dC = temp_min_dC;
+  datalayer_battery->status.voltage_dV = pack_voltage_dV;
+  datalayer_battery->status.current_dA = pack_current_dA;
+  datalayer_battery->status.temperature_max_dC = temp_max_dC;
+  datalayer_battery->status.temperature_min_dC = temp_min_dC;
 
   // SOC/SOH scaling (0-100 -> 0-10000 / 0-10000)
-  datalayer.battery.status.real_soc = (uint16_t)soc_pct * 100;
-  datalayer.battery.status.soh_pptt = (uint16_t)soh_pct * 100;
+  datalayer_battery->status.real_soc = (uint16_t)soc_pct * 100;
+  datalayer_battery->status.soh_pptt = (uint16_t)soh_pct * 100;
 
   // Limits
-  datalayer.battery.status.max_charge_current_dA = battery_no_charge ? 0 : max_charge_current_dA;
-  datalayer.battery.status.max_discharge_current_dA = battery_no_discharge ? 0 : max_discharge_current_dA;
+  datalayer_battery->status.max_charge_current_dA = battery_no_charge ? 0 : max_charge_current_dA;
+  datalayer_battery->status.max_discharge_current_dA = battery_no_discharge ? 0 : max_discharge_current_dA;
 
   if (max_charge_voltage_dV > 0) {
-    datalayer.battery.info.max_design_voltage_dV = max_charge_voltage_dV;
+    datalayer_battery->info.max_design_voltage_dV = max_charge_voltage_dV;
   }
   if (discharge_cutoff_voltage_dV > 0) {
-    datalayer.battery.info.min_design_voltage_dV = discharge_cutoff_voltage_dV;
+    datalayer_battery->info.min_design_voltage_dV = discharge_cutoff_voltage_dV;
   }
 
   // Cell voltages
-  datalayer.battery.status.cell_max_voltage_mV = cell_max_mV;
-  datalayer.battery.status.cell_min_voltage_mV = cell_min_mV;
+  datalayer_battery->status.cell_max_voltage_mV = cell_max_mV;
+  datalayer_battery->status.cell_min_voltage_mV = cell_min_mV;
   // Populate at least two entries for UIs/logic that expect some per-cell values.
-  datalayer.battery.status.cell_voltages_mV[0] = cell_max_mV;
-  datalayer.battery.status.cell_voltages_mV[1] = cell_min_mV;
+  datalayer_battery->status.cell_voltages_mV[0] = cell_max_mV;
+  datalayer_battery->status.cell_voltages_mV[1] = cell_min_mV;
 
   // Capacity: Use full capacity (bytes 2-3 in 0x3140, in 0.01Ah units) and scale by SOC.
   // Remaining capacity = full_capacity * (SOC% / 100)
   if (pack_voltage_dV > 0 && full_capacity_10mAh > 0) {
     // Calculate total capacity in Wh: (0.01Ah * 10000 counts) * voltage(dV) / 1000
     const uint32_t full_Wh = ((uint32_t)full_capacity_10mAh * (uint32_t)pack_voltage_dV) / 1000u;
-    datalayer.battery.info.total_capacity_Wh = full_Wh;
+    datalayer_battery->info.total_capacity_Wh = full_Wh;
 
     // Calculate remaining capacity based on SOC: full_capacity * SOC% / 100
     // soc_pct is 0-100, so: (full_capacity_10mAh * soc_pct / 100) gives remaining in 0.01Ah
     const uint32_t rem_capacity_10mAh = ((uint32_t)full_capacity_10mAh * (uint32_t)soc_pct) / 100u;
     const uint32_t rem_Wh = (rem_capacity_10mAh * (uint32_t)pack_voltage_dV) / 1000u;
-    datalayer.battery.status.remaining_capacity_Wh = rem_Wh;
+    datalayer_battery->status.remaining_capacity_Wh = rem_Wh;
   }
 
   // Power limits (W): dA*dV/100 = (A*10)*(V*10)/100
   const int32_t v_dV = (int32_t)pack_voltage_dV;
-  datalayer.battery.status.max_charge_power_W = (int32_t)datalayer.battery.status.max_charge_current_dA * v_dV / 100;
-  datalayer.battery.status.max_discharge_power_W =
-      (int32_t)datalayer.battery.status.max_discharge_current_dA * v_dV / 100;
+  datalayer_battery->status.max_charge_power_W = (int32_t)datalayer_battery->status.max_charge_current_dA * v_dV / 100;
+  datalayer_battery->status.max_discharge_power_W =
+      (int32_t)datalayer_battery->status.max_discharge_current_dA * v_dV / 100;
 
   // Contactor closing policy (conservative): allow only when awake and no fault indicated.
-  datalayer.system.status.battery_allows_contactor_closing = (!battery_sleeping) && (!battery_fault_present);
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = (!battery_sleeping) && (!battery_fault_present);
+  }
 }
 
 void GrowattHvArkBattery::transmit_can(unsigned long currentMillis) {

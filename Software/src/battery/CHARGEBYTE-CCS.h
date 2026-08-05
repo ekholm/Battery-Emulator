@@ -2,6 +2,7 @@
 
 #ifndef CHARGEBYTE_CCS_BATTERY_H
 #define CHARGEBYTE_CCS_BATTERY_H
+#include "../datalayer/datalayer.h"
 #include "../devboard/hal/hal.h"
 #include "CanBattery.h"
 
@@ -9,6 +10,12 @@
 
 class ChargebyteCCSBattery : public CanBattery {
  public:
+  ChargebyteCCSBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                       CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+  }
+
   virtual void setup(void);
   virtual void handle_precharge(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
@@ -108,7 +115,6 @@ class ChargebyteCCSBattery : public CanBattery {
                                   0xE8,
                                   0x03,
                               }};
-
   bool hasChargebyteError = false;
   bool hasLowLevelError = false;
   bool inPrecharge = false;

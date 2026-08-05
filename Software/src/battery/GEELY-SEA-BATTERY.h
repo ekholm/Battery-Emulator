@@ -1,11 +1,18 @@
 #ifndef GEELY_SEA_BATTERY_H
 #define GEELY_SEA_BATTERY_H
 
+#include "../datalayer/datalayer.h"
+#include "../datalayer/datalayer_extended.h"
 #include "CanBattery.h"
 #include "GEELY-SEA-HTML.h"
 
 class GeelySeaBattery : public CanBattery {
  public:
+  GeelySeaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                  CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data) {
+    datalayer_battery = datalayer_ptr;
+  }
   bool mandatory_charge_taper() { return true; }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
@@ -14,20 +21,21 @@ class GeelySeaBattery : public CanBattery {
   static constexpr const char* Name = "Volvo/Zeekr/Geely SEA battery";
 
   bool supports_reset_DTC() { return true; }
-  void reset_DTC() { datalayer_extended.GeelySEA.UserRequestDTCreset = true; }
+  void reset_DTC() { extended_data.UserRequestDTCreset = true; }
 
   bool supports_read_DTC() { return true; }
-  void read_DTC() { datalayer_extended.GeelySEA.UserRequestDTCreadout = true; }
+  void read_DTC() { extended_data.UserRequestDTCreadout = true; }
 
   bool supports_reset_BECM() { return true; }
-  void reset_BECM() { datalayer_extended.GeelySEA.UserRequestBECMecuReset = true; }
+  void reset_BECM() { extended_data.UserRequestBECMecuReset = true; }
 
   bool supports_reset_crash() { return true; }
-  void reset_crash() { datalayer_extended.GeelySEA.UserRequestCrashReset = true; }
+  void reset_crash() { extended_data.UserRequestCrashReset = true; }
 
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
+  DATALAYER_INFO_GEELY_SEA extended_data;
   GeelySeaHtmlRenderer renderer;
 
   void readDiagData();

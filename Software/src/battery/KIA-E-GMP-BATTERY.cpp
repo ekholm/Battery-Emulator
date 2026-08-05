@@ -75,7 +75,7 @@ uint16_t KiaEGmpBattery::selectSOC(uint16_t SOC_low, uint16_t SOC_high) {
 void KiaEGmpBattery::set_cell_voltages(CAN_frame rx_frame, int start, int length, int startCell) {
   for (size_t i = 0; i < length; i++) {
     if ((rx_frame.data.u8[start + i] * 20) > 2600) {
-      datalayer.battery.status.cell_voltages_mV[startCell + i] = (rx_frame.data.u8[start + i] * 20);
+      datalayer_battery->status.cell_voltages_mV[startCell + i] = (rx_frame.data.u8[start + i] * 20);
     }
   }
 }
@@ -84,22 +84,22 @@ void KiaEGmpBattery::set_voltage_minmax_limits() {
 
   uint8_t valid_cell_count = 0;
   for (int i = 0; i < MAX_AMOUNT_CELLS; ++i) {
-    if (datalayer.battery.status.cell_voltages_mV[i] > 0) {
+    if (datalayer_battery->status.cell_voltages_mV[i] > 0) {
       ++valid_cell_count;
     }
   }
   if (valid_cell_count == 144) {
-    datalayer.battery.info.number_of_cells = valid_cell_count;
-    datalayer.battery.info.max_design_voltage_dV = 6048;
-    datalayer.battery.info.min_design_voltage_dV = 4320;
+    datalayer_battery->info.number_of_cells = valid_cell_count;
+    datalayer_battery->info.max_design_voltage_dV = 6048;
+    datalayer_battery->info.min_design_voltage_dV = 4320;
   } else if (valid_cell_count == 180) {
-    datalayer.battery.info.number_of_cells = valid_cell_count;
-    datalayer.battery.info.max_design_voltage_dV = 7560;
-    datalayer.battery.info.min_design_voltage_dV = 5400;
+    datalayer_battery->info.number_of_cells = valid_cell_count;
+    datalayer_battery->info.max_design_voltage_dV = 7560;
+    datalayer_battery->info.min_design_voltage_dV = 5400;
   } else if (valid_cell_count == 192) {
-    datalayer.battery.info.number_of_cells = valid_cell_count;
-    datalayer.battery.info.max_design_voltage_dV = 8064;
-    datalayer.battery.info.min_design_voltage_dV = 5760;
+    datalayer_battery->info.number_of_cells = valid_cell_count;
+    datalayer_battery->info.max_design_voltage_dV = 8064;
+    datalayer_battery->info.min_design_voltage_dV = 5760;
   } else {
     // We are still starting up? Not all cells available.
     set_voltage_limits = false;
@@ -118,40 +118,40 @@ void KiaEGmpBattery::update_values() {
 
   if (user_selected_use_estimated_SOC) {
     // Use the simplified pack-based SOC estimation with proper compensation
-    datalayer.battery.status.real_soc =
-        estimateSOC(batteryVoltage, datalayer.battery.info.number_of_cells, batteryAmps);
+    datalayer_battery->status.real_soc =
+        estimateSOC(batteryVoltage, datalayer_battery->info.number_of_cells, batteryAmps);
 
     // For comparison or fallback, we can still calculate from min/max cell voltages
     SOC_estimated_lowest = estimateSOCFromCell(CellVoltMin_mV);
     SOC_estimated_highest = estimateSOCFromCell(CellVoltMax_mV);
   } else {
-    datalayer.battery.status.real_soc = (SOC_Display * 10);  //increase SOC range from 0-100.0 -> 100.00
+    datalayer_battery->status.real_soc = (SOC_Display * 10);  //increase SOC range from 0-100.0 -> 100.00
   }
 
-  datalayer.battery.status.soh_pptt = (batterySOH * 10);  //Increase decimals from 100.0% -> 100.00%
+  datalayer_battery->status.soh_pptt = (batterySOH * 10);  //Increase decimals from 100.0% -> 100.00%
 
-  datalayer.battery.status.voltage_dV = batteryVoltage;  //value is *10 (3700 = 370.0)
+  datalayer_battery->status.voltage_dV = batteryVoltage;  //value is *10 (3700 = 370.0)
 
-  datalayer.battery.status.current_dA = -batteryAmps;  //value is *10 (150 = 15.0)
+  datalayer_battery->status.current_dA = -batteryAmps;  //value is *10 (150 = 15.0)
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
-  //datalayer.battery.status.max_charge_power_W = (uint16_t)allowedChargePower * 10;  //From kW*100 to Watts
+  //datalayer_battery->status.max_charge_power_W = (uint16_t)allowedChargePower * 10;  //From kW*100 to Watts
   //The allowed charge power is not available. We use user set value for now
-  datalayer.battery.status.max_charge_power_W = datalayer.battery.status.override_charge_power_W;
+  datalayer_battery->status.max_charge_power_W = datalayer_battery->status.override_charge_power_W;
 
-  //datalayer.battery.status.max_discharge_power_W = (uint16_t)allowedDischargePower * 10;  //From kW*100 to Watts
+  //datalayer_battery->status.max_discharge_power_W = (uint16_t)allowedDischargePower * 10;  //From kW*100 to Watts
   //The allowed discharge power is not available. We use user set value for now
-  datalayer.battery.status.max_discharge_power_W = datalayer.battery.status.override_discharge_power_W;
+  datalayer_battery->status.max_discharge_power_W = datalayer_battery->status.override_discharge_power_W;
 
-  datalayer.battery.status.temperature_min_dC = (int8_t)temperatureMin * 10;  //Increase decimals, 17C -> 17.0C
+  datalayer_battery->status.temperature_min_dC = (int8_t)temperatureMin * 10;  //Increase decimals, 17C -> 17.0C
 
-  datalayer.battery.status.temperature_max_dC = (int8_t)temperatureMax * 10;  //Increase decimals, 18C -> 18.0C
+  datalayer_battery->status.temperature_max_dC = (int8_t)temperatureMax * 10;  //Increase decimals, 18C -> 18.0C
 
-  datalayer.battery.status.cell_max_voltage_mV = CellVoltMax_mV;
+  datalayer_battery->status.cell_max_voltage_mV = CellVoltMax_mV;
 
-  datalayer.battery.status.cell_min_voltage_mV = CellVoltMin_mV;
+  datalayer_battery->status.cell_min_voltage_mV = CellVoltMin_mV;
 
   if ((millis64() > INTERVAL_60_S) && !set_voltage_limits) {  // millis64: plain millis() wraps after 49.7 days
     set_voltage_limits = true;
@@ -194,55 +194,55 @@ void KiaEGmpBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   startedUp = true;
   switch (rx_frame.ID) {
     case 0x055:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x150:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x1F5:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x215:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x21A:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x235:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x245:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x25A:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x275:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x2FA:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x325:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x330:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x335:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x360:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x365:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x3BA:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x3F5:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       break;
     case 0x7EC:
       switch (rx_frame.data.u8[0]) {
@@ -374,7 +374,7 @@ void KiaEGmpBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
             set_cell_voltages(rx_frame, 1, 5, 187);
             //set_cell_count();
           } else if (poll_data_pid == 5) {
-            // datalayer.battery.info.number_of_cells = 98;
+            // datalayer_battery->info.number_of_cells = 98;
             SOC_Display = rx_frame.data.u8[1] * 5;
           }
           break;
@@ -470,11 +470,13 @@ void KiaEGmpBattery::transmit_can(unsigned long currentMillis) {
 void KiaEGmpBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.system.status.battery_allows_contactor_closing = true;
-  datalayer.battery.info.number_of_cells = 192;  // TODO: will vary depending on battery
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
+  datalayer_battery->info.number_of_cells = 192;  // TODO: will vary depending on battery
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
 }

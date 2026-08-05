@@ -46,10 +46,10 @@ void Mg5Battery::update_soc(uint16_t soc_times_ten) {
   if (cellVoltageValidTime == 0) {
     // We don't have a recent cell max voltage reading, so can't do
     // voltage-based SoC.
-  } else if (soc_times_ten > 900 && datalayer.battery.status.cell_max_voltage_mV < 4000) {
+  } else if (soc_times_ten > 900 && datalayer_battery->status.cell_max_voltage_mV < 4000) {
     // Something is wrong with our max cell voltage reading (it is too low), so
     // don't trust it - we'll just let the SoC hit 100%.
-  } else if (soc_times_ten == 1000 && datalayer.battery.status.cell_max_voltage_mV >= 4100) {
+  } else if (soc_times_ten == 1000 && datalayer_battery->status.cell_max_voltage_mV >= 4100) {
     // We've hit 100%, so use voltage-based-SoC calculation for the last bit.
 
     // We usually hit 92% at ~369V, and the pack max is 378V.
@@ -58,7 +58,7 @@ void Mg5Battery::update_soc(uint16_t soc_times_ten) {
     soc_times_ten = (uint16_t)(((uint32_t)soc_times_ten * 9200) / 10000);
 
     // Add on the last 100mV as the last 8% of SoC.
-    soc_times_ten += (uint16_t)((((uint32_t)datalayer.battery.status.cell_max_voltage_mV - 4100) * 800) / 1000);
+    soc_times_ten += (uint16_t)((((uint32_t)datalayer_battery->status.cell_max_voltage_mV - 4100) * 800) / 1000);
     if (soc_times_ten > 1000) {
       soc_times_ten = 1000;  // Don't let it go above 100%
     }
@@ -69,39 +69,39 @@ void Mg5Battery::update_soc(uint16_t soc_times_ten) {
 #endif
 
   // Set the state of charge in the datalayer
-  datalayer.battery.status.real_soc = soc_times_ten * 10;
+  datalayer_battery->status.real_soc = soc_times_ten * 10;
 
-  RealSoC = datalayer.battery.status.real_soc / 100;
+  RealSoC = datalayer_battery->status.real_soc / 100;
 
   // Calculate the remaining capacity.
-  tempfloat = datalayer.battery.info.total_capacity_Wh * (RealSoC) / 100;
+  tempfloat = datalayer_battery->info.total_capacity_Wh * (RealSoC) / 100;
   if (tempfloat > 0) {
-    datalayer.battery.status.remaining_capacity_Wh = tempfloat;
+    datalayer_battery->status.remaining_capacity_Wh = tempfloat;
   } else {
-    datalayer.battery.status.remaining_capacity_Wh = 0;
+    datalayer_battery->status.remaining_capacity_Wh = 0;
   }
 
   //#if MG5_USE_FULL_CAPACITY
 
   // Calculate the maximum charge power. Taper the charge power between 90% and 100% SoC, as 100% SoC is approached
   if (RealSoC < StartChargeTaper) {
-    datalayer.battery.status.max_charge_power_W = MaxChargePower;
+    datalayer_battery->status.max_charge_power_W = MaxChargePower;
   } else if (RealSoC >= 100) {
-    datalayer.battery.status.max_charge_power_W = TricklePower;
+    datalayer_battery->status.max_charge_power_W = TricklePower;
   } else {
     //Taper the charge to the Trickle value. The shape and start point of the taper is set by the constants
-    datalayer.battery.status.max_charge_power_W =
+    datalayer_battery->status.max_charge_power_W =
         (MaxChargePower * pow(((100 - RealSoC) / (100 - StartChargeTaper)), ChargeTaperExponent)) + TricklePower;
   }
 
   // Calculate the maximum discharge power. Taper the discharge power between 10% and Min% SoC, as Min% SoC is approached
   if (RealSoC > StartDischargeTaper) {
-    datalayer.battery.status.max_discharge_power_W = MaxDischargePower;
+    datalayer_battery->status.max_discharge_power_W = MaxDischargePower;
   } else if (RealSoC < MinSoC) {
-    datalayer.battery.status.max_discharge_power_W = TricklePower;
+    datalayer_battery->status.max_discharge_power_W = TricklePower;
   } else {
     //Taper the charge to the Trickle value. The shape and start point of the taper is set by the constants
-    datalayer.battery.status.max_discharge_power_W =
+    datalayer_battery->status.max_discharge_power_W =
         (MaxDischargePower * pow(((RealSoC - MinSoC) / (StartDischargeTaper - MinSoC)), DischargeTaperExponent)) +
         TricklePower;
   }
@@ -226,8 +226,8 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
   uint32_t v, i;
 
   switch (rx_frame.ID) {
-    case 0x297: {                                                          //BMS state
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;  // Let system know battery is sending CAN
+    case 0x297: {                                                           //BMS state
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;  // Let system know battery is sending CAN
 
       // Contains battery status in rx_frame.data.u8[1]
       // Presumed mapping:
@@ -251,9 +251,13 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
 
       if (rx_frame.data.u8[1] == 0x03 && previousState != 0x03) {
-        datalayer.system.status.battery_allows_contactor_closing = true;  //signal to the UI that contactors are closed
+        if (allows_contactor_closing) {
+          *allows_contactor_closing = true;  //signal to the UI that contactors are closed
+        }
       } else {
-        datalayer.system.status.battery_allows_contactor_closing = false;
+        if (allows_contactor_closing) {
+          *allows_contactor_closing = false;
+        }
       }
 
       previousState = rx_frame.data.u8[1];
@@ -265,12 +269,12 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       // Contains cell min/max voltages
       v = (rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5];
       if (v > 0 && v < 0x2000) {
-        datalayer.battery.status.cell_max_voltage_mV = v;
+        datalayer_battery->status.cell_max_voltage_mV = v;
         cellVoltageValidTime = CELL_VOLTAGE_TIMEOUT;
       }
       v = (rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7];
       if (v > 0 && v < 0x2000) {
-        datalayer.battery.status.cell_min_voltage_mV = v;
+        datalayer_battery->status.cell_min_voltage_mV = v;
       }
       break;
     case 0x293:
@@ -287,11 +291,11 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
       if (rx_frame.data.u8[0] < 0xfe) {
         // Max cell temp
-        datalayer.battery.status.temperature_max_dC = ((rx_frame.data.u8[0] << 8) / 50) - 400;
+        datalayer_battery->status.temperature_max_dC = ((rx_frame.data.u8[0] << 8) / 50) - 400;
       }
       if (rx_frame.data.u8[5] < 0xfe) {
         // Min cell temp
-        datalayer.battery.status.temperature_min_dC = ((rx_frame.data.u8[5] << 8) / 50) - 400;
+        datalayer_battery->status.temperature_min_dC = ((rx_frame.data.u8[5] << 8) / 50) - 400;
       }
       break;
     case 0x322:
@@ -323,8 +327,8 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
           // 3AC message contains a credible voltage and current (so must have come from PTCAN)
           // (voltage between 0 and 600V, current between -200A and +200A)
 
-          datalayer.battery.status.voltage_dV = (v * 5) / 2;
-          datalayer.battery.status.current_dA = -(i - 20000) / 2;
+          datalayer_battery->status.voltage_dV = (v * 5) / 2;
+          datalayer_battery->status.current_dA = -(i - 20000) / 2;
         }
 
         // SOC
@@ -346,7 +350,7 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       cell_id = rx_frame.data.u8[5];
       if (cell_id < 96) {
         v = 1000 + ((rx_frame.data.u8[2] << 8) | rx_frame.data.u8[3]);
-        datalayer.battery.status.cell_voltages_mV[cell_id] = v < 10000 ? v : 0;
+        datalayer_battery->status.cell_voltages_mV[cell_id] = v < 10000 ? v : 0;
         // cell temperature is rx_frame.data.u8[1]-40 but BE doesn't use it
       }
       break;
@@ -550,7 +554,7 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
                 (void)soh;
                 //logging.print("single frame UDS ReadDataByIdentifier state of health: ");
                 //logging.println (soh*0.01f);
-                datalayer.battery.status.soh_pptt = soh;
+                datalayer_battery->status.soh_pptt = soh;
                 break;
               }
               case 0xB06D: {
@@ -679,8 +683,8 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
         // Just changed to closed
         contactorClosed = true;
         userRequestClearDTC = true;  //clear DTCs to clear DTC 293, otherwise contactors won't close
-        //datalayer.battery.status.max_charge_power_W = MaxChargePower; //set the power limits, as they are set to zero when contactors are open
-        //datalayer.battery.status.max_discharge_power_W = MaxDischargePower;
+        //datalayer_battery->status.max_charge_power_W = MaxChargePower; //set the power limits, as they are set to zero when contactors are open
+        //datalayer_battery->status.max_discharge_power_W = MaxDischargePower;
       }
     } else {
       contactorClosed = false;
@@ -765,13 +769,15 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
 void Mg5Battery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.system.status.battery_allows_contactor_closing = true;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.total_capacity_Wh = TOTAL_BATTERY_CAPACITY_WH;
-  datalayer.battery.info.number_of_cells = 96;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.total_capacity_Wh = TOTAL_BATTERY_CAPACITY_WH;
+  datalayer_battery->info.number_of_cells = 96;
   uds_tx_in_flight = true;                  // Make sure UDS doesn't start right away
   uds_req_started_ms = millis();            // prevent immediate timeout
   uds_timeout_ms = UDS_TIMEOUT_AFTER_BOOT;  // initial delay to restart UDS after boot-up

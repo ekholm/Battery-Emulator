@@ -48,32 +48,32 @@
 
 void RangeRoverPhevBattery::update_values() {
 
-  datalayer.battery.status.real_soc = SOCAverage;
+  datalayer_battery->status.real_soc = SOCAverage;
 
-  datalayer.battery.status.soh_pptt = StateofHealth * 10;
+  datalayer_battery->status.soh_pptt = StateofHealth * 10;
 
-  datalayer.battery.status.voltage_dV = VoltageExt * 10;
+  datalayer_battery->status.voltage_dV = VoltageExt * 10;
 
-  datalayer.battery.status.current_dA = (CurrentExt * 0.025) - 209715;
+  datalayer_battery->status.current_dA = (CurrentExt * 0.025) - 209715;
 
-  datalayer.battery.status.max_charge_power_W = (ChargeContPwrLmt * 10) - 6550;
+  datalayer_battery->status.max_charge_power_W = (ChargeContPwrLmt * 10) - 6550;
 
-  datalayer.battery.status.max_discharge_power_W = (DischargeContPwrLmt * 10) - 6550;
+  datalayer_battery->status.max_discharge_power_W = (DischargeContPwrLmt * 10) - 6550;
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
-  datalayer.battery.status.cell_max_voltage_mV = CellVoltageMax;
+  datalayer_battery->status.cell_max_voltage_mV = CellVoltageMax;
 
-  datalayer.battery.status.cell_min_voltage_mV = CellVoltageMin;
+  datalayer_battery->status.cell_min_voltage_mV = CellVoltageMin;
 
-  datalayer.battery.status.temperature_min_dC = CellTempColdest * 10;
+  datalayer_battery->status.temperature_min_dC = CellTempColdest * 10;
 
-  datalayer.battery.status.temperature_max_dC = CellTempHottest * 10;
+  datalayer_battery->status.temperature_max_dC = CellTempHottest * 10;
 
-  datalayer.battery.info.max_design_voltage_dV = ChargeVoltageLimit * 10;
+  datalayer_battery->info.max_design_voltage_dV = ChargeVoltageLimit * 10;
 
-  datalayer.battery.info.min_design_voltage_dV = DischargeVoltageLimit * 10;
+  datalayer_battery->info.min_design_voltage_dV = DischargeVoltageLimit * 10;
 }
 
 void RangeRoverPhevBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -104,7 +104,7 @@ void RangeRoverPhevBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       DischargeContPwrLmt = ((rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
       break;
     case 0x102:  // 20ms
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       PwrGpCS = rx_frame.data.u8[0];
       PwrGpCounter = (rx_frame.data.u8[1] & 0x3C) >> 2;
       VoltageExt = (((rx_frame.data.u8[1] & 0x03) << 8) | rx_frame.data.u8[2]);
@@ -209,9 +209,11 @@ void RangeRoverPhevBattery::transmit_can(unsigned long currentMillis) {
 void RangeRoverPhevBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.system.status.battery_allows_contactor_closing = true;
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
 }

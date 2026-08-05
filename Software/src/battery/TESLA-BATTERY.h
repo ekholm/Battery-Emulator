@@ -16,16 +16,14 @@ extern uint16_t user_selected_tesla_GTW_packEnergy;
 class TeslaBattery : public CanBattery {
  public:
   bool mandatory_charge_taper() { return true; }
-  // Use the default constructor to create the first or single battery.
-  TeslaBattery() {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    previous_max_percentage = datalayer.battery.settings.max_percentage;
-  }
-  // Use this constructor for the second or third battery.
-  TeslaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : CanBattery(targetCan) {
+  TeslaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+               CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&datalayer_ptr->extended.tesla) {
     datalayer_battery = datalayer_ptr;
-    allows_contactor_closing = nullptr;
+    datalayer_tesla = &datalayer_ptr->extended.tesla;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
     previous_max_percentage = datalayer_ptr->settings.max_percentage;
   }
   virtual void setup();
@@ -54,6 +52,8 @@ class TeslaBattery : public CanBattery {
 
  private:
   TeslaHtmlRenderer renderer;
+  // This instance's slot in the per-instance extended union
+  DATALAYER_INFO_TESLA* datalayer_tesla = nullptr;
 
  protected:
   /* Do not change anything below this line! */
@@ -71,9 +71,6 @@ class TeslaBattery : public CanBattery {
       2950;                                      //Battery is put into emergency stop if one cell goes below this value
   static const int MAX_CELL_VOLTAGE_LFP = 3650;  //Battery is put into emergency stop if one cell goes over this value
   static const int MIN_CELL_VOLTAGE_LFP = 2800;  //Battery is put into emergency stop if one cell goes below this value
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
-
   // Per-instance state for handle_incoming_can_frame.
   // These were previously static locals — static locals are shared across all
   // class instances, which breaks double/triple battery support.

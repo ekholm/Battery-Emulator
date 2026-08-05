@@ -1,12 +1,21 @@
 #ifndef MG_5_BATTERY_H
 #define MG_5_BATTERY_H
 
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 #ifndef SMALL_FLASH_DEVICE
 
 class Mg5Battery : public CanBattery {
  public:
+  Mg5Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+             CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -27,6 +36,8 @@ class Mg5Battery : public CanBattery {
   virtual void reset_DTC() { userRequestClearDTC = true; }
 
  private:
+  bool* allows_contactor_closing;
+
   static const int MAX_PACK_VOLTAGE_DV = 4040;  //5000 = 500.0V
   static const int MIN_PACK_VOLTAGE_DV = 3100;
   static const int MAX_CELL_DEVIATION_MV = 150;

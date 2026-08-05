@@ -12,6 +12,8 @@ static constexpr int32_t meb_interm_raw_to_dV(int32_t raw) {
 
 class MebHtmlRenderer : public BatteryHtmlRenderer {
  public:
+  explicit MebHtmlRenderer(DATALAYER_INFO_MEB* meb) : meb_(meb) {}
+
   // platform's battery setup() overrides
   const char* dtc_json_filename = "vag_meb_dtc.json";
 
@@ -35,42 +37,42 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
         "Component IO", "Iso Error 1",     "Iso Error 2",           "Interlock",
         "SD",           "Performance red", "No component function", "Init"};
 
-    add_h4(content, "Service disconnect switch", datalayer_extended.meb.SDSW ? "Missing!" : "OK");
-    add_h4(content, "Pilotline", datalayer_extended.meb.pilotline ? "Open!" : "OK");
-    add_h4(content, "Transportmode", datalayer_extended.meb.transportmode ? "Locked!" : "OK");
-    add_h4(content, "Shutdown", datalayer_extended.meb.shutdown_active ? "Active!" : "No");
-    add_h4(content, "Component protection", datalayer_extended.meb.componentprotection ? "Active!" : "No");
-    add_h4(content, "HVIL status", enum_str(kl30c_enum, datalayer_extended.meb.HVIL));
-    add_h4(content, "KL30C status", enum_str(kl30c_enum, datalayer_extended.meb.BMS_Kl30c_Status));
-    add_h4(content, "BMS mode", enum_str(bms_mode_enum, datalayer_extended.meb.BMS_mode));
-    add_h4(content, "Charging", datalayer_extended.meb.charging_active ? "Active" : "Not active");
-    add_h4(content, "Balancing", enum_str(balancing_enum, datalayer_extended.meb.balancing_active));
-    add_h4(content, "Slow charging", datalayer_extended.meb.balancing_request ? "Requested" : "Not requested");
-    add_h4(content, "Diagnostic", enum_str(diagnostic_enum, datalayer_extended.meb.battery_diagnostic));
+    add_h4(content, "Service disconnect switch", meb_->SDSW ? "Missing!" : "OK");
+    add_h4(content, "Pilotline", meb_->pilotline ? "Open!" : "OK");
+    add_h4(content, "Transportmode", meb_->transportmode ? "Locked!" : "OK");
+    add_h4(content, "Shutdown", meb_->shutdown_active ? "Active!" : "No");
+    add_h4(content, "Component protection", meb_->componentprotection ? "Active!" : "No");
+    add_h4(content, "HVIL status", enum_str(kl30c_enum, meb_->HVIL));
+    add_h4(content, "KL30C status", enum_str(kl30c_enum, meb_->BMS_Kl30c_Status));
+    add_h4(content, "BMS mode", enum_str(bms_mode_enum, meb_->BMS_mode));
+    add_h4(content, "Charging", meb_->charging_active ? "Active" : "Not active");
+    add_h4(content, "Balancing", enum_str(balancing_enum, meb_->balancing_active));
+    add_h4(content, "Slow charging", meb_->balancing_request ? "Requested" : "Not requested");
+    add_h4(content, "Diagnostic", enum_str(diagnostic_enum, meb_->battery_diagnostic));
 
     content += "<h4>Heater HV line status: ";
-    if (datalayer_extended.meb.status_HV_PTC_line < 4) {
-      content += ptc_line_enum[datalayer_extended.meb.status_HV_PTC_line];
+    if (meb_->status_HV_PTC_line < 4) {
+      content += ptc_line_enum[meb_->status_HV_PTC_line];
     } else {
       content += "? ";
-      content += String(datalayer_extended.meb.status_HV_PTC_line);
+      content += String(meb_->status_HV_PTC_line);
     }
     content += "</h4>";
 
-    add_h4(content, "BMS fault performance", datalayer_extended.meb.BMS_fault_performance ? "Active!" : "Off");
+    add_h4(content, "BMS fault performance", meb_->BMS_fault_performance ? "Active!" : "Off");
     add_h4(content, "BMS fault emergency shutdown crash",
-           datalayer_extended.meb.BMS_fault_emergency_shutdown_crash ? "Active!" : "Off");
+           meb_->BMS_fault_emergency_shutdown_crash ? "Active!" : "Off");
     add_h4(content, "BMS error shutdown request",
-           datalayer_extended.meb.BMS_error_shutdown_request ? "Active!" : "Inactive");
-    add_h4(content, "BMS error shutdown", datalayer_extended.meb.BMS_error_shutdown ? "Active!" : "Off");
-    add_h4(content, "Welded contactors", enum_str(welded_enum, datalayer_extended.meb.BMS_welded_contactors_status));
-    add_h4(content, "Warning support", enum_str(warning_support_enum, datalayer_extended.meb.warning_support));
+           meb_->BMS_error_shutdown_request ? "Active!" : "Inactive");
+    add_h4(content, "BMS error shutdown", meb_->BMS_error_shutdown ? "Active!" : "Off");
+    add_h4(content, "Welded contactors", enum_str(welded_enum, meb_->BMS_welded_contactors_status));
+    add_h4(content, "Warning support", enum_str(warning_support_enum, meb_->warning_support));
 
     // Raw 0xFFD-0xFFF are status codes; showing them as ~1047V would look like a real reading.
     constexpr int32_t not_meas_code_dV = meb_interm_raw_to_dV(0xFFD);
     constexpr int32_t init_code_dV = meb_interm_raw_to_dV(0xFFE);
     constexpr int32_t fault_code_dV = meb_interm_raw_to_dV(0xFFF);
-    const int32_t interm_dV = datalayer_extended.meb.BMS_voltage_intermediate_dV;
+    const int32_t interm_dV = meb_->BMS_voltage_intermediate_dV;
     content += "<h4>Interm. Voltage (";
     if (interm_dV == not_meas_code_dV) {
       content += "NOT measurable";
@@ -83,16 +85,16 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
       content += "V";
     }
     content += ") status: ";
-    content += enum_str(voltage_free_enum, datalayer_extended.meb.BMS_status_voltage_free);
+    content += enum_str(voltage_free_enum, meb_->BMS_status_voltage_free);
     content += "</h4>";
 
-    add_h4(content, "BMS error status", enum_str(bms_error_enum, datalayer_extended.meb.BMS_error_status));
-    add_h4(content, "BMS voltage", String(datalayer_extended.meb.BMS_voltage_dV / 10.0f, 1));
-    add_h4(content, "OBD MIL", datalayer_extended.meb.BMS_OBD_MIL ? "ON!" : "Off");
-    add_h4(content, "Red error lamp", datalayer_extended.meb.BMS_error_lamp_req ? "ON!" : "Off");
-    add_h4(content, "Yellow warning lamp", datalayer_extended.meb.BMS_warning_lamp_req ? "ON!" : "Off");
-    add_h4(content, "Isolation resistance", String(datalayer_extended.meb.isolation_resistance) + " kOhm");
-    add_h4(content, "Battery heating", datalayer_extended.meb.battery_heating ? "Active!" : "Off");
+    add_h4(content, "BMS error status", enum_str(bms_error_enum, meb_->BMS_error_status));
+    add_h4(content, "BMS voltage", String(meb_->BMS_voltage_dV / 10.0f, 1));
+    add_h4(content, "OBD MIL", meb_->BMS_OBD_MIL ? "ON!" : "Off");
+    add_h4(content, "Red error lamp", meb_->BMS_error_lamp_req ? "ON!" : "Off");
+    add_h4(content, "Yellow warning lamp", meb_->BMS_warning_lamp_req ? "ON!" : "Off");
+    add_h4(content, "Isolation resistance", String(meb_->isolation_resistance) + " kOhm");
+    add_h4(content, "Battery heating", meb_->battery_heating ? "Active!" : "Off");
 
     // The values are copied out by name on purpose: indexing straight off &rt_overcurrent works
     // today but would silently mislabel everything if the struct is ever reordered.
@@ -101,50 +103,50 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
         "Overcurrent",          "CAN fault",        "Overcharged",       "SOC too high",   "SOC too low",
         "SOC jumping",          "Temp difference",  "Cell overtemp",     "Cell undertemp", "Battery overvoltage",
         "Battery undervoltage", "Cell overvoltage", "Cell undervoltage", "Cell imbalance", "Battery unathorized"};
-    const uint8_t rt_values[] = {datalayer_extended.meb.rt_overcurrent,
-                                 datalayer_extended.meb.rt_CAN_fault,
-                                 datalayer_extended.meb.rt_overcharge,
-                                 datalayer_extended.meb.rt_SOC_high,
-                                 datalayer_extended.meb.rt_SOC_low,
-                                 datalayer_extended.meb.rt_SOC_jumping,
-                                 datalayer_extended.meb.rt_temp_difference,
-                                 datalayer_extended.meb.rt_cell_overtemp,
-                                 datalayer_extended.meb.rt_cell_undertemp,
-                                 datalayer_extended.meb.rt_battery_overvolt,
-                                 datalayer_extended.meb.rt_battery_undervol,
-                                 datalayer_extended.meb.rt_cell_overvolt,
-                                 datalayer_extended.meb.rt_cell_undervol,
-                                 datalayer_extended.meb.rt_cell_imbalance,
-                                 datalayer_extended.meb.rt_battery_unathorized};
+    const uint8_t rt_values[] = {meb_->rt_overcurrent,
+                                 meb_->rt_CAN_fault,
+                                 meb_->rt_overcharge,
+                                 meb_->rt_SOC_high,
+                                 meb_->rt_SOC_low,
+                                 meb_->rt_SOC_jumping,
+                                 meb_->rt_temp_difference,
+                                 meb_->rt_cell_overtemp,
+                                 meb_->rt_cell_undertemp,
+                                 meb_->rt_battery_overvolt,
+                                 meb_->rt_battery_undervol,
+                                 meb_->rt_cell_overvolt,
+                                 meb_->rt_cell_undervol,
+                                 meb_->rt_cell_imbalance,
+                                 meb_->rt_battery_unathorized};
     static_assert(sizeof(rt_values) == sizeof(rt_labels) / sizeof(rt_labels[0]), "rt label/value table mismatch");
     for (size_t i = 0; i < sizeof(rt_values); i++) {
       add_h4(content, rt_labels[i], rt_enum[rt_values[i] & 0x03]);
     }
 
     content += "<h4>Battery temperature: ";
-    if (datalayer_extended.meb.battery_temperature_dC == 875) {  //Raw value 255
+    if (meb_->battery_temperature_dC == 875) {  //Raw value 255
       content += "Error</h4>";
-    } else if (datalayer_extended.meb.battery_temperature_dC == 870) {  //Raw value 254
+    } else if (meb_->battery_temperature_dC == 870) {  //Raw value 254
       content += "Init</h4>";
     } else {
-      content += String(datalayer_extended.meb.battery_temperature_dC / 10.f, 1) + " &deg;C</h4>";
+      content += String(meb_->battery_temperature_dC / 10.f, 1) + " &deg;C</h4>";
     }
 
     for (int i = 0; i < 3; i++) {
       content += "<h4>Temperature points " + String(i * 6 + 1) + "-" + String(i * 6 + 6) + " :";
       for (int j = 0; j < 6; j++)
-        content += " &nbsp;" + String(datalayer_extended.meb.temp_points[i * 6 + j], 1);
+        content += " &nbsp;" + String(meb_->temp_points[i * 6 + j], 1);
       content += " &deg;C</h4>";
     }
     bool temps_done = false;
     for (int i = 0; i < 7 && !temps_done; i++) {
       content += "<h4>Cell temperatures " + String(i * 8 + 1) + "-" + String(i * 8 + 8) + " :";
       for (int j = 0; j < 8; j++) {
-        if (datalayer_extended.meb.celltemperature_dC[i * 8 + j] == 865) {
+        if (meb_->celltemperature_dC[i * 8 + j] == 865) {
           temps_done = true;
           break;
         } else {
-          content += " &nbsp;" + String(datalayer_extended.meb.celltemperature_dC[i * 8 + j] / 10.f, 1);
+          content += " &nbsp;" + String(meb_->celltemperature_dC[i * 8 + j] / 10.f, 1);
         }
       }
       content += " &deg;C</h4>";
@@ -159,6 +161,8 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
   }
 
  private:
+  DATALAYER_INFO_MEB* meb_;
+
   // Emits "<h4>label: value</h4>" from separately stored fragments, so no label prefix is
   // duplicated in flash and the repeated values pool into a single copy each.
   static void add_h4(String& out, const char* label, const char* value) {

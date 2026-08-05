@@ -1,11 +1,22 @@
 #ifndef BMW_PHEV_BATTERY_H
 #define BMW_PHEV_BATTERY_H
+#include "../datalayer/datalayer.h"
 #include "BMW-PHEV-HTML.h"
 #include "CanBattery.h"
 
 class BmwPhevBattery : public CanBattery {
  public:
   bool mandatory_charge_taper() { return true; }  //TODO: Investigate if actually needed
+
+  BmwPhevBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                 CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan), renderer(&extended_data, &datalayer_ptr->extended.bmwix) {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    datalayer_battery = datalayer_ptr;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
@@ -15,10 +26,10 @@ class BmwPhevBattery : public CanBattery {
 
   bool supports_reset_DTC() { return true; }
   bool supports_insulation_resistance() { return true; }
-  void reset_DTC() { datalayer_extended.bmwphev.UserRequestDTCreset = true; }
+  void reset_DTC() { extended_data.UserRequestDTCreset = true; }
 
   bool supports_reset_BMS() { return true; }
-  void reset_BMS() { datalayer_extended.bmwphev.UserRequestBMSReset = true; }
+  void reset_BMS() { extended_data.UserRequestBMSReset = true; }
 
   // Beta CAN-based contactor close support via 0x53A (see INFO section in .cpp)
   bool supports_contactor_close() { return true; }
@@ -35,17 +46,19 @@ class BmwPhevBattery : public CanBattery {
   //  - While balancing is ACTIVE the SME BLOCKS contactor close (precharge is inhibited until
   //    balancing finishes / is stopped). So requesting balancing prevents the pack from going online.
   bool supports_balancing_request() { return true; }
-  bool is_balancing_active() { return datalayer.battery.settings.user_requests_balancing; }
-  void initiate_balancing() { datalayer.battery.settings.user_requests_balancing = true; }
-  void end_balancing() { datalayer.battery.settings.user_requests_balancing = false; }
+  bool is_balancing_active() { return datalayer_battery->settings.user_requests_balancing; }
+  void initiate_balancing() { datalayer_battery->settings.user_requests_balancing = true; }
+  void end_balancing() { datalayer_battery->settings.user_requests_balancing = false; }
 
   // Isolation test - one-shot UDS startRoutine (0xAD61). Same one-shot pattern as DTC/BMS reset.
   bool supports_isolation_test() { return true; }
-  void request_isolation_test() { datalayer_extended.bmwphev.UserRequestIsolationTest = true; }
+  void request_isolation_test() { extended_data.UserRequestIsolationTest = true; }
 
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
+  DATALAYER_INFO_BMWPHEV extended_data;
+  bool* allows_contactor_closing;
   BmwPhevHtmlRenderer renderer;
 
   static const int MAX_PACK_VOLTAGE_DV = 4650;  //4650 = 465.0V

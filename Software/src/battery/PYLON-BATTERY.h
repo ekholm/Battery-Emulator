@@ -9,21 +9,17 @@ extern uint16_t user_selected_pylon_baudrate;
 
 class PylonBattery : public CanBattery {
  public:
-  // Use this constructor for the second battery.
-  PylonBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, bool* contactor_closing_allowed_ptr, CAN_Interface targetCan)
+  // One constructor for every instance: defaults construct the primary,
+  // the factory passes the instance datalayer + interface for extras.
+  PylonBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+               bool* contactor_closing_allowed_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan,
                    user_selected_pylon_baudrate == 500 ? CAN_Speed::CAN_SPEED_500KBPS : CAN_Speed::CAN_SPEED_250KBPS) {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     contactor_closing_allowed = contactor_closing_allowed_ptr;
-    allows_contactor_closing = nullptr;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  PylonBattery()
-      : CanBattery(user_selected_pylon_baudrate == 500 ? CAN_Speed::CAN_SPEED_500KBPS : CAN_Speed::CAN_SPEED_250KBPS) {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
-    contactor_closing_allowed = nullptr;
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
   }
 
   virtual void setup(void);
@@ -43,9 +39,6 @@ class PylonBattery : public CanBattery {
   static const uint32_t DYNESS_CELL_VOLTAGE_BASE_ID = 0x18FF9701;   // Base CAN ID for cell voltages
   static const uint32_t PYLON_CELL_VOLTAGE_BASE_ID = 0x19B50100;    // Base CAN ID for cell voltages
   static const uint32_t PYLON_CELL_BALANCING_BASE_ID = 0x19B50300;  // Base CAN ID for balancing status
-
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
-
   // If not null, this battery decides when the contactor can be closed and writes the value here.
   bool* allows_contactor_closing;
 

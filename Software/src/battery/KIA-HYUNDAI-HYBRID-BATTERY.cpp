@@ -28,45 +28,45 @@ static uint8_t CalculateCRC8(const CAN_frame& frame) {
 void KiaHyundaiHybridBattery::
     update_values() {  //This function maps all the values fetched via CAN to the correct parameters used for modbus
 
-  datalayer.battery.status.real_soc = SOC * 50;
+  datalayer_battery->status.real_soc = SOC * 50;
 
-  datalayer.battery.status.voltage_dV = battery_voltage;
+  datalayer_battery->status.voltage_dV = battery_voltage;
 
-  datalayer.battery.status.current_dA = battery_current;
+  datalayer_battery->status.current_dA = battery_current;
 
-  datalayer.battery.status.remaining_capacity_Wh = static_cast<uint32_t>(
-      (static_cast<double>(datalayer.battery.status.real_soc) / 10000) * datalayer.battery.info.total_capacity_Wh);
+  datalayer_battery->status.remaining_capacity_Wh = static_cast<uint32_t>(
+      (static_cast<double>(datalayer_battery->status.real_soc) / 10000) * datalayer_battery->info.total_capacity_Wh);
 
-  datalayer.battery.status.max_discharge_power_W = available_discharge_power * 10;
+  datalayer_battery->status.max_discharge_power_W = available_discharge_power * 10;
 
-  datalayer.battery.status.max_charge_power_W = available_charge_power * 10;
+  datalayer_battery->status.max_charge_power_W = available_charge_power * 10;
 
-  datalayer.battery.status.temperature_min_dC = (int16_t)(battery_module_min_temperature * 10);
+  datalayer_battery->status.temperature_min_dC = (int16_t)(battery_module_min_temperature * 10);
 
-  datalayer.battery.status.temperature_max_dC = (int16_t)(battery_module_max_temperature * 10);
+  datalayer_battery->status.temperature_max_dC = (int16_t)(battery_module_max_temperature * 10);
 
-  datalayer.battery.status.cell_max_voltage_mV = max_cell_voltage_mv;
+  datalayer_battery->status.cell_max_voltage_mV = max_cell_voltage_mv;
 
-  datalayer.battery.status.cell_min_voltage_mV = min_cell_voltage_mv;
+  datalayer_battery->status.cell_min_voltage_mV = min_cell_voltage_mv;
 
   if (battery_voltage > 3000) {
     // If total pack voltage is above 300V, we can confirm that we are on 96S 8.9kWh PHEV battery
-    datalayer.battery.info.number_of_cells = 96;
-    datalayer.battery.info.total_capacity_Wh = 8900;
-    datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_PHEV_DV;
-    datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_PHEV_DV;
+    datalayer_battery->info.number_of_cells = 96;
+    datalayer_battery->info.total_capacity_Wh = 8900;
+    datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_PHEV_DV;
+    datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_PHEV_DV;
   }
 
   if (battery_voltage < 2400) {
     // If total pack voltage is under 240V, we can confirm that we are on 56S 1.56kWh HEV battery
-    datalayer.battery.info.number_of_cells = 56;
-    datalayer.battery.info.total_capacity_Wh = 1560;
-    datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_HEV_DV;
-    datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_HEV_DV;
+    datalayer_battery->info.number_of_cells = 56;
+    datalayer_battery->info.total_capacity_Wh = 1560;
+    datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_HEV_DV;
+    datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_HEV_DV;
   }
 
   //Map all cell voltages to the global array
-  memcpy(datalayer.battery.status.cell_voltages_mV, cellvoltages_mv, 96 * sizeof(uint16_t));
+  memcpy(datalayer_battery->status.cell_voltages_mV, cellvoltages_mv, 96 * sizeof(uint16_t));
 
   if (interlock_missing) {
     set_event(EVENT_HVIL_FAILURE, 0);
@@ -84,7 +84,7 @@ void KiaHyundaiHybridBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
     case 0x588:
       break;
     case 0x5AE:
-      datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
       interlock_missing = (bool)(rx_frame.data.u8[1] & 0x02) >> 1;
       break;
@@ -339,10 +339,12 @@ void KiaHyundaiHybridBattery::transmit_can(unsigned long currentMillis) {
 void KiaHyundaiHybridBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.system.status.battery_allows_contactor_closing = true;
-  datalayer.battery.info.number_of_cells = 56;                              // Startup in 56S mode, switch later
-  datalayer.battery.info.max_design_voltage_dV = MAX_PACK_VOLTAGE_PHEV_DV;  //Startup with widest range
-  datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_HEV_DV;   //Autodetect later
-  datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
+  datalayer_battery->info.number_of_cells = 56;                              // Startup in 56S mode, switch later
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_PHEV_DV;  //Startup with widest range
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_HEV_DV;   //Autodetect later
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
 }

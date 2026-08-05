@@ -9,18 +9,18 @@
 class RelionBattery : public CanBattery {
  public:
   bool mandatory_charge_taper() { return true; }
-  // Use this constructor for the second battery.
-  RelionBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan, bool* allows_contactor_closing_ptr)
+  // One constructor for every instance. The secondary-only battery_total_voltage
+  // zeroing is preserved verbatim (the old primary ctor never set it).
+  RelionBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                CAN_Interface targetCan = can_config.batteries[0], bool* allows_contactor_closing_ptr = nullptr)
       : CanBattery(targetCan, CAN_Speed::CAN_SPEED_250KBPS) {
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
-    allows_contactor_closing = allows_contactor_closing_ptr;
-    battery_total_voltage = 0;
-  }
-
-  // Use the default constructor to create the first or single battery.
-  RelionBattery() : CanBattery(CAN_Speed::CAN_SPEED_250KBPS) {
-    datalayer_battery = &datalayer.battery;
-    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
+    allows_contactor_closing =
+        primary ? &datalayer.system.status.battery_link[0].allows_contactor_closing : allows_contactor_closing_ptr;
+    if (!primary) {
+      battery_total_voltage = 0;
+    }
   }
 
   virtual void setup(void);
@@ -30,7 +30,6 @@ class RelionBattery : public CanBattery {
   static constexpr const char* Name = "Relion LV protocol via 250kbps CAN";
 
  private:
-  DATALAYER_BATTERY_TYPE* datalayer_battery;
   uint16_t estimateSOC();
   uint16_t estimateSOCfromCellvoltage(uint16_t cellVoltage);
 

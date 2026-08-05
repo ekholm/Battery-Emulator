@@ -20,12 +20,10 @@ class DataLayerResetListener : public ::testing::EmptyTestEventListener {
 
     // Every instance holds pointers into the datalayer we just replaced, so
     // destroy them all.
-    delete battery;
-    battery = nullptr;
-    delete battery2;
-    battery2 = nullptr;
-    delete battery3;
-    battery3 = nullptr;
+    for (int i = 0; i < MAX_BATTERIES; ++i) {
+      delete batteries[i];
+      batteries[i] = nullptr;
+    }
     delete charger;
     charger = nullptr;
     /* The inverter is the same kind of instance and was the one omission here.

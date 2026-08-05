@@ -49,21 +49,21 @@ void BydModbusInverter::handle_static_data() {
 
 void BydModbusInverter::handle_update_data_modbusp201_byd() {
   mbPV[202] =
-      std::min(datalayer.battery.info.reported_total_capacity_Wh, static_cast<uint32_t>(57960u));  //Cap to 58kWh
+      std::min(datalayer.batteries[0].info.reported_total_capacity_Wh, static_cast<uint32_t>(57960u));  //Cap to 58kWh
   if (user_selected_primo_gen24) {
     mbPV[205] =  // Max Voltage, if higher Gen24 forces discharge, cap to 450.0V for Primo to avoid constant warning
-        std::min(datalayer.battery.info.max_design_voltage_dV, static_cast<uint16_t>(4500u));
+        std::min(datalayer.batteries[0].info.max_design_voltage_dV, static_cast<uint16_t>(4500u));
   } else {  //Symo inverter which can take up to 700V, so we can use the real max voltage of the battery without capping
-    mbPV[205] = datalayer.battery.info.max_design_voltage_dV;
+    mbPV[205] = datalayer.batteries[0].info.max_design_voltage_dV;
   }
-  mbPV[206] = (datalayer.battery.info.min_design_voltage_dV);  // Min Voltage, if lower Gen24 disables battery
+  mbPV[206] = (datalayer.batteries[0].info.min_design_voltage_dV);  // Min Voltage, if lower Gen24 disables battery
 }
 
 /* Battery power in the sign convention of the emulated BYD, which reports charging as a negative
    value and discharging as positive - the opposite of datalayer active_power_W. Clamped to int16
    range before the cast, since a pack above 32.7kW would otherwise wrap and flip sign. */
 int16_t BydModbusInverter::byd_power_W() {
-  int32_t power_W = -datalayer.battery.status.active_power_W;
+  int32_t power_W = -datalayer.batteries[0].status.active_power_W;
   if (power_W > 32767) {
     power_W = 32767;
   } else if (power_W < -32768) {
@@ -77,24 +77,24 @@ void BydModbusInverter::handle_update_data_modbusp301_byd() {
      operation, bit 0 means charging, bit 1 means discharging - so 128/129/130 is idle/charging/
      discharging. The DISCHARGING(1) and CHARGING(2) defines in types.h are the inverse of that
      bit order, so build the value directly instead of adding the define to 128. */
-  if (datalayer.battery.status.reported_current_dA == 0) {
+  if (datalayer.batteries[0].status.reported_current_dA == 0) {
     bms_char_dis_status = BYD_MODE_IDLE;
-  } else if (datalayer.battery.status.reported_current_dA < 0) {  //Negative value = Discharging
+  } else if (datalayer.batteries[0].status.reported_current_dA < 0) {  //Negative value = Discharging
     bms_char_dis_status = BYD_MODE_DISCHARGING;
   } else {  //Positive value = Charging
     bms_char_dis_status = BYD_MODE_CHARGING;
   }
   // Convert max discharge Amp value to max Watt
   user_configured_max_discharge_W =
-      ((datalayer.battery.settings.max_user_set_discharge_dA * datalayer.battery.status.voltage_dV) / 100);
+      ((datalayer.batteries[0].settings.max_user_set_discharge_dA * datalayer.batteries[0].status.voltage_dV) / 100);
   // Use the smaller value, battery reported value OR user configured value
-  max_discharge_W = std::min(datalayer.battery.status.max_discharge_power_W, user_configured_max_discharge_W);
+  max_discharge_W = std::min(datalayer.batteries[0].status.max_discharge_power_W, user_configured_max_discharge_W);
 
   // Convert max charge Amp value to max Watt
   user_configured_max_charge_W =
-      ((datalayer.battery.settings.max_user_set_charge_dA * datalayer.battery.status.voltage_dV) / 100);
+      ((datalayer.batteries[0].settings.max_user_set_charge_dA * datalayer.batteries[0].status.voltage_dV) / 100);
   // Use the smaller value, battery reported value OR user configured value
-  max_charge_W = std::min(datalayer.battery.status.max_charge_power_W, user_configured_max_charge_W);
+  max_charge_W = std::min(datalayer.batteries[0].status.max_charge_power_W, user_configured_max_charge_W);
 
   // Don't advertise ACTIVE to the inverter until the DC bus is actually live. During the boot-gate +
   // precharge window the emulator drives contactors on its own schedule (BYD-Modbus has no inverter
@@ -108,7 +108,7 @@ void BydModbusInverter::handle_update_data_modbusp301_byd() {
 
   if (reported_status == ACTIVE) {
     // DC and Power values after contactors (outter values).
-    mbPV[308] = datalayer.battery.status.voltage_dV;  // DC outter voltage
+    mbPV[308] = datalayer.batteries[0].status.voltage_dV;  // DC outter voltage
     mbPV[309] = byd_power_W();                        // DC outter power, BYD reports charging as negative.
   } else {
     mbPV[308] = 0;
@@ -116,51 +116,63 @@ void BydModbusInverter::handle_update_data_modbusp301_byd() {
   }
   mbPV[300] = reported_status;
   mbPV[302] = bms_char_dis_status;
-  if (datalayer.battery.status.reported_soc < 100) {
+  if (datalayer.batteries[0].status.reported_soc < 100) {
     mbPV[303] = 100;  //Force SOC to never go below 1% to avoid overdischarge
   } else {
-    mbPV[303] = datalayer.battery.status.reported_soc;
+    mbPV[303] = datalayer.batteries[0].status.reported_soc;
   }
-  // Both capacity registers report the scaled (reported_) values, matching mbPV[202] in the p201 block.
-  // update_calculated_values() already sums battery 2 and 3 into the reported_ fields of battery 1,
-  // so no per-battery addition is needed here.
-  mbPV[304] =
-      std::min(datalayer.battery.info.reported_total_capacity_Wh, static_cast<uint32_t>(57960u));  //Cap to 58kWh
-  mbPV[305] = std::min(datalayer.battery.status.reported_remaining_capacity_Wh,
-                       static_cast<uint32_t>(57960u));                   //Cap to 58kWh
+  // Both capacity registers report the scaled (reported_) values, matching mbPV[202] in the p201 block
+  // (upstream 76a02f7c). Upstream can read battery 1 alone because update_calculated_values() sums the
+  // pack there; on this branch the reported_ fields are per instance, so the summation stays explicit.
+  if (batteries[1]) {
+    mbPV[304] = std::min(
+        datalayer.batteries[0].info.reported_total_capacity_Wh + datalayer_battery(1).info.reported_total_capacity_Wh,
+        static_cast<uint32_t>(57960u));  //Cap to 58kWh
+  } else {
+    mbPV[304] =
+        std::min(datalayer.batteries[0].info.reported_total_capacity_Wh, static_cast<uint32_t>(57960u));  //Cap to 58kWh
+  }
+  if (batteries[1]) {
+    mbPV[305] = std::min(datalayer.batteries[0].status.reported_remaining_capacity_Wh +
+                             datalayer_battery(1).status.reported_remaining_capacity_Wh,
+                         static_cast<uint32_t>(57960u));  //Cap to 58kWh
+  } else {
+    mbPV[305] = std::min(datalayer.batteries[0].status.reported_remaining_capacity_Wh,
+                         static_cast<uint32_t>(57960u));  //Cap to 58kWh
+  }
   mbPV[306] = std::min(max_discharge_W, static_cast<uint32_t>(30000u));  //Cap to 30000 if exceeding
   mbPV[307] = std::min(max_charge_W, static_cast<uint32_t>(30000u));     //Cap to 30000 if exceeding
-  mbPV[310] = datalayer.battery.status.voltage_dV;                       // DC inner voltage.
+  mbPV[310] = datalayer.batteries[0].status.voltage_dV;                  // DC inner voltage.
   mbPV[311] = byd_power_W();  // DC inner power (before contactors), same inverted sign as mbPV[309].
-  mbPV[312] = datalayer.battery.status.temperature_min_dC;
-  mbPV[313] = datalayer.battery.status.temperature_max_dC;
+  mbPV[312] = datalayer.batteries[0].status.temperature_min_dC;
+  mbPV[313] = datalayer.batteries[0].status.temperature_max_dC;
   // U64 for total charged/discharged Wh (314-317 and 318-321), but datalayer uses only 32-bit.
-  mbPV[316] = datalayer.battery.status.total_charged_battery_Wh >> 16;
-  mbPV[317] = datalayer.battery.status.total_charged_battery_Wh & 0xFFFF;
-  mbPV[320] = datalayer.battery.status.total_discharged_battery_Wh >> 16;
-  mbPV[321] = datalayer.battery.status.total_discharged_battery_Wh & 0xFFFF;
-  mbPV[322] = datalayer.battery.status.temperature_max_dC;  // Fill device temperature, perhaps BMS temperature.
-  mbPV[323] = datalayer.battery.status.soh_pptt;
+  mbPV[316] = datalayer.batteries[0].status.total_charged_battery_Wh >> 16;
+  mbPV[317] = datalayer.batteries[0].status.total_charged_battery_Wh & 0xFFFF;
+  mbPV[320] = datalayer.batteries[0].status.total_discharged_battery_Wh >> 16;
+  mbPV[321] = datalayer.batteries[0].status.total_discharged_battery_Wh & 0xFFFF;
+  mbPV[322] = datalayer.batteries[0].status.temperature_max_dC;  // Fill device temperature, perhaps BMS temperature.
+  mbPV[323] = datalayer.batteries[0].status.soh_pptt;
 }
 
 void BydModbusInverter::verify_temperature() {
-  if (datalayer.battery.info.chemistry == battery_chemistry_enum::LFP) {
+  if (datalayer.batteries[0].info.chemistry == battery_chemistry_enum::LFP) {
     return;  // Skip the following section
   }
   // This section checks if the battery temperature is negative, and incase it falls between -9.0 and -20.0C degrees
   // The Fronius Gen24 (and other Fronius inverters also affected), will stop charge/discharge if the battery gets colder than -10°C.
   // This is due to the original battery pack (BYD HVM), is a lithium iron phosphate battery, that cannot be charged in cold weather.
   // When using EV packs with NCM/LMO/NCA chemsitry, this is not a problem, since these chemistries are OK for outdoor cold use.
-  if (datalayer.battery.status.temperature_min_dC < 0) {
-    if (datalayer.battery.status.temperature_min_dC < -90 &&
-        datalayer.battery.status.temperature_min_dC > -200) {  // Between -9.0 and -20.0C degrees
-      datalayer.battery.status.temperature_min_dC = -90;       //Cap value to -9.0C
+  if (datalayer.batteries[0].status.temperature_min_dC < 0) {
+    if (datalayer.batteries[0].status.temperature_min_dC < -90 &&
+        datalayer.batteries[0].status.temperature_min_dC > -200) {  // Between -9.0 and -20.0C degrees
+      datalayer.batteries[0].status.temperature_min_dC = -90;       //Cap value to -9.0C
     }
   }
-  if (datalayer.battery.status.temperature_max_dC < 0) {  // Signed value on negative side
-    if (datalayer.battery.status.temperature_max_dC < -90 &&
-        datalayer.battery.status.temperature_max_dC > -200) {  // Between -9.0 and -20.0C degrees
-      datalayer.battery.status.temperature_max_dC = -90;       //Cap value to -9.0C
+  if (datalayer.batteries[0].status.temperature_max_dC < 0) {  // Signed value on negative side
+    if (datalayer.batteries[0].status.temperature_max_dC < -90 &&
+        datalayer.batteries[0].status.temperature_max_dC > -200) {  // Between -9.0 and -20.0C degrees
+      datalayer.batteries[0].status.temperature_max_dC = -90;       //Cap value to -9.0C
     }
   }
 }

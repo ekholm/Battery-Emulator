@@ -10,15 +10,15 @@ void FerroampCanInverter::
   //There are more mappings that could be added, but this should be enough to use as a starting point
 
   //Ferroamp only supports LFP batteries. We need to fake an LFP voltage range if the battery used is not LFP
-  if (datalayer.battery.info.chemistry == battery_chemistry_enum::LFP) {
+  if (datalayer.batteries[0].info.chemistry == battery_chemistry_enum::LFP) {
     //Already LFP, pass thru value
-    cell_tweaked_max_voltage_mV = datalayer.battery.status.cell_max_voltage_mV;
-    cell_tweaked_min_voltage_mV = datalayer.battery.status.cell_min_voltage_mV;
+    cell_tweaked_max_voltage_mV = datalayer.batteries[0].status.cell_max_voltage_mV;
+    cell_tweaked_min_voltage_mV = datalayer.batteries[0].status.cell_min_voltage_mV;
   } else {  //linear interpolation to remap the value from the range [2500-4200] to [2500-3400]
     cell_tweaked_max_voltage_mV =
-        (2500 + ((datalayer.battery.status.cell_max_voltage_mV - 2500) * (3400 - 2500)) / (4200 - 2500));
+        (2500 + ((datalayer.batteries[0].status.cell_max_voltage_mV - 2500) * (3400 - 2500)) / (4200 - 2500));
     cell_tweaked_min_voltage_mV =
-        (2500 + ((datalayer.battery.status.cell_min_voltage_mV - 2500) * (3400 - 2500)) / (4200 - 2500));
+        (2500 + ((datalayer.batteries[0].status.cell_min_voltage_mV - 2500) * (3400 - 2500)) / (4200 - 2500));
   }
 
   //Incase user has tweaked capacity of batteries in the Webserver, map this to the CAN messages
@@ -49,49 +49,49 @@ void FerroampCanInverter::
   }
 
   //SOC (100.00%)
-  FERROAMP_4211.data.u8[6] = (datalayer.battery.status.reported_soc / 100);  //Remove decimals
+  FERROAMP_4211.data.u8[6] = (datalayer.batteries[0].status.reported_soc / 100);  //Remove decimals
 
   //StateOfHealth (100.00%)
-  FERROAMP_4211.data.u8[7] = (datalayer.battery.status.soh_pptt / 100);
+  FERROAMP_4211.data.u8[7] = (datalayer.batteries[0].status.soh_pptt / 100);
 
   // Status=Bit 0,1,2= 0:Sleep, 1:Charge, 2:Discharge 3:Idle. Bit3 ForceChargeReq. Bit4 Balance charge Request
   if (datalayer.system.status.system_status == FAULT) {
     FERROAMP_4251.data.u8[0] = (0x00);  // Sleep
-  } else if (datalayer.battery.status.reported_current_dA < 0) {
+  } else if (datalayer.batteries[0].status.reported_current_dA < 0) {
     FERROAMP_4251.data.u8[0] = (0x01);  // Charge
-  } else if (datalayer.battery.status.reported_current_dA > 0) {
+  } else if (datalayer.batteries[0].status.reported_current_dA > 0) {
     FERROAMP_4251.data.u8[0] = (0x02);  // Discharge
-  } else if (datalayer.battery.status.reported_current_dA == 0) {
+  } else if (datalayer.batteries[0].status.reported_current_dA == 0) {
     FERROAMP_4251.data.u8[0] = (0x03);  // Idle
   }
 
   //Voltage (370.0)
-  FERROAMP_4211.data.u8[0] = (datalayer.battery.status.voltage_dV & 0x00FF);
-  FERROAMP_4211.data.u8[1] = (datalayer.battery.status.voltage_dV >> 8);
+  FERROAMP_4211.data.u8[0] = (datalayer.batteries[0].status.voltage_dV & 0x00FF);
+  FERROAMP_4211.data.u8[1] = (datalayer.batteries[0].status.voltage_dV >> 8);
 
   //Current (15.0)
-  FERROAMP_4211.data.u8[2] = ((datalayer.battery.status.reported_current_dA + 30000) & 0x00FF);
-  FERROAMP_4211.data.u8[3] = ((datalayer.battery.status.reported_current_dA + 30000) >> 8);
+  FERROAMP_4211.data.u8[2] = ((datalayer.batteries[0].status.reported_current_dA + 30000) & 0x00FF);
+  FERROAMP_4211.data.u8[3] = ((datalayer.batteries[0].status.reported_current_dA + 30000) >> 8);
 
   // BMS Temperature (We dont have BMS temp, send max cell voltage instead)
-  FERROAMP_4211.data.u8[4] = ((datalayer.battery.status.temperature_max_dC + 1000) & 0x00FF);
-  FERROAMP_4211.data.u8[5] = ((datalayer.battery.status.temperature_max_dC + 1000) >> 8);
+  FERROAMP_4211.data.u8[4] = ((datalayer.batteries[0].status.temperature_max_dC + 1000) & 0x00FF);
+  FERROAMP_4211.data.u8[5] = ((datalayer.batteries[0].status.temperature_max_dC + 1000) >> 8);
 
   //Maxvoltage (eg 400.0V = 4000 , 16bits long) Discharge Cutoff Voltage
-  FERROAMP_4221.data.u8[0] = (datalayer.battery.info.max_design_voltage_dV & 0x00FF);
-  FERROAMP_4221.data.u8[1] = (datalayer.battery.info.max_design_voltage_dV >> 8);
+  FERROAMP_4221.data.u8[0] = (datalayer.batteries[0].info.max_design_voltage_dV & 0x00FF);
+  FERROAMP_4221.data.u8[1] = (datalayer.batteries[0].info.max_design_voltage_dV >> 8);
 
   //Minvoltage (eg 300.0V = 3000 , 16bits long) Charge Cutoff Voltage
-  FERROAMP_4221.data.u8[2] = (datalayer.battery.info.min_design_voltage_dV & 0x00FF);
-  FERROAMP_4221.data.u8[3] = (datalayer.battery.info.min_design_voltage_dV >> 8);
+  FERROAMP_4221.data.u8[2] = (datalayer.batteries[0].info.min_design_voltage_dV & 0x00FF);
+  FERROAMP_4221.data.u8[3] = (datalayer.batteries[0].info.min_design_voltage_dV >> 8);
 
   //Max ChargeCurrent
-  FERROAMP_4221.data.u8[4] = ((datalayer.battery.status.max_charge_current_dA + 30000) & 0x00FF);
-  FERROAMP_4221.data.u8[5] = ((datalayer.battery.status.max_charge_current_dA + 30000) >> 8);
+  FERROAMP_4221.data.u8[4] = ((datalayer.batteries[0].status.max_charge_current_dA + 30000) & 0x00FF);
+  FERROAMP_4221.data.u8[5] = ((datalayer.batteries[0].status.max_charge_current_dA + 30000) >> 8);
 
   //Max DischargeCurrent
-  FERROAMP_4221.data.u8[6] = ((30000 - datalayer.battery.status.max_discharge_current_dA) & 0x00FF);
-  FERROAMP_4221.data.u8[7] = ((30000 - datalayer.battery.status.max_discharge_current_dA) >> 8);
+  FERROAMP_4221.data.u8[6] = ((30000 - datalayer.batteries[0].status.max_discharge_current_dA) & 0x00FF);
+  FERROAMP_4221.data.u8[7] = ((30000 - datalayer.batteries[0].status.max_discharge_current_dA) >> 8);
 
   //Max cell voltage
   FERROAMP_4231.data.u8[0] = (cell_tweaked_max_voltage_mV & 0x00FF);
@@ -102,20 +102,20 @@ void FerroampCanInverter::
   FERROAMP_4231.data.u8[3] = (cell_tweaked_min_voltage_mV >> 8);
 
   //Max temperature per cell
-  FERROAMP_4241.data.u8[0] = (datalayer.battery.status.temperature_max_dC & 0x00FF);
-  FERROAMP_4241.data.u8[1] = (datalayer.battery.status.temperature_max_dC >> 8);
+  FERROAMP_4241.data.u8[0] = (datalayer.batteries[0].status.temperature_max_dC & 0x00FF);
+  FERROAMP_4241.data.u8[1] = (datalayer.batteries[0].status.temperature_max_dC >> 8);
 
   //Min temperature per cell
-  FERROAMP_4241.data.u8[2] = (datalayer.battery.status.temperature_min_dC & 0x00FF);
-  FERROAMP_4241.data.u8[3] = (datalayer.battery.status.temperature_min_dC >> 8);
+  FERROAMP_4241.data.u8[2] = (datalayer.batteries[0].status.temperature_min_dC & 0x00FF);
+  FERROAMP_4241.data.u8[3] = (datalayer.batteries[0].status.temperature_min_dC >> 8);
 
   //Max temperature per module
-  FERROAMP_4271.data.u8[0] = (datalayer.battery.status.temperature_max_dC & 0x00FF);
-  FERROAMP_4271.data.u8[1] = (datalayer.battery.status.temperature_max_dC >> 8);
+  FERROAMP_4271.data.u8[0] = (datalayer.batteries[0].status.temperature_max_dC & 0x00FF);
+  FERROAMP_4271.data.u8[1] = (datalayer.batteries[0].status.temperature_max_dC >> 8);
 
   //Min temperature per module
-  FERROAMP_4271.data.u8[2] = (datalayer.battery.status.temperature_min_dC & 0x00FF);
-  FERROAMP_4271.data.u8[3] = (datalayer.battery.status.temperature_min_dC >> 8);
+  FERROAMP_4271.data.u8[2] = (datalayer.batteries[0].status.temperature_min_dC & 0x00FF);
+  FERROAMP_4271.data.u8[3] = (datalayer.batteries[0].status.temperature_min_dC >> 8);
 
   //In case we run into any errors/faults, we can set charge / discharge forbidden
   if (datalayer.system.status.system_status == FAULT) {

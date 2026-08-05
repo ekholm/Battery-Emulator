@@ -83,13 +83,13 @@ void EcmpBattery::update_values() {
 
     if (pid_energy_capacity != NOT_SAMPLED_YET) {
       datalayer_battery->status.remaining_capacity_Wh = pid_energy_capacity;
-      // calculate SOC based on datalayer.battery.info.total_capacity_Wh and remaining_capacity_Wh
+      // calculate SOC based on datalayer_battery->info.total_capacity_Wh and remaining_capacity_Wh
       datalayer_battery->status.real_soc = (uint16_t)(((float)datalayer_battery->status.remaining_capacity_Wh /
                                                        datalayer_battery->info.total_capacity_Wh) *
                                                       10000);
     }
 
-    //datalayer.battery.status.soh_pptt; //TODO: Find SOH%
+    //datalayer_battery->status.soh_pptt; //TODO: Find SOH%
 
     if (pid_pack_voltage != NOT_SAMPLED_YET) {
       datalayer_battery->status.voltage_dV = pid_pack_voltage + 800;
@@ -1870,7 +1870,7 @@ void EcmpBattery::transmit_can(unsigned long currentMillis) {
     transmit_can_frame(&ECMP_439);  //OBC4
     transmit_can_frame(&ECMP_552);  //VCU_552 timetracking
 #ifdef SIMULATE_ENTIRE_VEHICLE_ECMP
-    if (datalayer.battery.status.bms_status == FAULT) {
+    if (datalayer_battery->status.bms_status == FAULT) {
       //Make vehicle appear as in idle HV state. Useful for clearing DTCs
       ECMP_486.data.u8[0] = 0x80;
       ECMP_794.data.u8[0] = 0xB8;  //Not sure if needed, could be static?
@@ -1904,5 +1904,5 @@ void EcmpBattery::setup(void) {  // Performs one time setup at startup
   datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
   datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_DV;
   datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer.system.status.battery_link[0].allows_contactor_closing = true;
 }

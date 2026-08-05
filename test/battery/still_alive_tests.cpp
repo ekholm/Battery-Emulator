@@ -29,8 +29,8 @@ class TestNotStillAlive : public BatteryTestFixture {
   explicit TestNotStillAlive(BatteryType type) : BatteryTestFixture(type) {}
   void TestBody() override {
     // check if battery is a CanBattery subclass
-    auto* batteries[0] = dynamic_cast<CanBattery*>(::batteries[0]);
-    if (batteries[0] == nullptr) {
+    auto* can_battery = dynamic_cast<CanBattery*>(batteries[0]);
+    if (can_battery == nullptr) {
       GTEST_SKIP() << "Battery is not a CanBattery subclass";
     }
 
@@ -43,7 +43,7 @@ class TestNotStillAlive : public BatteryTestFixture {
         .data = {.u8 = {0x00, 0x64, 0x00, 0x64, 0x0F, 0xA0, 0x27, 0x10}},
     };
     for (int i = 0; i < 50; i++) {
-      batteries[0]->handle_incoming_can_frame(frame);
+      can_battery->handle_incoming_can_frame(frame);
     }
 
     // Check it's still not alive (ie, the CAN frame handling didn't renew the counter)

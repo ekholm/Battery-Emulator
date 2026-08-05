@@ -23,25 +23,26 @@ static uint16_t SOC = 0;
 static bool has_fault = false;
 
 void DalyBms::update_values() {
-  datalayer.battery.status.real_soc = SOC;
-  datalayer.battery.status.voltage_dV = voltage_dV;  //value is *10 (3700 = 370.0)
-  datalayer.battery.status.current_dA = current_dA;  //value is *10 (150 = 15.0)
-  datalayer.battery.status.remaining_capacity_Wh = (remaining_capacity_mAh * (uint32_t)voltage_dV) / 10000;
+  datalayer_battery->status.real_soc = SOC;
+  datalayer_battery->status.voltage_dV = voltage_dV;  //value is *10 (3700 = 370.0)
+  datalayer_battery->status.current_dA = current_dA;  //value is *10 (150 = 15.0)
+  datalayer_battery->status.remaining_capacity_Wh = (remaining_capacity_mAh * (uint32_t)voltage_dV) / 10000;
 
-  datalayer.battery.status.max_charge_power_W = (datalayer.battery.settings.max_user_set_charge_dA * voltage_dV) / 100;
-  datalayer.battery.status.max_discharge_power_W =
-      (datalayer.battery.settings.max_user_set_discharge_dA * voltage_dV) / 100;
+  datalayer_battery->status.max_charge_power_W =
+      (datalayer_battery->settings.max_user_set_charge_dA * voltage_dV) / 100;
+  datalayer_battery->status.max_discharge_power_W =
+      (datalayer_battery->settings.max_user_set_discharge_dA * voltage_dV) / 100;
 
   // limit power when reaching discharge voltage limit
   uint32_t voltage_power_limit = 999999;
-  uint16_t min_voltage = datalayer.battery.info.min_design_voltage_dV;
-  if (datalayer.battery.settings.user_set_voltage_limits_active &&
-      datalayer.battery.settings.max_user_set_discharge_voltage_dV > min_voltage)
-    min_voltage = datalayer.battery.settings.max_user_set_discharge_voltage_dV;
+  uint16_t min_voltage = datalayer_battery->info.min_design_voltage_dV;
+  if (datalayer_battery->settings.user_set_voltage_limits_active &&
+      datalayer_battery->settings.max_user_set_discharge_voltage_dV > min_voltage)
+    min_voltage = datalayer_battery->settings.max_user_set_discharge_voltage_dV;
   if (voltage_dV - min_voltage < user_selected_daly_power_per_dV_start)
     voltage_power_limit = (uint32_t)(voltage_dV - min_voltage) * user_selected_daly_power_per_dV;
-  if (voltage_power_limit < datalayer.battery.status.max_discharge_power_W)
-    datalayer.battery.status.max_discharge_power_W = voltage_power_limit;
+  if (voltage_power_limit < datalayer_battery->status.max_discharge_power_W)
+    datalayer_battery->status.max_discharge_power_W = voltage_power_limit;
 
   // limit power when SoC is low or high
   uint32_t adaptive_power_limit = 999999;
@@ -50,10 +51,10 @@ void DalyBms::update_values() {
   else if (SOC > 8000)
     adaptive_power_limit = ((10000 - (uint32_t)SOC) * user_selected_daly_power_per_percent) / 100;
 
-  if (adaptive_power_limit < datalayer.battery.status.max_charge_power_W)
-    datalayer.battery.status.max_charge_power_W = adaptive_power_limit;
-  if (SOC < 2000 && adaptive_power_limit < datalayer.battery.status.max_discharge_power_W)
-    datalayer.battery.status.max_discharge_power_W = adaptive_power_limit;
+  if (adaptive_power_limit < datalayer_battery->status.max_charge_power_W)
+    datalayer_battery->status.max_charge_power_W = adaptive_power_limit;
+  if (SOC < 2000 && adaptive_power_limit < datalayer_battery->status.max_discharge_power_W)
+    datalayer_battery->status.max_discharge_power_W = adaptive_power_limit;
 
   int32_t temperature_limit =
       user_selected_daly_power_per_degree_C * (int32_t)temperature_min_dC / 10 + user_selected_daly_power_at_0_degree_C;
@@ -61,32 +62,34 @@ void DalyBms::update_values() {
       temperature_max_dC > BATTERY_MAXTEMPERATURE)
     temperature_limit = 0;
 
-  if (temperature_limit < datalayer.battery.status.max_discharge_power_W)
-    datalayer.battery.status.max_discharge_power_W = temperature_limit;
-  if (temperature_limit < datalayer.battery.status.max_charge_power_W)
-    datalayer.battery.status.max_charge_power_W = temperature_limit;
+  if (temperature_limit < datalayer_battery->status.max_discharge_power_W)
+    datalayer_battery->status.max_discharge_power_W = temperature_limit;
+  if (temperature_limit < datalayer_battery->status.max_charge_power_W)
+    datalayer_battery->status.max_charge_power_W = temperature_limit;
 
-  memcpy(datalayer.battery.status.cell_voltages_mV, cellvoltages_mV, sizeof(cellvoltages_mV));
-  datalayer.battery.status.cell_min_voltage_mV = cellvoltage_min_mV;
-  datalayer.battery.status.cell_max_voltage_mV = cellvoltage_max_mV;
+  memcpy(datalayer_battery->status.cell_voltages_mV, cellvoltages_mV, sizeof(cellvoltages_mV));
+  datalayer_battery->status.cell_min_voltage_mV = cellvoltage_min_mV;
+  datalayer_battery->status.cell_max_voltage_mV = cellvoltage_max_mV;
 
   // Use the received value from the BMS, to avoid needing to configure it
-  datalayer.battery.info.number_of_cells = cell_count;
+  datalayer_battery->info.number_of_cells = cell_count;
 
-  datalayer.battery.status.temperature_min_dC = temperature_min_dC;
-  datalayer.battery.status.temperature_max_dC = temperature_max_dC;
+  datalayer_battery->status.temperature_min_dC = temperature_min_dC;
+  datalayer_battery->status.temperature_max_dC = temperature_max_dC;
 
-  datalayer.battery.status.real_bms_status = has_fault ? BMS_FAULT : BMS_ACTIVE;
+  datalayer_battery->status.real_bms_status = has_fault ? BMS_FAULT : BMS_ACTIVE;
 }
 
 void DalyBms::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.battery.info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
-  datalayer.battery.info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
-  datalayer.battery.info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
-  datalayer.battery.info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
-  datalayer.system.status.battery_allows_contactor_closing = true;
+  datalayer_battery->info.max_design_voltage_dV = user_selected_max_pack_voltage_dV;
+  datalayer_battery->info.min_design_voltage_dV = user_selected_min_pack_voltage_dV;
+  datalayer_battery->info.max_cell_voltage_mV = user_selected_max_cell_voltage_mV;
+  datalayer_battery->info.min_cell_voltage_mV = user_selected_min_cell_voltage_mV;
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
 
   rs485_begin(Name, Serial2, baud_rate(), SERIAL_8N1);
 }
@@ -125,8 +128,8 @@ void dump_buff(const char* msg, uint8_t* buff, uint8_t len) {
   logging.println();
 }
 
-void decode_packet(uint8_t command, uint8_t data[8]) {
-  datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+void decode_packet(DATALAYER_BATTERY_TYPE* datalayer_battery, uint8_t command, uint8_t data[8]) {
+  datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
   switch (command) {
     case 0x90:
@@ -211,7 +214,7 @@ void DalyBms::receive() {
 
     if (recv_len > 12) {
       dump_buff("decoding successfull rx: ", recv_buff, recv_len);
-      decode_packet(recv_buff[2], &recv_buff[4]);
+      decode_packet(datalayer_battery, recv_buff[2], &recv_buff[4]);
       recv_len = 0;
       lastPacket = millis();
     }

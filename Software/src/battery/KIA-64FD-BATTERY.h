@@ -1,12 +1,22 @@
 #ifndef KIA_64_FD_BATTERY_H
 #define KIA_64_FD_BATTERY_H
 #include <Arduino.h>
+#include "../datalayer/datalayer.h"
 #include "CanBattery.h"
 
 #define ESTIMATE_SOC_FROM_CELLVOLTAGE
 
 class Kia64FDBattery : public CanBattery {
  public:
+  Kia64FDBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
+                 CAN_Interface targetCan = can_config.batteries[0])
+      : CanBattery(targetCan) {
+    datalayer_battery = datalayer_ptr;
+    const bool primary = datalayer_ptr == &datalayer.batteries[0];
+    allows_contactor_closing =
+        &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
+  }
+
   bool mandatory_charge_taper() { return true; }
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
@@ -18,6 +28,8 @@ class Kia64FDBattery : public CanBattery {
   void reset_DTC() { UserRequestDTCreset = true; }
 
  private:
+  bool* allows_contactor_closing;
+
   bool UserRequestDTCreset = false;
   uint16_t estimateSOC(uint16_t packVoltage, uint16_t cellCount, int16_t currentAmps);
   uint16_t estimateSOCFromCell(uint16_t cellVoltage);

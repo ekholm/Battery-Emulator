@@ -10,8 +10,8 @@ void TestFakeBattery::
 
   // Battery 1's voltage is set by the user via the webserver (set_fake_voltage).
   // Batteries 2 and 3 mirror it so all instances report the same pack voltage.
-  if (datalayer_battery != &datalayer.battery) {
-    datalayer_battery->status.voltage_dV = datalayer.battery.status.voltage_dV;
+  if (datalayer_battery != &datalayer.batteries[0]) {
+    datalayer_battery->status.voltage_dV = datalayer.batteries[0].status.voltage_dV;
   }
 
   datalayer_battery->status.current_dA = 0;  // 0 A
@@ -123,7 +123,7 @@ void TestFakeBattery::setup(void) {  // Performs one time setup at startup
 
   // Default fake pack voltage for the primary battery; editable via webserver.
   // Batteries 2 and 3 pick this up through the mirror in update_values().
-  if (datalayer_battery == &datalayer.battery && datalayer_battery->status.voltage_dV == 0) {
+  if (datalayer_battery == &datalayer.batteries[0] && datalayer_battery->status.voltage_dV == 0) {
     datalayer_battery->status.voltage_dV = 3700;  // 370.0V
   }
 

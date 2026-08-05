@@ -157,5 +157,5 @@ inline MgGen1Battery::MgGen1Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_I
 }
 
 inline MgGen1Battery::MgGen1Battery() : UdsCanBattery() {
-  datalayer_battery = &datalayer.battery;
+  datalayer_battery = &datalayer.batteries[0];
 }
