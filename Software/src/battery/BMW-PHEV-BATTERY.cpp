@@ -395,8 +395,8 @@ void BmwPhevBattery::parseDTCResponse() {
     }
 
     // Store valid DTC
-    datalayer_battery->extended.bmwix.dtc_codes[validDtcCount] = dtcCode;
-    datalayer_battery->extended.bmwix.dtc_status[validDtcCount] = dtcStatus;
+    extended_data.dtc_codes[validDtcCount] = dtcCode;
+    extended_data.dtc_status[validDtcCount] = dtcStatus;
 
     // Log each DTC for debugging
     logging.print("  DTC #");
@@ -426,7 +426,7 @@ void BmwPhevBattery::parseDTCResponse() {
   logging.print("Total valid DTCs: ");
   logging.println(validDtcCount);
 
-  datalayer_battery->extended.bmwix.dtc_last_read_millis = millis();  //Note we re-use ix struct to save memory
+  extended_data.dtc_last_read_millis = millis();  //Note we re-use ix struct to save memory
   extended_data.dtc_read_failed = false;
 }
 void BmwPhevBattery::processCellVoltages() {

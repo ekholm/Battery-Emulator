@@ -10,11 +10,12 @@ class BmwPhevBattery : public CanBattery {
 
   BmwPhevBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                  CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&extended_data, &datalayer_ptr->extended.bmwix) {
+      : CanBattery(targetCan),
+        renderer(&datalayer_ptr->extended.bmwphev),
+        extended_data(datalayer_ptr->extended.bmwphev) {
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
-    // The PHEV keeps its DTC data in the iX-shaped slot (documented reuse)
-    datalayer_ptr->extended_type = ExtendedDataType::BmwIx;
+    datalayer_ptr->extended_type = ExtendedDataType::BmwPhev;
     allows_contactor_closing =
         &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
   }
@@ -59,7 +60,7 @@ class BmwPhevBattery : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
-  DATALAYER_INFO_BMWPHEV extended_data;
+  DATALAYER_INFO_BMWPHEV& extended_data;
   bool* allows_contactor_closing;
   BmwPhevHtmlRenderer renderer;
 

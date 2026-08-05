@@ -7,9 +7,7 @@
 
 class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  // dtc_data points at the instance's bmwix union slot: the PHEV re-uses the
-  // iX DTC arrays to save a duplicate struct.
-  BmwPhevHtmlRenderer(DATALAYER_INFO_BMWPHEV* dl, DATALAYER_INFO_BMWIX* dtc_data) : data(dl), dtc_data_(dtc_data) {}
+  BmwPhevHtmlRenderer(DATALAYER_INFO_BMWPHEV* dl) : data(dl) {}
 
   String get_status_html() {
     String content;
@@ -370,14 +368,14 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
       content += "<p style='color: #d32f2f;'>⚠ Last DTC read failed or not supported</p>";
     } else if (data->dtc_count == 0) {
       content += "<p style='color: #4CAF50;'>✓ No DTCs present</p>";
-      if (dtc_data_->dtc_last_read_millis > 0) {
-        content += "<p><strong>Last Read:</strong> " + String((millis() - dtc_data_->dtc_last_read_millis) / 1000) +
-                   "s ago</p>";
+      if (data->dtc_last_read_millis > 0) {
+        content +=
+            "<p><strong>Last Read:</strong> " + String((millis() - data->dtc_last_read_millis) / 1000) + "s ago</p>";
       }
     } else {
       content += "<p><strong>DTC Count:</strong> " + String(data->dtc_count) + "</p>";
       content +=
-          "<p><strong>Last Read:</strong> " + String((millis() - dtc_data_->dtc_last_read_millis) / 1000) + "s ago</p>";
+          "<p><strong>Last Read:</strong> " + String((millis() - data->dtc_last_read_millis) / 1000) + "s ago</p>";
 
       content += "<div style='overflow-x: auto; margin-top: 10px; margin-bottom: 15px;'>";
       content +=
@@ -396,8 +394,8 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
       content += "<tbody>";
 
       for (int i = 0; i < data->dtc_count; i++) {
-        uint32_t code = dtc_data_->dtc_codes[i];    //Note we re-use datalayer for iX to save space
-        uint8_t status = dtc_data_->dtc_status[i];  //Note we re-use datalayer for iX to save space
+        uint32_t code = data->dtc_codes[i];    //Note we re-use datalayer for iX to save space
+        uint8_t status = data->dtc_status[i];  //Note we re-use datalayer for iX to save space
 
         char dtcStr[12];
         sprintf(dtcStr, "%06lX", code);
@@ -442,7 +440,6 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
 
  private:
   DATALAYER_INFO_BMWPHEV* data;
-  DATALAYER_INFO_BMWIX* dtc_data_;
 };
 
 #endif

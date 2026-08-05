@@ -94,8 +94,11 @@ struct DATALAYER_INFO_BMWPHEV {
   uint8_t battery_request_open_contactors_instantly;
   uint8_t battery_request_open_contactors_fast;
   uint8_t battery_charging_condition_delta;
-  uint8_t dtc_count;                 // Number of DTCs present
-  uint8_t iso_safety_ext_plausible;  //STAT_ISOWIDERSTAND_EXT_TRG_PLAUS
+  uint32_t dtc_codes[32];              // Array of DTC codes (3 bytes each, stored as uint32)
+  uint8_t dtc_status[32];              // Status byte for each DTC
+  unsigned long dtc_last_read_millis;  // Timestamp of last successful read
+  uint8_t dtc_count;                   // Number of DTCs present
+  uint8_t iso_safety_ext_plausible;    //STAT_ISOWIDERSTAND_EXT_TRG_PLAUS
   uint8_t iso_safety_int_plausible;
   uint8_t iso_safety_trg_plausible;
   uint8_t iso_safety_kohm_quality;  //STAT_R_ISO_ROH_QAL_01_INFO Quality of measurement 0-21 (higher better)
@@ -987,6 +990,7 @@ enum class ExtendedDataType : uint8_t {
   BmwIx,
   Meb,
   BydAtto3,
+  BmwPhev,
   BoltAmpera,
   CellPower,
   Chademo,
@@ -1016,6 +1020,7 @@ union DATALAYER_BATTERY_EXTENDED_TYPE {
   DATALAYER_INFO_BMWIX bmwix;
   DATALAYER_INFO_MEB meb;
   DATALAYER_INFO_BYDATTO3 bydAtto3;
+  DATALAYER_INFO_BMWPHEV bmwphev;
   DATALAYER_INFO_BOLTAMPERA boltampera;
   DATALAYER_INFO_CELLPOWER cellpower;
   DATALAYER_INFO_CHADEMO chademo;
