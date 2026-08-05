@@ -1,5 +1,5 @@
-#ifndef _PRECHARGE_FSM_H_
-#define _PRECHARGE_FSM_H_
+#ifndef BE_COMMUNICATION_CONTACTORCONTROL_PRECHARGE_FSM_H
+#define BE_COMMUNICATION_CONTACTORCONTROL_PRECHARGE_FSM_H
 
 #include <stdint.h>
 
@@ -38,8 +38,16 @@ class ContactorActuator {
   virtual bool step_gate(State step) { return true; }
 
   // Extra conditions to leave DISCONNECTED, beyond inverter permission and
-  // equipment stop (S-BOX: measurable pack voltage).
+  // equipment stop (S-BOX: measurable pack voltage; i3: BMS startup grace).
+  // Called every tick while DISCONNECTED, so a stateful actuator may count in
+  // it.
   virtual bool start_allowed() { return true; }
+
+  // Immediate-open override, checked every tick from every recoverable state.
+  // Topologies that must drop the close command mid-sequence (i3: balancing
+  // shutdown, FAULT, inverter revoke) return true; the FSM falls back to
+  // DISCONNECTED and stays there while this holds.
+  virtual bool force_open() { return false; }
 
   // Gate on executing the timed close sequence at all (GPIO: 10 s boot guard
   // + battery detected). Separate from start_allowed() to preserve today's
@@ -66,7 +74,12 @@ class PrechargeFsm {
  public:
   using State = ContactorActuator::State;
 
-  explicit PrechargeFsm(ContactorActuator& actuator) : actuator_(actuator) {}
+  // link_index selects which battery_link[] permission gates this pack's
+  // close: 0 for the main pack (the symmetric parallel-join gate), the pack's
+  // own instance for joiners (the arbiter's per-joiner permission). One gate
+  // mechanism either way.
+  explicit PrechargeFsm(ContactorActuator& actuator, int link_index = 0)
+      : actuator_(actuator), link_index_(link_index) {}
 
   void tick(unsigned long now_ms);
 
@@ -78,10 +91,11 @@ class PrechargeFsm {
   static State next_state(State state);
 
   ContactorActuator& actuator_;
+  int link_index_ = 0;
   State state_ = State::DISCONNECTED;
   unsigned long step_started_ms_ = 0;
   unsigned long fault_ticks_ = 0;
   unsigned long estop_open_wait_start_ms_ = 0;
 };
 
-#endif
+#endif  // BE_COMMUNICATION_CONTACTORCONTROL_PRECHARGE_FSM_H

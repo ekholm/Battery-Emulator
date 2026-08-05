@@ -2,6 +2,7 @@
 #define BMW_I3_BATTERY_H
 
 #include <Arduino.h>
+#include "../communication/contactorcontrol/precharge_fsm.h"
 #include "../datalayer/datalayer.h"
 #include "../devboard/hal/hal.h"
 #include "BMW-I3-HTML.h"
@@ -9,13 +10,14 @@
 
 class BmwI3Battery : public CanBattery {
  public:
-  // One constructor for every instance. The wakeup pin is per-instance and
-  // comes from the caller (the factory passes WUP_PIN1/WUP_PIN2); the
-  // default keeps plain construction behaving like the old primary ctor.
-  BmwI3Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
-               bool* contactor_closing_allowed_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0],
-               gpio_num_t wakeup = esp32hal->WUP_PIN1())
-      : CanBattery(targetCan), renderer(*this) {
+  // One constructor for every instance; the factory is the only caller and
+  // passes everything explicitly. No defaults on purpose: a defaulted wakeup
+  // pin would let an extra instance silently claim the primary's pin.
+  BmwI3Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr, bool* contactor_closing_allowed_ptr, CAN_Interface targetCan,
+               gpio_num_t wakeup)
+      : CanBattery(targetCan),
+        renderer(*this),
+        contactor_fsm_(contactor_actuator_, datalayer_battery_instance(datalayer_ptr)) {
     datalayer_battery = datalayer_ptr;
     contactor_closing_allowed = contactor_closing_allowed_ptr;
     allows_contactor_closing =
@@ -79,7 +81,7 @@ class BmwI3Battery : public CanBattery {
   // Value space of battery_status_disconnecting_switch (ST_DCSW)
   enum class DisconnectingSwitch : uint8_t { Open = 0, PrechargeOngoing = 1, Engaged = 2, Invalid = 3 };
 
-  ContactorState reported_contactor_state() {
+  ContactorState reported_contactor_state() override {
     // Precharge counts as Closed: the link is already being energized
     // through the resistor
     switch (static_cast<DisconnectingSwitch>(battery_status_disconnecting_switch)) {
@@ -121,6 +123,122 @@ class BmwI3Battery : public CanBattery {
 
  private:
   BmwI3HtmlRenderer renderer;
+
+  // The i3 pack drives its own DC switch: the emulator only commands close
+  // over CAN (0x10B byte 1) and observes the BMS-reported switch state, so
+  // the actuator asserts the command once and the steps follow the report.
+  class I3ContactorActuator : public ContactorActuator {
+   public:
+    explicit I3ContactorActuator(BmwI3Battery& battery) : battery_(battery) {}
+
+    void apply_step(State step) override {
+      if (step == START_PRECHARGE) {
+        battery_.close_commanded_ = true;
+      }
+    }
+
+    unsigned long step_delay_ms(State step) const override { return 0; }
+
+    bool step_gate(State step) override {
+      // Follow the BMS report through the close sequence
+      switch (step) {
+        case PRECHARGE:
+          return battery_.reported_contactor_state() != ContactorState::Open;
+        case POSITIVE:
+          return battery_.reported_contactor_state() == ContactorState::Closed;
+        default:
+          return true;
+      }
+    }
+
+    bool start_allowed() override {
+      // BMS startup grace: contactors stay commanded open for the first 160
+      // 20 ms frames after wake
+      if (battery_.startup_counter_contactor < 160) {
+        ++battery_.startup_counter_contactor;
+        return false;
+      }
+      return true;
+    }
+
+    bool force_open() override {
+      // The i3 drops its close command mid-sequence too: balancing shutdown,
+      // FAULT (recoverable - the i3 has never latched, see fault_tick_budget)
+      // and inverter revoke all command open immediately.
+      return battery_.balancing_contactor_open_due_ || datalayer.system.status.system_status == FAULT ||
+             !datalayer.system.status.inverter_allows_contactor_closing;
+    }
+
+    unsigned long fault_tick_budget() const override {
+      // Never latch: force_open() already keeps the contactors open during
+      // FAULT and recovers when it clears, matching today's i3 behavior.
+      // Whether the i3 should adopt the canonical latch is a PR question.
+      return (unsigned long)-1;
+    }
+
+    void open_all(bool fault) override { battery_.close_commanded_ = false; }
+
+    // Publication follows the BMS report, not the FSM state - the i3 drives
+    // its own DC switch. The actuator is the single publication authority for
+    // the i3's contactor state; update_values() only calls in here.
+    void publish_reported_state() {
+      int instance = datalayer_battery_instance(battery_.datalayer_battery);
+      if (instance != 0) {
+        // An extra pack's engaged state lives in its own battery_link slot.
+        // (When the emulator's GPIO drives this instance's contactor,
+        // handle_contactors_battery() owns that field instead.)
+        if (!battery_.be_controls_contactors()) {
+          datalayer.system.status.battery_link[instance].contactors_engaged =
+              (battery_.reported_contactor_state() == ContactorState::Closed);
+        }
+        return;
+      }
+      // Map BMW I3 DC switch status to system datalayer
+      switch (static_cast<DisconnectingSwitch>(battery_.battery_status_disconnecting_switch)) {
+        case DisconnectingSwitch::PrechargeOngoing:
+          datalayer.system.status.contactors_engaged = 3;
+          break;
+        case DisconnectingSwitch::Engaged:
+          datalayer.system.status.contactors_engaged = 1;
+          break;
+        default:  // Open or invalid signal - treat as open
+          datalayer.system.status.contactors_engaged = 0;
+          break;
+      }
+      // I3 drives its own DC switch, so DC is live once its contactors report
+      // engaged. Guarded so the GPIO contactor state machine stays
+      // authoritative when enabled.
+      if (!battery_.be_controls_contactors()) {
+        datalayer.system.status.dc_bus_live = (datalayer.system.status.contactors_engaged == 1);
+      }
+    }
+
+    // Balancing sleep: report contactors open so an old engaged state is not
+    // latched while the battery is asleep.
+    void publish_asleep() {
+      int instance = datalayer_battery_instance(battery_.datalayer_battery);
+      if (instance != 0) {
+        if (!battery_.be_controls_contactors()) {
+          datalayer.system.status.battery_link[instance].contactors_engaged = false;
+        }
+        return;
+      }
+      datalayer.system.status.contactors_engaged = 0;
+      if (!battery_.be_controls_contactors()) {
+        datalayer.system.status.dc_bus_live = false;
+      }
+    }
+
+   private:
+    BmwI3Battery& battery_;
+  };
+
+  I3ContactorActuator contactor_actuator_{*this};
+  PrechargeFsm contactor_fsm_;
+  // The 0x10B close command as decided by the FSM (0x10 vs 0x00)
+  bool close_commanded_ = false;
+  // Balancing shutdown reached the point where contactors must open
+  bool balancing_contactor_open_due_ = false;
 
  private:
   bool UserRequestDTCreset = false;

@@ -54,11 +54,7 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
   if (UserRequestBalancing == EXECUTING) {
     datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
     datalayer.system.status.system_status = STANDBY;
-    // During balancing sleep, report contactors as open so an old engaged state is not latched.
-    datalayer.system.status.contactors_engaged = 0;
-    if (!be_controls_contactors()) {
-      datalayer.system.status.dc_bus_live = false;
-    }
+    contactor_actuator_.publish_asleep();
   }
 
   // Map internal balancing state to datalayer balancing_status
@@ -129,27 +125,7 @@ void BmwI3Battery::update_values() {  //This function maps all the values fetche
     clear_event(EVENT_CONTACTOR_WELDED);
   }
 
-  // Map BMW I3 DC switch status to system datalayer
-  // battery_status_disconnecting_switch: 0=open, 1=precharge ongoing, 2=contactors engaged, 3=invalid
-  switch (battery_status_disconnecting_switch) {
-    case 0:  // Contactors open
-      datalayer.system.status.contactors_engaged = 0;
-      break;
-    case 1:  // Precharge ongoing
-      datalayer.system.status.contactors_engaged = 3;
-      break;
-    case 2:  // Contactors engaged
-      datalayer.system.status.contactors_engaged = 1;
-      break;
-    default:  // Invalid signal - treat as open
-      datalayer.system.status.contactors_engaged = 0;
-      break;
-  }
-  // I3 drives its own DC switch, so DC is live once its contactors report engaged.
-  // Guarded so the GPIO contactor state machine stays authoritative when enabled.
-  if (!be_controls_contactors()) {
-    datalayer.system.status.dc_bus_live = (datalayer.system.status.contactors_engaged == 1);
-  }
+  contactor_actuator_.publish_reported_state();
 }
 
 void BmwI3Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -413,23 +389,14 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
 
       // Contactor control: open ~54 seconds after balancing start (charge-finished signal)
       // Until then, contactors stay closed (matches real car discharge log)
-      bool contactors_should_open =
+      balancing_contactor_open_due_ =
           balancing_mode_active && (currentMillis - balancing_start_time >= BALANCING_CONTACTOR_DELAY_MS);
 
-      if (contactors_should_open) {
-        BMW_10B.data.u8[1] = 0x00;  // Open contactors - balancing shutdown sequence
-      } else if (datalayer.system.status.system_status == FAULT) {
-        BMW_10B.data.u8[1] = 0x00;  // Keep contactors open - fault condition
-      } else if (startup_counter_contactor < 160) {
-        startup_counter_contactor++;
-        BMW_10B.data.u8[1] = 0x00;  // Keep contactors open during startup
-      } else if (contactor_closing_allowed && !(*contactor_closing_allowed)) {
-        BMW_10B.data.u8[1] = 0x00;  // Keep contactors open - master (primary battery) not ready
-      } else if (datalayer.system.status.inverter_allows_contactor_closing) {
-        BMW_10B.data.u8[1] = 0x10;  // Close contactors
-      } else {
-        BMW_10B.data.u8[1] = 0x00;  // Keep contactors open
-      }
+      // The shared precharge FSM decides the close command: balancing
+      // shutdown / FAULT / inverter revoke force open (recoverable), the
+      // startup grace counter and the per-instance join gate hold the start.
+      contactor_fsm_.tick(currentMillis);
+      BMW_10B.data.u8[1] = close_commanded_ ? 0x10 : 0x00;  // Close vs open contactors
 
       BMW_10B.data.u8[1] = ((BMW_10B.data.u8[1] & 0xF0) + alive_counter_20ms);
       BMW_10B.data.u8[0] = calculateCRC(BMW_10B, 3, 0x3F);
@@ -440,7 +407,7 @@ void BmwI3Battery::transmit_can(unsigned long currentMillis) {
       BMW_13E.data.u8[4] = BMW_13E_counter;
 
       if (allows_contactor_closing) {
-        *allows_contactor_closing = !contactors_should_open;
+        *allows_contactor_closing = !balancing_contactor_open_due_;
       }
       transmit_can_frame(&BMW_10B);  // Always send 10B - content (0x00/0x10) controlled by logic above
     }

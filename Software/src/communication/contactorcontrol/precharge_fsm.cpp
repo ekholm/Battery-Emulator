@@ -43,16 +43,26 @@ void PrechargeFsm::tick(unsigned long now_ms) {
     return;  // A fault scenario latches the contactor control. It is not possible to recover without a powercycle (and investigation why fault occured)
   }
 
+  // Recoverable immediate open, from any state (i3: balancing shutdown,
+  // FAULT, inverter revoke - the close command must drop mid-sequence too)
+  if (state_ != State::DISCONNECTED && actuator_.force_open()) {
+    state_ = State::DISCONNECTED;
+  }
+
   // After that, check if we are OK to start turning on the battery
   if (state_ == State::DISCONNECTED) {
     actuator_.open_all(false);
 
-    // battery_link[0].allowed_contactor_closing is the symmetric parallel-join
-    // gate: do not close the main battery onto a link another pack holds live
-    // with more than 1.5 V difference. Computed by the join arbiter; set true
-    // at battery setup so single-battery systems are unaffected.
-    if (datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active &&
-        datalayer.system.status.battery_link[0].allowed_contactor_closing && actuator_.start_allowed()) {
+    // battery_link[link_index_].allowed_contactor_closing is the join gate:
+    // for the main pack (index 0) the symmetric parallel-join rule - do not
+    // close onto a link another pack holds live with more than 1.5 V
+    // difference; for a joiner its per-instance arbiter permission. Computed
+    // by the join arbiter; [0] is set true at battery setup so single-battery
+    // systems are unaffected. start_allowed() runs first, every tick, so
+    // stateful actuators (i3 startup grace counter) keep counting.
+    if (actuator_.start_allowed() && !actuator_.force_open() &&
+        datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active &&
+        datalayer.system.status.battery_link[link_index_].allowed_contactor_closing) {
       state_ = State::START_PRECHARGE;
     }
   }
