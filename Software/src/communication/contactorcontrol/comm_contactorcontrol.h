@@ -3,6 +3,10 @@
 
 #include "../../datalayer/datalayer.h"
 #include "../../devboard/utils/events.h"
+#include "precharge_fsm.h"
+
+// The main pack's contactor state machine (GPIO actuator).
+extern PrechargeFsm precharge_fsm;
 
 // Settings that can be changed at run-time
 // Per-instance: does the emulator's GPIO contactor control drive battery i?

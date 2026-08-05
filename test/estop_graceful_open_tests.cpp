@@ -8,11 +8,6 @@
 #include "../Software/src/devboard/safety/safety.h"
 #include "../Software/src/devboard/utils/events.h"
 
-// Mirrors the file-scope contactor FSM in comm_contactorcontrol.cpp so the
-// tests can place it in a known state. Must match the definition there.
-enum State { DISCONNECTED, START_PRECHARGE, PRECHARGE, POSITIVE, PRECHARGE_OFF, COMPLETED, SHUTDOWN_REQUESTED };
-extern State contactorStatus;
-
 // Regression tests for #1750: equipment stop used to jump COMPLETED ->
 // DISCONNECTED in the same 10 ms tick that zeroed the power limits - faster
 // than any inverter can ramp down, so the contactors opened under load.
@@ -27,7 +22,7 @@ class EstopGracefulOpenTest : public ::testing::Test {
     init_hal();
     set_millis64(100000);
     contactor_control_enabled[0] = true;
-    contactorStatus = COMPLETED;
+    precharge_fsm.set_state(ContactorActuator::COMPLETED);
     emulator_pause_status = NORMAL;
     datalayer.system.status.battery_link[0].detected = true;
     datalayer.system.status.system_status = ACTIVE;
@@ -37,7 +32,7 @@ class EstopGracefulOpenTest : public ::testing::Test {
 
   void TearDown() override {
     contactor_control_enabled[0] = false;
-    contactorStatus = DISCONNECTED;
+    precharge_fsm.set_state(ContactorActuator::DISCONNECTED);
     emulator_pause_status = NORMAL;
     datalayer.system.info.equipment_stop_active = false;
     set_millis64(0);
@@ -49,16 +44,18 @@ TEST_F(EstopGracefulOpenTest, EstopHoldsContactorsUntilTimeoutWhenCurrentFlows) 
   // Pause was requested but current is still flowing: not PAUSED yet
 
   handle_contactors();
-  EXPECT_EQ(contactorStatus, COMPLETED) << "Contactors must not open under load in the same tick";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED)
+      << "Contactors must not open under load in the same tick";
 
   set_millis64(100000 + 5000);
   handle_contactors();
-  EXPECT_EQ(contactorStatus, COMPLETED) << "Still within the timeout window";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED) << "Still within the timeout window";
   EXPECT_EQ(get_event_pointer(EVENT_ERROR_OPEN_CONTACTOR)->state, EVENT_STATE_INACTIVE);
 
   set_millis64(100000 + 8000);
   handle_contactors();
-  EXPECT_EQ(contactorStatus, DISCONNECTED) << "The wait is bounded: open anyway after the 7 s timeout";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::DISCONNECTED)
+      << "The wait is bounded: open anyway after the 7 s timeout";
   EXPECT_EQ(get_event_pointer(EVENT_ERROR_OPEN_CONTACTOR)->state, EVENT_STATE_ACTIVE)
       << "A forced open under load must be visible in the event log";
   EXPECT_EQ(get_event_pointer(EVENT_ERROR_OPEN_CONTACTOR)->data, 1);
@@ -70,7 +67,8 @@ TEST_F(EstopGracefulOpenTest, EstopOpensPromptlyOncePaused) {
 
   handle_contactors();
 
-  EXPECT_EQ(contactorStatus, DISCONNECTED) << "Zero current reached: open without waiting for the timeout";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::DISCONNECTED)
+      << "Zero current reached: open without waiting for the timeout";
   EXPECT_EQ(get_event_pointer(EVENT_ERROR_OPEN_CONTACTOR)->state, EVENT_STATE_INACTIVE)
       << "A graceful open is not an error";
 }
@@ -79,14 +77,14 @@ TEST_F(EstopGracefulOpenTest, EstopOpensWhenPauseCompletesMidWait) {
   datalayer.system.info.equipment_stop_active = true;
 
   handle_contactors();
-  EXPECT_EQ(contactorStatus, COMPLETED);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED);
 
   // The inverter ramps down and the pause FSM reaches PAUSED within the window
   set_millis64(100000 + 3000);
   emulator_pause_status = PAUSED;
   handle_contactors();
 
-  EXPECT_EQ(contactorStatus, DISCONNECTED);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::DISCONNECTED);
   EXPECT_EQ(get_event_pointer(EVENT_ERROR_OPEN_CONTACTOR)->state, EVENT_STATE_INACTIVE);
 }
 
@@ -95,6 +93,6 @@ TEST_F(EstopGracefulOpenTest, InverterCommandedOpeningStaysImmediate) {
 
   handle_contactors();
 
-  EXPECT_EQ(contactorStatus, DISCONNECTED)
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::DISCONNECTED)
       << "Inverter-commanded opening keeps today's immediate behavior - the inverter has already stopped power";
 }

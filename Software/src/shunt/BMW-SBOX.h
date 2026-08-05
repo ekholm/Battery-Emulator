@@ -5,6 +5,7 @@
 #define SELECTED_SHUNT_CLASS BmwSbox
 #endif
 
+#include "../communication/contactorcontrol/precharge_fsm.h"
 #include "Shunt.h"
 
 class BmwSbox : public CanShunt {
@@ -33,13 +34,26 @@ class BmwSbox : public CanShunt {
 
   static const int MAX_ALLOWED_FAULT_TICKS = 2000;
 
-  enum SboxState { DISCONNECTED, PRECHARGE, NEGATIVE, POSITIVE, PRECHARGE_OFF, COMPLETED, SHUTDOWN_REQUESTED };
-  SboxState contactorStatus = DISCONNECTED;
+  // S-BOX relay topology: the same PrechargeFsm as the GPIO path, actuated by
+  // CAN relay-command frames. The relay order differs from the GPIO sequence
+  // (precharge relay first, then negative), which is this actuator's business.
+  class SboxContactorActuator : public ContactorActuator {
+   public:
+    explicit SboxContactorActuator(BmwSbox& sbox) : sbox_(sbox) {}
+    void apply_step(State step) override;
+    unsigned long step_delay_ms(State step) const override;
+    bool step_gate(State step) override;
+    bool start_allowed() override;
+    unsigned long fault_tick_budget() const override { return MAX_ALLOWED_FAULT_TICKS; }
+    void open_all(bool fault) override;
 
-  unsigned long prechargeStartTime = 0;
-  unsigned long negativeStartTime = 0;
-  unsigned long positiveStartTime = 0;
-  unsigned long timeSpentInFaultedMode = 0;
+   private:
+    BmwSbox& sbox_;
+  };
+
+  SboxContactorActuator contactor_actuator_{*this};
+  PrechargeFsm contactor_fsm_{contactor_actuator_};
+
   unsigned long previousMillis10 = 0;  // will store last time a 10ms CAN Message was send
   unsigned long LastAvgTime = 0;       // Last current storage time
   unsigned long ShuntLastSeen = 0;

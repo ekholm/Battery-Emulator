@@ -25,19 +25,13 @@ bool periodic_bms_reset_defer_low_soc = false;   //Defer the reset while SOC is 
 bool periodic_bms_reset_skip_balancing = false;  //Skip one period if the pack is balancing
 
 // Parameters
-enum State { DISCONNECTED, START_PRECHARGE, PRECHARGE, POSITIVE, PRECHARGE_OFF, COMPLETED, SHUTDOWN_REQUESTED };
-State contactorStatus = DISCONNECTED;
-
 const uint8_t ON = 1;
 const uint8_t OFF = 0;
 
-#define MAX_ALLOWED_FAULT_TICKS 1000  //1000 = 10 seconds
 #define NEGATIVE_CONTACTOR_TIME_MS \
   500  // Time after negative contactor is turned on, to start precharge (not actual precharge time!)
 #define PRECHARGE_COMPLETED_TIME_MS \
   1000  // After successful precharge, resistor is turned off after this delay (and contactors are economized if PWM enabled)
-#define ESTOP_OPEN_TIMEOUT_MS \
-  7000  // Equipment stop: max time to wait for the pause to reach zero current before opening contactors anyway
 uint16_t pwm_frequency = 20000;
 uint16_t pwm_hold_duty = 250;
 #define PWM_ON_DUTY 1023
@@ -45,13 +39,8 @@ uint16_t pwm_hold_duty = 250;
 #define PWM_OFF_DUTY 0  //No need to have this userconfigurable
 #define PWM_Positive_Channel 0
 #define PWM_Negative_Channel 1
-static uint32_t prechargeStartTime = 0;
-uint32_t negativeStartTime = 0;
-uint32_t prechargeCompletedTime = 0;
-uint32_t timeSpentInFaultedMode = 0;
 uint32_t currentTime = 0;
 uint32_t lastPowerRemovalTime = 0;
-static uint32_t estop_open_wait_start_ms = 0;
 bool periodicResetDeferred = false;   //True while a due periodic reset is waiting for SOC to recover
 bool balancingPeriodSkipped = false;  //True once balancing has cost the reset a period
 uint32_t bmsPowerOnTime = 0;
@@ -170,15 +159,94 @@ static void dbg_contactors(const char* state) {
   logging.println(state);
 }
 
+// GPIO relay topology: the canonical pin-driven contactor control.
+class GpioContactorActuator : public ContactorActuator {
+ public:
+  void apply_step(State step) override {
+    switch (step) {
+      case START_PRECHARGE:
+        set(esp32hal->NEGATIVE_CONTACTOR_PIN(), ON, PWM_ON_DUTY);
+        set_indicator_led(IndicatorLed::CONTACTOR_NEG, true);
+        dbg_contactors("NEGATIVE");
+        datalayer.system.status.contactors_engaged = 3;
+        break;
+      case PRECHARGE:
+        set(esp32hal->PRECHARGE_PIN(), ON);
+        set_indicator_led(IndicatorLed::PRECHARGE, true);
+        dbg_contactors("PRECHARGE");
+        datalayer.system.status.contactors_engaged = 3;
+        break;
+      case POSITIVE:
+        set(esp32hal->POSITIVE_CONTACTOR_PIN(), ON, PWM_ON_DUTY);
+        set_indicator_led(IndicatorLed::CONTACTOR_POS, true);
+        dbg_contactors("POSITIVE");
+        datalayer.system.status.contactors_engaged = 3;
+        break;
+      case PRECHARGE_OFF:
+        set(esp32hal->PRECHARGE_PIN(), OFF);
+        set(esp32hal->NEGATIVE_CONTACTOR_PIN(), ON, pwm_hold_duty);
+        set(esp32hal->POSITIVE_CONTACTOR_PIN(), ON, pwm_hold_duty);
+        set_indicator_led(IndicatorLed::PRECHARGE, false);
+        dbg_contactors("PRECHARGE_OFF");
+        datalayer.system.status.contactors_engaged = 1;
+        break;
+      default:
+        break;
+    }
+  }
+
+  unsigned long step_delay_ms(State step) const override {
+    switch (step) {
+      case PRECHARGE:
+        return NEGATIVE_CONTACTOR_TIME_MS;
+      case POSITIVE:
+        return precharge_time_ms;
+      case PRECHARGE_OFF:
+        return PRECHARGE_COMPLETED_TIME_MS;
+      default:
+        return 0;
+    }
+  }
+
+  bool steps_allowed(unsigned long now_ms) override {
+    // Skip running the state machine before system has started up. Conditions are 10sec post boot, and battery comms established
+    // Gives the system some time to detect any faults from battery before blindly just engaging the contactors
+    return (now_ms >= INTERVAL_10_S) && datalayer.system.status.battery_link[0].detected;
+  }
+
+  bool hold_open_for_estop_pause() override { return true; }
+
+  void open_all(bool fault) override {
+    set(esp32hal->PRECHARGE_PIN(), OFF);
+    set(esp32hal->NEGATIVE_CONTACTOR_PIN(), OFF, PWM_OFF_DUTY);
+    set(esp32hal->POSITIVE_CONTACTOR_PIN(), OFF, PWM_OFF_DUTY);
+    set_indicator_led(IndicatorLed::PRECHARGE, false);
+    set_indicator_led(IndicatorLed::CONTACTOR_NEG, false);
+    set_indicator_led(IndicatorLed::CONTACTOR_POS, false);
+    if (fault) {
+      set_event(EVENT_ERROR_OPEN_CONTACTOR, 0);
+      datalayer.system.status.contactors_engaged = 2;
+    } else {
+      datalayer.system.status.contactors_engaged = 0;
+    }
+  }
+
+  void publish_tick(State state) override {
+    // DC is only live to the inverter once precharge is fully complete (COMPLETED). Re-evaluated every
+    // call, so any transition (open, fault-latch, precharge) is reflected within one 10 ms tick.
+    datalayer.system.status.dc_bus_live = (state == COMPLETED);
+  }
+};
+
+static GpioContactorActuator gpio_contactor_actuator;
+PrechargeFsm precharge_fsm{gpio_contactor_actuator};
+
 // Main functions of the handle_contactors include checking if inverter allows for closing, checking battery 2, checking BMS power output, and actual contactor closing/precharge via GPIO
 void handle_contactors() {
   if (inverter && inverter->controls_contactor()) {
     datalayer.system.status.inverter_allows_contactor_closing = inverter->allows_contactor_closing();
   }
 
-  auto posPin = esp32hal->POSITIVE_CONTACTOR_PIN();
-  auto negPin = esp32hal->NEGATIVE_CONTACTOR_PIN();
-  auto prechargePin = esp32hal->PRECHARGE_PIN();
   auto bms_power_pin = esp32hal->BMS_POWER();
 
   if (bms_power_pin != GPIO_NUM_NC) {
@@ -192,144 +260,14 @@ void handle_contactors() {
   }
 
   if (contactor_control_enabled[0]) {
-    // DC is only live to the inverter once precharge is fully complete (COMPLETED). Re-evaluated every
-    // call, so any transition (open, fault-latch, precharge) is reflected within one 10 ms tick.
-    datalayer.system.status.dc_bus_live = (contactorStatus == COMPLETED);
-
-    // First check if we have any active errors, incase we do, turn off the battery
-    if (datalayer.system.status.system_status == FAULT) {
-      timeSpentInFaultedMode++;
-    } else {
-      timeSpentInFaultedMode = 0;
-    }
-
-    //handle contactor control SHUTDOWN_REQUESTED
-    if (timeSpentInFaultedMode > MAX_ALLOWED_FAULT_TICKS) {
-      contactorStatus = SHUTDOWN_REQUESTED;
-    }
-
-    if (contactorStatus == SHUTDOWN_REQUESTED) {
-      set(prechargePin, OFF);
-      set(negPin, OFF, PWM_OFF_DUTY);
-      set(posPin, OFF, PWM_OFF_DUTY);
-      set_indicator_led(IndicatorLed::PRECHARGE, false);
-      set_indicator_led(IndicatorLed::CONTACTOR_NEG, false);
-      set_indicator_led(IndicatorLed::CONTACTOR_POS, false);
-      set_event(EVENT_ERROR_OPEN_CONTACTOR, 0);
-      datalayer.system.status.contactors_engaged = 2;
-      return;  // A fault scenario latches the contactor control. It is not possible to recover without a powercycle (and investigation why fault occured)
-    }
-
-    // After that, check if we are OK to start turning on the battery
-    if (contactorStatus == DISCONNECTED) {
-      set(prechargePin, OFF);
-      set(negPin, OFF, PWM_OFF_DUTY);
-      set(posPin, OFF, PWM_OFF_DUTY);
-      set_indicator_led(IndicatorLed::PRECHARGE, false);
-      set_indicator_led(IndicatorLed::CONTACTOR_NEG, false);
-      set_indicator_led(IndicatorLed::CONTACTOR_POS, false);
-      datalayer.system.status.contactors_engaged = 0;
-
-      if (datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active) {
-        contactorStatus = START_PRECHARGE;
-      }
-    }
-
-    // In case the inverter or the equipment stop requests contactors to open, jump to Disconnected (recoverable)
-    if (contactorStatus == COMPLETED) {
-      if (!datalayer.system.status.inverter_allows_contactor_closing) {
-        // Inverter-commanded opening stays immediate: the inverter has already
-        // stopped power transfer before revoking its permission
-        contactorStatus = DISCONNECTED;
-      } else if (datalayer.system.info.equipment_stop_active) {
-        // Equipment stop: every e-stop entry point also issues a battery pause,
-        // so hold the contactors until the pause state machine reports PAUSED
-        // (current below 1.8 A) - opening under load risks arcing/welding.
-        // Bounded: after ESTOP_OPEN_TIMEOUT_MS we open anyway and raise an
-        // event, mirroring the BMS-reset give-up behavior.
-        uint32_t now = millis();
-        if (estop_open_wait_start_ms == 0) {
-          estop_open_wait_start_ms = now;
-        }
-        bool paused = (emulator_pause_status == PAUSED);
-        bool timed_out = (now - estop_open_wait_start_ms) > ESTOP_OPEN_TIMEOUT_MS;
-        if (paused || timed_out) {
-          if (timed_out) {
-            LOG_SET_NEXT_SEVERITY(4);  // warning
-            logging.printf("Contactors: Equipment stop wait timed out, opening under load\n");
-            set_event(EVENT_ERROR_OPEN_CONTACTOR, 1);
-          }
-          estop_open_wait_start_ms = 0;
-          contactorStatus = DISCONNECTED;
-        }
-      } else {
-        estop_open_wait_start_ms = 0;
-      }
-      // Skip running the state machine below if it has already completed
-      return;
-    }
-
     currentTime = millis();
-
-    if ((currentTime < INTERVAL_10_S) || !datalayer.system.status.battery_link[0].detected) {
-      // Skip running the state machine before system has started up. Conditions are 10sec post boot, and battery comms established
-      // Gives the system some time to detect any faults from battery before blindly just engaging the contactors
-      return;
-    }
-
-    // Handle actual state machine. This first turns on Negative, then Precharge, then Positive, and finally turns OFF precharge
-    switch (contactorStatus) {
-      case START_PRECHARGE:
-        set(negPin, ON, PWM_ON_DUTY);
-        set_indicator_led(IndicatorLed::CONTACTOR_NEG, true);
-        dbg_contactors("NEGATIVE");
-        prechargeStartTime = currentTime;
-        contactorStatus = PRECHARGE;
-        datalayer.system.status.contactors_engaged = 3;
-        break;
-
-      case PRECHARGE:
-        if (currentTime - prechargeStartTime >= NEGATIVE_CONTACTOR_TIME_MS) {
-          set(prechargePin, ON);
-          set_indicator_led(IndicatorLed::PRECHARGE, true);
-          dbg_contactors("PRECHARGE");
-          negativeStartTime = currentTime;
-          contactorStatus = POSITIVE;
-          datalayer.system.status.contactors_engaged = 3;
-        }
-        break;
-
-      case POSITIVE:
-        if (currentTime - negativeStartTime >= precharge_time_ms) {
-          set(posPin, ON, PWM_ON_DUTY);
-          set_indicator_led(IndicatorLed::CONTACTOR_POS, true);
-          dbg_contactors("POSITIVE");
-          prechargeCompletedTime = currentTime;
-          contactorStatus = PRECHARGE_OFF;
-          datalayer.system.status.contactors_engaged = 3;
-        }
-        break;
-
-      case PRECHARGE_OFF:
-        if (currentTime - prechargeCompletedTime >= PRECHARGE_COMPLETED_TIME_MS) {
-          set(prechargePin, OFF);
-          set(negPin, ON, pwm_hold_duty);
-          set(posPin, ON, pwm_hold_duty);
-          set_indicator_led(IndicatorLed::PRECHARGE, false);
-          dbg_contactors("PRECHARGE_OFF");
-          contactorStatus = COMPLETED;
-          datalayer.system.status.contactors_engaged = 1;
-        }
-        break;
-      default:
-        break;
-    }
+    precharge_fsm.tick(currentTime);
   }
 }
 
 void handle_contactors_battery(int instance) {
-  bool engage =
-      (contactorStatus == COMPLETED) && datalayer.system.status.battery_link[instance].allowed_contactor_closing;
+  bool engage = (precharge_fsm.state() == ContactorActuator::COMPLETED) &&
+                datalayer.system.status.battery_link[instance].allowed_contactor_closing;
 
   set(extra_battery_contactors_pin(instance), engage ? ON : OFF);
   datalayer.system.status.battery_link[instance].contactors_engaged = engage;
