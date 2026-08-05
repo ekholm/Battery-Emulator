@@ -974,6 +974,21 @@ struct DATALAYER_INFO_ZOE_PH2 {
   bool UserRequestNVROLReset;
 };
 
+// Which member of DATALAYER_BATTERY_EXTENDED_TYPE this instance's driver
+// keeps live. Stored in the schema next to the union so the observation
+// surface stays self-describing: a reader (webserver, MQTT, a module or a
+// satellite decoding the layout) can tell which member it may read without
+// consulting the driver object or the selected-battery-type setting. This
+// discriminates the UNION MEMBER, not the battery type - the BMW PHEV
+// deliberately keeps its DTC data in the iX-shaped slot.
+enum class ExtendedDataType : uint8_t {
+  None = 0,
+  Tesla,
+  BmwIx,
+  Meb,
+  BydAtto3,
+};
+
 // Per-instance driver-specific extension of the battery schema (one member is
 // live per instance - an instance is exactly one battery type). Static cost is
 // MAX_BATTERIES x the largest member. Types with non-zero defaults initialize

@@ -13,6 +13,8 @@ class BmwPhevBattery : public CanBattery {
       : CanBattery(targetCan), renderer(&extended_data, &datalayer_ptr->extended.bmwix) {
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
+    // The PHEV keeps its DTC data in the iX-shaped slot (documented reuse)
+    datalayer_ptr->extended_type = ExtendedDataType::BmwIx;
     allows_contactor_closing =
         &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
   }

@@ -18,6 +18,7 @@ class BydAttoBattery : public CanBattery {
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     datalayer_bydatto = extended;
+    datalayer_ptr->extended_type = ExtendedDataType::BydAtto3;
     allows_contactor_closing =
         &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
   }

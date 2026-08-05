@@ -182,6 +182,14 @@ void canReplayTask(void* param) {
   vTaskDelete(NULL);
 }
 
+// The BYD calibration endpoints write into a per-instance extended-union slot,
+// which is only valid where a BYD driver claimed it. Returns null otherwise, so
+// a stale or hand-crafted request cannot scribble over another driver's data.
+static DATALAYER_INFO_BYDATTO3* byd_extended_slot(int instance) {
+  auto& bat = datalayer_battery(instance);
+  return bat.extended_type == ExtendedDataType::BydAtto3 ? &bat.extended.bydAtto3 : nullptr;
+}
+
 void def_route_with_auth(const char* uri, AsyncWebServer& serv, WebRequestMethodComposite method,
                          std::function<void(AsyncWebServerRequest*)> handler) {
   serv.on(uri, method, [handler](AsyncWebServerRequest* request) {
@@ -676,14 +684,18 @@ void init_webserver() {
 
   // Route for editing SOC Calibration BYD
   update_string_setting("/editCalTargetSOC", [](String value) {
-    datalayer_battery(0).extended.bydAtto3.calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
+    if (auto* byd = byd_extended_slot(0)) {
+      byd->calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
+    }
   });
 
   // Save auto-calibrate enabled flag to RAM + NVM
   def_route_with_auth("/editBydAtto3AutoCalEnabled", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
-      datalayer_battery(0).extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
+      if (auto* byd = byd_extended_slot(0)) {
+        byd->auto_calibrate_soc_enabled = enabled;
+      }
       Preferences prefs;
       prefs.begin("batterySettings", false);
       prefs.putBool("BYDAUTOCALEN", enabled);
@@ -697,7 +709,9 @@ void init_webserver() {
     if (request->hasParam("value")) {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
-        datalayer_battery(0).extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
+        if (auto* byd = byd_extended_slot(0)) {
+          byd->auto_calibrate_soc_drift_percent = (uint8_t)value;
+        }
         Preferences prefs;
         prefs.begin("batterySettings", false);
         prefs.putUInt("BYDAUTOCALDRIFT", (uint8_t)value);
@@ -709,7 +723,9 @@ void init_webserver() {
 
   // Route for editing AH Calibration BYD
   update_string_setting("/editCalTargetAH", [](String value) {
-    datalayer_battery(0).extended.bydAtto3.calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
+    if (auto* byd = byd_extended_slot(0)) {
+      byd->calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
+    }
   });
 
   // Isolation monitor control (RoutineControl 0x2008). One setting, applied to both batteries.
@@ -738,17 +754,23 @@ void init_webserver() {
 
   // Battery 2 auto-calibration routes
   update_string_setting("/editCalTargetSOC2", [](String value) {
-    datalayer_battery(1).extended.bydAtto3.calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
+    if (auto* byd = byd_extended_slot(1)) {
+      byd->calibrationTargetSOC = static_cast<uint16_t>(value.toFloat());
+    }
   });
 
   update_string_setting("/editCalTargetAH2", [](String value) {
-    datalayer_battery(1).extended.bydAtto3.calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
+    if (auto* byd = byd_extended_slot(1)) {
+      byd->calibrationTargetAH = static_cast<uint16_t>(value.toFloat());
+    }
   });
 
   def_route_with_auth("/editBydAtto3AutoCalEnabled2", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
-      datalayer_battery(1).extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
+      if (auto* byd = byd_extended_slot(1)) {
+        byd->auto_calibrate_soc_enabled = enabled;
+      }
       Preferences prefs;
       prefs.begin("batterySettings", false);
       prefs.putBool("BYDAUTOCALEN2", enabled);
@@ -761,7 +783,9 @@ void init_webserver() {
     if (request->hasParam("value")) {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
-        datalayer_battery(1).extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
+        if (auto* byd = byd_extended_slot(1)) {
+          byd->auto_calibrate_soc_drift_percent = (uint8_t)value;
+        }
         Preferences prefs;
         prefs.begin("batterySettings", false);
         prefs.putUInt("BYDAUTOCALDRFT2", (uint8_t)value);

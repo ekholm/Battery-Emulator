@@ -69,7 +69,11 @@ void handle_precharge_control(unsigned long currentMillis, int instance) {
   }
 
   int32_t target_voltage = datalayer_battery(instance).status.voltage_dV;
-  int32_t external_voltage = datalayer_battery(instance).extended.meb.BMS_voltage_intermediate_dV;
+  // Only MEB reports an intermediate-circuit voltage, and only its own slot
+  // holds it; other integrations precharge against 0 as they always have.
+  int32_t external_voltage = datalayer_battery(instance).extended_type == ExtendedDataType::Meb
+                                 ? datalayer_battery(instance).extended.meb.BMS_voltage_intermediate_dV
+                                 : 0;
 
   switch (datalayer.system.status.precharge_status) {
     case AUTO_PRECHARGE_IDLE:

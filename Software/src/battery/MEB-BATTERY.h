@@ -23,6 +23,7 @@ class MebBattery : public CanBattery, public IsoTp {
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     datalayer_meb = &datalayer_ptr->extended.meb;
+    datalayer_ptr->extended_type = ExtendedDataType::Meb;
     if (!primary) {
       BMS_voltage = 0;
     }

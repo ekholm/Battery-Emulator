@@ -186,14 +186,13 @@ static bool supports_charged(Battery* b) {
   return b->supports_charged_energy();
 }
 static bool supports_tesla_dcdc_metrics(Battery* b) {
-  return b != nullptr && (user_selected_battery_type == BatteryType::TeslaModel3Y ||
-                          user_selected_battery_type == BatteryType::TeslaModelSX);
+  return b != nullptr && b->extended_type() == ExtendedDataType::Tesla;
 }
 static bool supports_byd_autocal_metrics(Battery* b) {
-  return b != nullptr && user_selected_battery_type == BatteryType::BydAtto3;
+  return b != nullptr && b->extended_type() == ExtendedDataType::BydAtto3;
 }
 static bool supports_byd_metrics(Battery* b) {
-  return b != nullptr && user_selected_battery_type == BatteryType::BydAtto3;
+  return b != nullptr && b->extended_type() == ExtendedDataType::BydAtto3;
 }
 static bool supports_insulation(Battery* b) {
   return b != nullptr && b->supports_insulation_resistance();
@@ -428,20 +427,20 @@ void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& bat
   doc["limiting_factor"] = limiting_factor_to_text(get_limiting_factor(
       charging_state, battery_data.settings.inverter_limits_charge, battery_data.settings.inverter_limits_discharge,
       battery_data.settings.user_settings_limit_charge, battery_data.settings.user_settings_limit_discharge));
-  if (battery_index == 1 && supports_tesla_dcdc_metrics(batteries[0])) {
+  if (supports_tesla_dcdc_metrics(batteries[battery_index - 1])) {
     doc["dc_dc_current"] =
         static_cast<float>(datalayer_battery(battery_index - 1).extended.tesla.battery_dcdcLvOutputCurrent) * 0.1f;
     doc["dc_dc_voltage"] =
         static_cast<float>(datalayer_battery(battery_index - 1).extended.tesla.battery_dcdcLvBusVolt) * 0.0390625f;
   }
-  if (supports_byd_autocal_metrics(batteries[0])) {
+  if (supports_byd_autocal_metrics(batteries[battery_index - 1])) {
     const DATALAYER_INFO_BYDATTO3& byd = datalayer_battery(battery_index - 1).extended.bydAtto3;
     doc["autocal_taper"] = byd.autocal_crit_taper;
     doc["autocal_dwell_s"] = byd.autocal_dwell_accumulated_ms / 1000u;
     doc["autocal_cooldown_ready"] = byd.autocal_crit_cooldown_ready;
     doc["autocal_soc_drift"] = byd.autocal_drift_percent;
   }
-  if (supports_byd_metrics(batteries[0])) {
+  if (supports_byd_metrics(batteries[battery_index - 1])) {
     const DATALAYER_INFO_BYDATTO3& byd = datalayer_battery(battery_index - 1).extended.bydAtto3;
     doc["min_cell_number"] = byd.BMS_min_cell_voltage_number;
     doc["max_cell_number"] = byd.BMS_max_cell_voltage_number;

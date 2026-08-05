@@ -188,6 +188,13 @@ class Battery {
   // BE-commanded state.
   virtual ContactorState reported_contactor_state() { return ContactorState::Unknown; }
 
+  // Which extended-data member this instance keeps live, read from its own
+  // datalayer entry. Consumers gate union reads on this rather than on the
+  // globally selected battery type, which is wrong for a second pack.
+  ExtendedDataType extended_type() const {
+    return datalayer_battery ? datalayer_battery->extended_type : ExtendedDataType::None;
+  }
+
   // True when the emulator's GPIO contactor control drives THIS instance's
   // contactors - drivers must consult their own instance, not the primary's.
   bool be_controls_contactors() const {

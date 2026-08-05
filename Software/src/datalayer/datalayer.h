@@ -253,6 +253,9 @@ typedef struct {
   DATALAYER_BATTERY_STATUS_TYPE status;
   DATALAYER_BATTERY_SETTINGS_TYPE settings;
   DATALAYER_BATTERY_EXTENDED_TYPE extended = {};
+  /** Which `extended` member this instance's driver keeps live. Written once
+      by the driver that owns the slot; None until a driver claims it. */
+  ExtendedDataType extended_type = ExtendedDataType::None;
   DATALAYER_BATTERY_DTC_TYPE dtc;
 } DATALAYER_BATTERY_TYPE;
 

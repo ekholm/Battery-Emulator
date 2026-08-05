@@ -337,9 +337,22 @@ void store_settings() {
   settings.saveUInt("TARGETCHVOLT", datalayer.batteries[0].settings.max_user_set_charge_voltage_dV);
   settings.saveUInt("TARGETDISCHVOLT", datalayer.batteries[0].settings.max_user_set_discharge_voltage_dV);
   settings.saveUInt("BMSRESETDUR", datalayer.batteries[0].settings.user_set_bms_reset_duration_ms);
-  settings.saveUInt("BYDAUTOCALDRIFT", datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent);
-  settings.saveBool("BYDAUTOCALEN", datalayer_extended.bydAtto3.auto_calibrate_soc_enabled);
-  settings.saveBool("BYDKEEPISOOFF", datalayer_extended.bydAtto3.keep_iso_disabled);
-  settings.saveUInt("BYDAUTOCALDRFT2", datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent);
-  settings.saveBool("BYDAUTOCALEN2", datalayer_extended.bydAtto3_2.auto_calibrate_soc_enabled);
+  // The union slot is only readable where a BYD driver claimed it, and each
+  // instance answers for itself. keep_iso_disabled is one setting for both
+  // instances, so the first BYD instance is authoritative.
+  static const char* const byd_drift_keys[] = {"BYDAUTOCALDRIFT", "BYDAUTOCALDRFT2"};
+  static const char* const byd_enabled_keys[] = {"BYDAUTOCALEN", "BYDAUTOCALEN2"};
+  bool byd_iso_saved = false;
+  for (int i = 0; i < 2; ++i) {
+    if (datalayer.batteries[i].extended_type != ExtendedDataType::BydAtto3) {
+      continue;
+    }
+    const auto& byd = datalayer.batteries[i].extended.bydAtto3;
+    settings.saveUInt(byd_drift_keys[i], byd.auto_calibrate_soc_drift_percent);
+    settings.saveBool(byd_enabled_keys[i], byd.auto_calibrate_soc_enabled);
+    if (!byd_iso_saved) {
+      settings.saveBool("BYDKEEPISOOFF", byd.keep_iso_disabled);
+      byd_iso_saved = true;
+    }
+  }
 }

@@ -21,6 +21,7 @@ class TeslaBattery : public CanBattery {
       : CanBattery(targetCan), renderer(&datalayer_ptr->extended.tesla) {
     datalayer_battery = datalayer_ptr;
     datalayer_tesla = &datalayer_ptr->extended.tesla;
+    datalayer_ptr->extended_type = ExtendedDataType::Tesla;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     allows_contactor_closing =
         &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
