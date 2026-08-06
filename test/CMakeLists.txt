@@ -205,4 +205,11 @@ target_compile_definitions(tests PRIVATE
     TEST_CAN_LOG_DIR="${CMAKE_SOURCE_DIR}/can_log_based/can_logs"
 )
 
+# Golden CAN traces for the contactor equivalence tests, generated against the
+# pre-refactor implementation (see test/contactor_traces/README.md).
+add_custom_command(TARGET tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/contactor_traces
+            $<TARGET_FILE_DIR:tests>/contactor_traces)
+
 gtest_discover_tests(tests)

@@ -60,10 +60,8 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
     content += "</h4>";
 
     add_h4(content, "BMS fault performance", meb_->BMS_fault_performance ? "Active!" : "Off");
-    add_h4(content, "BMS fault emergency shutdown crash",
-           meb_->BMS_fault_emergency_shutdown_crash ? "Active!" : "Off");
-    add_h4(content, "BMS error shutdown request",
-           meb_->BMS_error_shutdown_request ? "Active!" : "Inactive");
+    add_h4(content, "BMS fault emergency shutdown crash", meb_->BMS_fault_emergency_shutdown_crash ? "Active!" : "Off");
+    add_h4(content, "BMS error shutdown request", meb_->BMS_error_shutdown_request ? "Active!" : "Inactive");
     add_h4(content, "BMS error shutdown", meb_->BMS_error_shutdown ? "Active!" : "Off");
     add_h4(content, "Welded contactors", enum_str(welded_enum, meb_->BMS_welded_contactors_status));
     add_h4(content, "Warning support", enum_str(warning_support_enum, meb_->warning_support));
@@ -103,21 +101,11 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
         "Overcurrent",          "CAN fault",        "Overcharged",       "SOC too high",   "SOC too low",
         "SOC jumping",          "Temp difference",  "Cell overtemp",     "Cell undertemp", "Battery overvoltage",
         "Battery undervoltage", "Cell overvoltage", "Cell undervoltage", "Cell imbalance", "Battery unathorized"};
-    const uint8_t rt_values[] = {meb_->rt_overcurrent,
-                                 meb_->rt_CAN_fault,
-                                 meb_->rt_overcharge,
-                                 meb_->rt_SOC_high,
-                                 meb_->rt_SOC_low,
-                                 meb_->rt_SOC_jumping,
-                                 meb_->rt_temp_difference,
-                                 meb_->rt_cell_overtemp,
-                                 meb_->rt_cell_undertemp,
-                                 meb_->rt_battery_overvolt,
-                                 meb_->rt_battery_undervol,
-                                 meb_->rt_cell_overvolt,
-                                 meb_->rt_cell_undervol,
-                                 meb_->rt_cell_imbalance,
-                                 meb_->rt_battery_unathorized};
+    const uint8_t rt_values[] = {meb_->rt_overcurrent,      meb_->rt_CAN_fault,        meb_->rt_overcharge,
+                                 meb_->rt_SOC_high,         meb_->rt_SOC_low,          meb_->rt_SOC_jumping,
+                                 meb_->rt_temp_difference,  meb_->rt_cell_overtemp,    meb_->rt_cell_undertemp,
+                                 meb_->rt_battery_overvolt, meb_->rt_battery_undervol, meb_->rt_cell_overvolt,
+                                 meb_->rt_cell_undervol,    meb_->rt_cell_imbalance,   meb_->rt_battery_unathorized};
     static_assert(sizeof(rt_values) == sizeof(rt_labels) / sizeof(rt_labels[0]), "rt label/value table mismatch");
     for (size_t i = 0; i < sizeof(rt_values); i++) {
       add_h4(content, rt_labels[i], rt_enum[rt_values[i] & 0x03]);
@@ -151,11 +139,12 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
       }
       content += " &deg;C</h4>";
     }
-    add_h4(content, "Total charged", String(datalayer.battery.status.total_charged_battery_Wh / 1000.0, 1) + " kWh");
+    add_h4(content, "Total charged",
+           String(datalayer.batteries[0].status.total_charged_battery_Wh / 1000.0, 1) + " kWh");
     add_h4(content, "Total discharged",
-           String(datalayer.battery.status.total_discharged_battery_Wh / 1000.0, 1) + " kWh");
+           String(datalayer.batteries[0].status.total_discharged_battery_Wh / 1000.0, 1) + " kWh");
 
-    content += BatteryHtmlRenderer::render_dtc_section_html(datalayer.battery.dtc, dtc_json_filename, false);
+    content += BatteryHtmlRenderer::render_dtc_section_html(datalayer.batteries[0].dtc, dtc_json_filename, false);
 
     return content;
   }

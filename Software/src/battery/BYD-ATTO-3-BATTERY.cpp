@@ -1169,6 +1169,8 @@ void BydAttoBattery::setup(void) {  // Performs one time setup at startup
   datalayer_bydatto->auto_calibrate_soc_drift_percent =
       settings.getUInt(primary ? "BYDAUTOCALDRIFT" : "BYDAUTOCALDRFT2", 5);
   datalayer_bydatto->auto_calibrate_soc_enabled = settings.getBool(primary ? "BYDAUTOCALEN" : "BYDAUTOCALEN2", true);
+  // One isolation-monitor setting shared by both instances
+  datalayer_bydatto->keep_iso_disabled = settings.getBool("BYDKEEPISOOFF", true);
 
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';

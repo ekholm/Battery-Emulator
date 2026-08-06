@@ -730,20 +730,29 @@ void init_webserver() {
 
   // Isolation monitor control (RoutineControl 0x2008). One setting, applied to both batteries.
   def_route_with_auth("/bydAtto3IsoDisable", server, HTTP_GET, [](AsyncWebServerRequest* request) {
-    datalayer_extended.bydAtto3.UserRequestIsoRoutineDisable = true;
-    datalayer_extended.bydAtto3_2.UserRequestIsoRoutineDisable = true;
+    for (int i = 0; i < 2; ++i) {
+      if (auto* byd = byd_extended_slot(i)) {
+        byd->UserRequestIsoRoutineDisable = true;
+      }
+    }
     request->send(200, "text/plain", "OK");
   });
   def_route_with_auth("/bydAtto3IsoEnable", server, HTTP_GET, [](AsyncWebServerRequest* request) {
-    datalayer_extended.bydAtto3.UserRequestIsoRoutineEnable = true;
-    datalayer_extended.bydAtto3_2.UserRequestIsoRoutineEnable = true;
+    for (int i = 0; i < 2; ++i) {
+      if (auto* byd = byd_extended_slot(i)) {
+        byd->UserRequestIsoRoutineEnable = true;
+      }
+    }
     request->send(200, "text/plain", "OK");
   });
   def_route_with_auth("/bydAtto3KeepIsoDisabled", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
-      datalayer_extended.bydAtto3.keep_iso_disabled = enabled;
-      datalayer_extended.bydAtto3_2.keep_iso_disabled = enabled;
+      for (int i = 0; i < 2; ++i) {
+        if (auto* byd = byd_extended_slot(i)) {
+          byd->keep_iso_disabled = enabled;
+        }
+      }
       Preferences prefs;
       prefs.begin("batterySettings", false);
       prefs.putBool("BYDKEEPISOOFF", enabled);

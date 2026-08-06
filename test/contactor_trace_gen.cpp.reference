@@ -1,0 +1,272 @@
+// Golden-trace GENERATOR — runs against the pre-refactor (upstream) contactor
+// implementations and writes the CAN frames each scenario emits to
+// test/contactor_traces/*.trace. The refactored branch replays the same
+// scenarios and asserts byte-identical output, which is what makes
+// "behaviour-identical" a checked claim instead of a promise.
+//
+// This file exists only on the generator side; the asserting test lives on the
+// branch under test.
+
+#include <gtest/gtest.h>
+#include <cstdio>
+#include <fstream>
+#include <sys/stat.h>
+#include <string>
+#include <vector>
+
+#include <Arduino.h>
+
+#include "../Software/src/battery/BMW-I3-BATTERY.h"
+#include "../Software/src/battery/BMW-SBOX.h"
+#include "../Software/src/communication/contactorcontrol/comm_contactorcontrol.h"
+#include "../Software/src/datalayer/datalayer.h"
+#include "../Software/src/devboard/hal/hal.h"
+#include "../Software/src/devboard/safety/safety.h"
+#include "../Software/src/devboard/utils/events.h"
+
+extern const std::vector<CAN_frame>& get_transmitted_frames();
+extern void clear_transmitted_frames();
+
+namespace {
+
+constexpr const char* kTraceDir = "contactor_traces";
+
+std::string FrameLine(const CAN_frame& f) {
+  char buf[96];
+  int n = snprintf(buf, sizeof(buf), "%03X", (unsigned)f.ID);
+  std::string s(buf, n);
+  for (int i = 0; i < f.DLC && i < 8; ++i) {
+    n = snprintf(buf, sizeof(buf), " %02X", f.data.u8[i]);
+    s += std::string(buf, n);
+  }
+  return s;
+}
+
+// Only the frames whose content the contactor logic decides are recorded.
+// Alive counters and CRCs live in the same bytes, so they ride along and are
+// part of the comparison - which is what we want: a changed cadence shows up.
+void WriteTrace(const std::string& name, const std::vector<CAN_frame>& frames, uint32_t id_filter) {
+  ::mkdir(kTraceDir, 0755);
+  std::ofstream out(std::string(kTraceDir) + "/" + name + ".trace");
+  for (const auto& f : frames) {
+    if (f.ID == id_filter) {
+      out << FrameLine(f) << "\n";
+    }
+  }
+}
+
+// ---- i3 scenario driver -----------------------------------------------------
+// The i3 commands its own contactors over 0x10B byte 1 and follows the switch
+// state its BMS reports back. A scenario scripts the inputs the driver reacts
+// to and records what it emits.
+struct I3Inputs {
+  bool inverter_allows = true;
+  bool equipment_stop = false;
+  bool fault = false;
+  uint8_t reported_switch = 0;  // 0 open, 1 precharging, 2 engaged, 3 invalid
+};
+
+void FeedI3Status(BmwI3Battery& b, uint8_t disconnecting_switch) {
+  // 0x112 keeps the pack awake; 0x1FA byte 1 bits 4-5 carry the DC-switch
+  // status the contactor logic reads back.
+  CAN_frame alive = {.FD = false, .ext_ID = false, .DLC = 8, .ID = 0x112, .data = {}};
+  b.handle_incoming_can_frame(alive);
+  CAN_frame sw = {.FD = false, .ext_ID = false, .DLC = 8, .ID = 0x1FA, .data = {}};
+  sw.data.u8[1] = (uint8_t)((disconnecting_switch & 0x03) << 4);
+  b.handle_incoming_can_frame(sw);
+}
+
+std::vector<CAN_frame> RunI3(const std::vector<std::pair<unsigned long, I3Inputs>>& script) {
+  datalayer = DataLayer();
+  reset_all_events();
+  init_hal();
+  set_millis64(0);
+  clear_transmitted_frames();
+
+  BmwI3Battery battery(&datalayer.battery, nullptr, CAN_NATIVE, esp32hal->WUP_PIN1());
+  battery.setup();
+
+  for (const auto& step : script) {
+    set_millis64(step.first);
+    const I3Inputs& in = step.second;
+    datalayer.system.status.inverter_allows_contactor_closing = in.inverter_allows;
+    datalayer.system.info.equipment_stop_active = in.equipment_stop;
+    datalayer.system.status.system_status = in.fault ? FAULT : ACTIVE;
+    FeedI3Status(battery, in.reported_switch);
+    battery.update_values();
+    battery.transmit_can(step.first);
+  }
+  return get_transmitted_frames();
+}
+
+// ---- S-BOX scenario driver --------------------------------------------------
+struct SboxInputs {
+  bool inverter_allows = true;
+  bool equipment_stop = false;
+  bool fault = false;
+  bool battery_allows = true;
+  uint32_t in_mV = 400000;   // input (battery side) voltage
+  uint32_t out_mV = 400000;  // output voltage - drives the precharge ratio gate
+};
+
+std::vector<CAN_frame> RunSbox(const std::vector<std::pair<unsigned long, SboxInputs>>& script) {
+  datalayer = DataLayer();
+  reset_all_events();
+  init_hal();
+  set_millis64(0);
+  clear_transmitted_frames();
+
+  BmwSbox shunt;
+  shunt.setup();
+
+  for (const auto& step : script) {
+    set_millis64(step.first);
+    const SboxInputs& in = step.second;
+    datalayer.system.status.inverter_allows_contactor_closing = in.inverter_allows;
+    datalayer.system.info.equipment_stop_active = in.equipment_stop;
+    datalayer.system.status.system_status = in.fault ? FAULT : ACTIVE;
+    datalayer.system.status.battery_allows_contactor_closing = in.battery_allows;
+    datalayer.shunt.measured_voltage_mV = in.in_mV;
+    datalayer.shunt.measured_outvoltage_mV = in.out_mV;
+    shunt.transmit_can(step.first);
+  }
+  return get_transmitted_frames();
+}
+
+// ---- scenarios --------------------------------------------------------------
+// Each returns the script. Kept in one place so the generator and the
+// asserting test stay in step by construction.
+
+std::vector<std::pair<unsigned long, I3Inputs>> I3ScriptCloseThenFault() {
+  std::vector<std::pair<unsigned long, I3Inputs>> s;
+  unsigned long t = 0;
+  // Startup grace: 160 frames commanded open regardless of permission
+  for (int i = 0; i < 200; ++i) {
+    I3Inputs in;
+    in.reported_switch = 0;
+    s.push_back({t += 20, in});
+  }
+  // BMS reports precharging, then engaged
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 1;
+    s.push_back({t += 20, in});
+  }
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 2;
+    s.push_back({t += 20, in});
+  }
+  // FAULT arrives while closed - must drop the command immediately
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 2;
+    in.fault = true;
+    s.push_back({t += 20, in});
+  }
+  // FAULT clears - the i3 has never latched, so it may close again
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 2;
+    s.push_back({t += 20, in});
+  }
+  return s;
+}
+
+std::vector<std::pair<unsigned long, I3Inputs>> I3ScriptInverterRevoke() {
+  std::vector<std::pair<unsigned long, I3Inputs>> s;
+  unsigned long t = 0;
+  for (int i = 0; i < 200; ++i) {
+    I3Inputs in;
+    s.push_back({t += 20, in});
+  }
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 2;
+    s.push_back({t += 20, in});
+  }
+  // Inverter revokes mid-close
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 2;
+    in.inverter_allows = false;
+    s.push_back({t += 20, in});
+  }
+  return s;
+}
+
+std::vector<std::pair<unsigned long, I3Inputs>> I3ScriptEquipmentStop() {
+  std::vector<std::pair<unsigned long, I3Inputs>> s;
+  unsigned long t = 0;
+  for (int i = 0; i < 200; ++i) {
+    I3Inputs in;
+    s.push_back({t += 20, in});
+  }
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 2;
+    s.push_back({t += 20, in});
+  }
+  for (int i = 0; i < 10; ++i) {
+    I3Inputs in;
+    in.reported_switch = 2;
+    in.equipment_stop = true;
+    s.push_back({t += 20, in});
+  }
+  return s;
+}
+
+std::vector<std::pair<unsigned long, SboxInputs>> SboxScriptFullPrecharge() {
+  std::vector<std::pair<unsigned long, SboxInputs>> s;
+  unsigned long t = 0;
+  // T1 = 5000 before negative, T2 = 5000 before positive, T3 = 2000 to release
+  for (int i = 0; i < 1400; ++i) {
+    SboxInputs in;
+    s.push_back({t += 10, in});
+  }
+  return s;
+}
+
+std::vector<std::pair<unsigned long, SboxInputs>> SboxScriptPrechargeRatioBlocked() {
+  std::vector<std::pair<unsigned long, SboxInputs>> s;
+  unsigned long t = 0;
+  for (int i = 0; i < 1400; ++i) {
+    SboxInputs in;
+    in.out_mV = 100000;  // output never reaches the required fraction of input
+    s.push_back({t += 10, in});
+  }
+  return s;
+}
+
+std::vector<std::pair<unsigned long, SboxInputs>> SboxScriptFaultLatch() {
+  std::vector<std::pair<unsigned long, SboxInputs>> s;
+  unsigned long t = 0;
+  for (int i = 0; i < 1400; ++i) {
+    SboxInputs in;
+    s.push_back({t += 10, in});
+  }
+  // FAULT for longer than the 2000-tick budget - latches, frames stop
+  for (int i = 0; i < 2500; ++i) {
+    SboxInputs in;
+    in.fault = true;
+    s.push_back({t += 10, in});
+  }
+  // Fault clears: the latch must hold (no recovery without a power cycle)
+  for (int i = 0; i < 100; ++i) {
+    SboxInputs in;
+    s.push_back({t += 10, in});
+  }
+  return s;
+}
+
+}  // namespace
+
+TEST(ContactorTraceGen, GenerateAll) {
+  WriteTrace("i3_close_then_fault", RunI3(I3ScriptCloseThenFault()), 0x10B);
+  WriteTrace("i3_inverter_revoke", RunI3(I3ScriptInverterRevoke()), 0x10B);
+  WriteTrace("i3_equipment_stop", RunI3(I3ScriptEquipmentStop()), 0x10B);
+  WriteTrace("sbox_full_precharge", RunSbox(SboxScriptFullPrecharge()), 0x100);
+  WriteTrace("sbox_ratio_blocked", RunSbox(SboxScriptPrechargeRatioBlocked()), 0x100);
+  WriteTrace("sbox_fault_latch", RunSbox(SboxScriptFaultLatch()), 0x100);
+  SUCCEED();
+}
