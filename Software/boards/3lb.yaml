@@ -24,8 +24,6 @@ precharge_auto:
   - {hia4v1: 25, inverter_disconnect: 32}
 sma:
   - {enable: 36, led: NC}
-sd_mmc:
-  - {miso: 2, mosi: 15, clk: 14, cs: 13}
 rgb_led:
   - {pin: 4, max_brightness: 40}
 equipment_stop:
