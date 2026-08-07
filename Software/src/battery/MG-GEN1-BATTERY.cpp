@@ -740,7 +740,6 @@ void MgGen1Battery::on_uds_sequence_step(uint16_t state, uint8_t sid, const uint
 }
 
 void MgGen1Battery::transmit_can(unsigned long currentMillis) {
-  static int8_t send_phase = -1;
   if (++send_phase > 2) {
     send_phase = 0;
   }

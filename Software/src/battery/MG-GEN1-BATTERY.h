@@ -26,6 +26,9 @@ class MgGen1Battery : public UdsCanBattery {
   const char* get_dtc_json_filename() override { return "mg_dtc.json"; }
 
  private:
+  // Round-robin CAN transmit phase, per instance: a shared one makes two
+  // packs transmit on each other's slot.
+  int8_t send_phase = -1;
   DATALAYER_BATTERY_TYPE* datalayer_battery;
 
   void announce_contactor_state(bool state);

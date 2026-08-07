@@ -36,6 +36,9 @@ class Mg5Battery : public CanBattery {
   virtual void reset_DTC() { userRequestClearDTC = true; }
 
  private:
+  // Round-robin CAN transmit phase, per instance: a shared one makes two
+  // packs transmit on each other's slot.
+  int8_t send_phase = -1;
   bool* allows_contactor_closing;
 
   static const int MAX_PACK_VOLTAGE_DV = 4040;  //5000 = 500.0V

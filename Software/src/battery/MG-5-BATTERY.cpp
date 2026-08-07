@@ -655,7 +655,6 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
 }
 
 void Mg5Battery::transmit_can(unsigned long currentMillis) {
-  static int8_t send_phase = -1;
   if (++send_phase > 3) {
     send_phase = 0;
   }

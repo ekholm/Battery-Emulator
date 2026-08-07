@@ -368,10 +368,9 @@ void generateTESLA_229(CAN_frame& f) {
   setBitField(data, bytes, csumStartBit, csumBitLength, checksum);
 }
 
-void generateTESLA_213(CAN_frame& f) {
-  static uint8_t counter = 0;
-
-  // Increment counter (wrap at 16)
+void generateTESLA_213(CAN_frame& f, uint8_t& counter) {
+  // Increment counter (wrap at 16). The counter is the caller's: each pack runs
+  // its own 0x213 sequence, and a shared one makes both look like duplicates.
   counter = (counter + 1) & 0xF;
 
   // Safety, only modify if ID is 0x213 and DLC is at least 2
@@ -396,8 +395,11 @@ bool isLeapYear(int year) {
   return false;
 }
 
-// Function to convert year and day of year (i.e. Julian date) into human readable date
-char* dayOfYearToDate(int year, int dayOfYear) {
+// Function to convert year and day of year (i.e. Julian date) into human readable date.
+// Writes into a caller-owned buffer: the result is stored as a pointer in the
+// datalayer, so a shared static here would make every instance's date alias the
+// last one written.
+void dayOfYearToDate(int year, int dayOfYear, char (&dateString)[11]) {
 
   // Arrays to hold the number of days in each month for standard/leap years
   int daysInMonthStandard[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -426,8 +428,6 @@ char* dayOfYearToDate(int year, int dayOfYear) {
     dayOfYear = daysInMonth[month];
   }
 
-  static char dateString[11];  // For "YYYY-MM-DD\0"
-
   // Clamp values to ensure they fit in the expected number of digits
   int safeYear = year % 10000;
   if (safeYear < 0)
@@ -449,7 +449,6 @@ char* dayOfYearToDate(int year, int dayOfYear) {
 
   // Format the date string in "YYYY-MM-DD" format
   snprintf(dateString, sizeof(dateString), "%04d-%02d-%02d", safeYear, safeMonth, safeDay);
-  return dateString;
 }
 
 void TeslaBattery::
@@ -2139,7 +2138,8 @@ void TeslaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
         snprintf(dayStr, sizeof(dayStr), "%c%c%c", battery_serialNumber[5], battery_serialNumber[6],
                  battery_serialNumber[7]);
         int day = atoi(dayStr);
-        battery_manufactureDate = dayOfYearToDate(year, day);
+        dayOfYearToDate(year, day, manufacture_date_buf);
+        battery_manufactureDate = manufacture_date_buf;
         parsed_battery_serialNumber = true;
       }
       break;
@@ -2713,7 +2713,7 @@ void TeslaBattery::transmit_can(unsigned long currentMillis) {
     transmit_can_frame(&TESLA_55A);
 
     //Generate next frames
-    generateTESLA_213(TESLA_213);
+    generateTESLA_213(TESLA_213, tesla_213_counter);
     generateFrameCounterChecksum(TESLA_293, 52, 4, 56, 8);
     generateFrameCounterChecksum(TESLA_313, 52, 4, 56, 8);
     generateFrameCounterChecksum(TESLA_334, 52, 4, 56, 8);

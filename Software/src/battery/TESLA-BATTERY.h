@@ -633,7 +633,9 @@ class TeslaBattery : public CanBattery {
                                                     //0x72A: BMS_serialNumber
   uint8_t battery_serialNumber[14] = {0};           // Stores raw HEX values for ASCII chars
   bool parsed_battery_serialNumber = false;
-  char* battery_manufactureDate;         // YYYY-MM-DD\0
+  char* battery_manufactureDate;         // YYYY-MM-DD\0 - points at manufacture_date_buf
+  char manufacture_date_buf[11] = {};    // this instance's own storage for the above
+  uint8_t tesla_213_counter = 0;         // this instance's 0x213 sequence counter
                                          //Via UDS
   uint8_t battery_partNumber[12] = {0};  //stores raw HEX values for ASCII chars
   bool parsed_battery_partNumber = false;

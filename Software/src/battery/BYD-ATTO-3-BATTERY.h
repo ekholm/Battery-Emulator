@@ -48,6 +48,11 @@ class BydAttoBattery : public CanBattery {
 
  private:
   BydAtto3HtmlRenderer renderer;
+  // Charge-cap slew state, per instance (see update_values)
+  uint16_t cap_slewed_dA = 0;
+  uint32_t last_ms = 0;
+  bool taper_initialized = false;
+
   DATALAYER_INFO_BYDATTO3* datalayer_bydatto;
   bool* allows_contactor_closing;
 
