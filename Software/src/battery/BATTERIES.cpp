@@ -372,7 +372,6 @@ static bool battery_supports_extra_instances(BatteryType type) {
     case BatteryType::JaguarIpace:           // pending de-static (32 file-scope statics)
     case BatteryType::DalyBms:               // single RS485 transport
     case BatteryType::TeslaLegacy:           // pending de-static (incl. shared buffers)
-    case BatteryType::Meb:                   // pending de-static (first-call snapshots)
     case BatteryType::BmwPhev:               // pending de-static
     case BatteryType::ChargebyteCCSBattery:  // pending de-static
     case BatteryType::GrowattHvArk:          // pending de-static

@@ -400,6 +400,16 @@ class MebBattery : public CanBattery, public IsoTp {
   uint16_t tempval = 0;
   bool BMS_ext_limits_active =
       false;  //The current current limits of the HV battery are expanded to start the combustion engine / confirmation of the request
+  // Per-instance change-detection shadows for the transition logging in
+  // update_values(); seeded from THIS instance on its first tick.
+  bool change_shadows_seeded = false;
+  real_bms_status_enum last_real_bms_status{};
+  bool last_start_precharging = false;
+  bool last_hv_requested = false;
+  uint16_t last_voltage_dV = 0;
+  int32_t last_BMS_voltage_intermediate_dV = 0;
+  uint8_t last_bms_mode = 0;
+
   uint8_t BMS_mode =
       0x07;  //0: standby; Gates open; Communication active 1: Main contactor closed / HV network activated / normal driving operation
   //2: assigned depending on the project (e.g. balancing, extended DC fast charging) //3: external charging
