@@ -11,7 +11,7 @@ class BmwPhevBattery : public CanBattery {
   BmwPhevBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                  CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.bmwphev),
+        renderer(&datalayer_ptr->extended.bmwphev, datalayer_ptr),
         extended_data(datalayer_ptr->extended.bmwphev) {
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;

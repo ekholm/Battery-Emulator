@@ -12,7 +12,7 @@ static constexpr int32_t meb_interm_raw_to_dV(int32_t raw) {
 
 class MebHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  explicit MebHtmlRenderer(DATALAYER_INFO_MEB* meb) : meb_(meb) {}
+  MebHtmlRenderer(DATALAYER_INFO_MEB* meb, DATALAYER_BATTERY_TYPE* bat) : meb_(meb), bat_(bat) {}
 
   // platform's battery setup() overrides
   const char* dtc_json_filename = "vag_meb_dtc.json";
@@ -139,17 +139,17 @@ class MebHtmlRenderer : public BatteryHtmlRenderer {
       }
       content += " &deg;C</h4>";
     }
-    add_h4(content, "Total charged",
-           String(datalayer.batteries[0].status.total_charged_battery_Wh / 1000.0, 1) + " kWh");
-    add_h4(content, "Total discharged",
-           String(datalayer.batteries[0].status.total_discharged_battery_Wh / 1000.0, 1) + " kWh");
+    add_h4(content, "Total charged", String(bat_->status.total_charged_battery_Wh / 1000.0, 1) + " kWh");
+    add_h4(content, "Total discharged", String(bat_->status.total_discharged_battery_Wh / 1000.0, 1) + " kWh");
 
-    content += BatteryHtmlRenderer::render_dtc_section_html(datalayer.batteries[0].dtc, dtc_json_filename, false);
+    content += BatteryHtmlRenderer::render_dtc_section_html(bat_->dtc, dtc_json_filename, false);
 
     return content;
   }
 
  private:
+  // this pack's datalayer entry - not batteries[0]
+  DATALAYER_BATTERY_TYPE* bat_;
   DATALAYER_INFO_MEB* meb_;
 
   // Emits "<h4>label: value</h4>" from separately stored fragments, so no label prefix is

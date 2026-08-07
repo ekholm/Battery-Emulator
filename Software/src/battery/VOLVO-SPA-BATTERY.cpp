@@ -18,38 +18,38 @@ void VolvoSpaBattery::
   extended_data.HvBattPwrLimDchaSlowAgi = HvBattPwrLimDchaSlowAgi;
   extended_data.HvBattPwrLimChrgSlowAgi = HvBattPwrLimChrgSlowAgi;
 
-  datalayer.batteries[0].status.remaining_capacity_Wh = (datalayer.batteries[0].info.total_capacity_Wh - CHARGE_ENERGY);
+  datalayer_battery->status.remaining_capacity_Wh = (datalayer_battery->info.total_capacity_Wh - CHARGE_ENERGY);
 
-  datalayer.batteries[0].status.real_soc = SOC_BMS * 10;   //Add one decimal to make it pptt
-  datalayer.batteries[0].status.voltage_dV = BATT_U / 10;  //Remove one decimal
-  datalayer.batteries[0].status.current_dA = -BATT_I;      //Invert direction
+  datalayer_battery->status.real_soc = SOC_BMS * 10;   //Add one decimal to make it pptt
+  datalayer_battery->status.voltage_dV = BATT_U / 10;  //Remove one decimal
+  datalayer_battery->status.current_dA = -BATT_I;      //Invert direction
 
-  datalayer.batteries[0].status.max_discharge_power_W = HvBattPwrLimDchaSlowAgi * 1000;  //kW to W
-  datalayer.batteries[0].status.max_charge_power_W = HvBattPwrLimChrgSlowAgi * 1000;     //kW to W
-  datalayer.batteries[0].status.temperature_min_dC = BATT_T_MIN;
-  datalayer.batteries[0].status.temperature_max_dC = BATT_T_MAX;
+  datalayer_battery->status.max_discharge_power_W = HvBattPwrLimDchaSlowAgi * 1000;  //kW to W
+  datalayer_battery->status.max_charge_power_W = HvBattPwrLimChrgSlowAgi * 1000;     //kW to W
+  datalayer_battery->status.temperature_min_dC = BATT_T_MIN;
+  datalayer_battery->status.temperature_max_dC = BATT_T_MAX;
 
-  datalayer.batteries[0].status.cell_max_voltage_mV = CELL_U_MAX * 10;  // Use min/max reported from BMS
-  datalayer.batteries[0].status.cell_min_voltage_mV = CELL_U_MIN * 10;
+  datalayer_battery->status.cell_max_voltage_mV = CELL_U_MAX * 10;  // Use min/max reported from BMS
+  datalayer_battery->status.cell_min_voltage_mV = CELL_U_MIN * 10;
 
   //Map all cell voltages to the global array
   for (int i = 0; i < 108; ++i) {
-    datalayer.batteries[0].status.cell_voltages_mV[i] = cell_voltages[i];
+    datalayer_battery->status.cell_voltages_mV[i] = cell_voltages[i];
   }
 
   //If we have enough cell values populated (atleast 96 read) AND number_of_cells not initialized yet
-  if (cell_voltages[95] > 0 && datalayer.batteries[0].info.number_of_cells == 0) {
+  if (cell_voltages[95] > 0 && datalayer_battery->info.number_of_cells == 0) {
     // We can determine whether we have 96S or 108S battery
-    if (datalayer.batteries[0].status.cell_voltages_mV[107] > 0) {
-      datalayer.batteries[0].info.number_of_cells = 108;
-      datalayer.batteries[0].info.max_design_voltage_dV = MAX_PACK_VOLTAGE_108S_DV;
-      datalayer.batteries[0].info.min_design_voltage_dV = MIN_PACK_VOLTAGE_108S_DV;
-      datalayer.batteries[0].info.total_capacity_Wh = 78200;
+    if (datalayer_battery->status.cell_voltages_mV[107] > 0) {
+      datalayer_battery->info.number_of_cells = 108;
+      datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_108S_DV;
+      datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_108S_DV;
+      datalayer_battery->info.total_capacity_Wh = 78200;
     } else {
-      datalayer.batteries[0].info.number_of_cells = 96;
-      datalayer.batteries[0].info.max_design_voltage_dV = MAX_PACK_VOLTAGE_96S_DV;
-      datalayer.batteries[0].info.min_design_voltage_dV = MIN_PACK_VOLTAGE_96S_DV;
-      datalayer.batteries[0].info.total_capacity_Wh = 69511;
+      datalayer_battery->info.number_of_cells = 96;
+      datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_96S_DV;
+      datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_96S_DV;
+      datalayer_battery->info.total_capacity_Wh = 69511;
     }
   }
 
@@ -86,7 +86,7 @@ void VolvoSpaBattery::
     dtc_rx_len = 0;
     dtc_rx_expected = 0;
     dtc_request_millis = millis();
-    datalayer.batteries[0].dtc.dtc_read_failed = false;
+    datalayer_battery->dtc.dtc_read_failed = false;
     transmit_can_frame(&VOLVO_DTCreadout);  //Send DTC read command
   }
 
@@ -94,8 +94,8 @@ void VolvoSpaBattery::
   if (dtc_read_in_progress && (millis() - dtc_request_millis > DTC_TIMEOUT_MS)) {
     dtc_read_in_progress = false;
     dtc_rx_active = false;
-    datalayer.batteries[0].dtc.dtc_read_failed = true;
-    datalayer.batteries[0].dtc.dtc_last_read_millis = millis();
+    datalayer_battery->dtc.dtc_read_failed = true;
+    datalayer_battery->dtc.dtc_last_read_millis = millis();
   }
 }
 
@@ -117,10 +117,10 @@ void VolvoSpaBattery::parseDTCResponseVolvo() {
 
   dtc_read_in_progress = false;
   dtc_rx_active = false;
-  datalayer.batteries[0].dtc.dtc_last_read_millis = millis();
+  datalayer_battery->dtc.dtc_last_read_millis = millis();
 
   if (dtc_rx_len < DTC_HEADER_LEN || dtc_buffer[0] != 0x59) {
-    datalayer.batteries[0].dtc.dtc_read_failed = true;
+    datalayer_battery->dtc.dtc_read_failed = true;
     return;
   }
 
@@ -131,19 +131,19 @@ void VolvoSpaBattery::parseDTCResponseVolvo() {
 
   for (uint16_t i = 0; i < count; i++) {
     uint16_t offset = DTC_HEADER_LEN + (i * 4);
-    datalayer.batteries[0].dtc.dtc_codes[i] = ((uint32_t)dtc_buffer[offset] << 16) |
-                                         ((uint32_t)dtc_buffer[offset + 1] << 8) | (uint32_t)dtc_buffer[offset + 2];
-    datalayer.batteries[0].dtc.dtc_status[i] = dtc_buffer[offset + 3];
+    datalayer_battery->dtc.dtc_codes[i] = ((uint32_t)dtc_buffer[offset] << 16) |
+                                          ((uint32_t)dtc_buffer[offset + 1] << 8) | (uint32_t)dtc_buffer[offset + 2];
+    datalayer_battery->dtc.dtc_status[i] = dtc_buffer[offset + 3];
   }
 
-  datalayer.batteries[0].dtc.dtc_count = count;
-  datalayer.batteries[0].dtc.dtc_read_failed = false;
+  datalayer_battery->dtc.dtc_count = count;
+  datalayer_battery->dtc.dtc_read_failed = false;
 }
 
 void VolvoSpaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   switch (rx_frame.ID) {
     case 0x3A:
-      datalayer.batteries[0].status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+      datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
       if ((rx_frame.data.u8[6] & 0x80) == 0x80) {
         BATT_I = ((((rx_frame.data.u8[6] & 0x7F) << 8) | rx_frame.data.u8[7]) - 16380);
@@ -278,9 +278,9 @@ void VolvoSpaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       // "not read yet": an erase says nothing about what the BMS will report from here on.
       if (dtc_clear_in_progress && rx_frame.data.u8[0] == 0x01 && rx_frame.data.u8[1] == 0x54) {
         dtc_clear_in_progress = false;
-        datalayer.batteries[0].dtc.dtc_count = 0;
-        datalayer.batteries[0].dtc.dtc_read_failed = false;
-        datalayer.batteries[0].dtc.dtc_last_read_millis = 0;
+        datalayer_battery->dtc.dtc_count = 0;
+        datalayer_battery->dtc.dtc_read_failed = false;
+        datalayer_battery->dtc.dtc_last_read_millis = 0;
         break;
       }
 
@@ -331,8 +331,8 @@ void VolvoSpaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
         if (rx_frame.data.u8[1] == 0x7F && rx_frame.data.u8[2] == 0x19) {  //Request rejected by BMS
           dtc_read_in_progress = false;
           dtc_rx_active = false;
-          datalayer.batteries[0].dtc.dtc_read_failed = true;
-          datalayer.batteries[0].dtc.dtc_last_read_millis = millis();
+          datalayer_battery->dtc.dtc_read_failed = true;
+          datalayer_battery->dtc.dtc_last_read_millis = millis();
           break;
         }
       }
@@ -350,7 +350,7 @@ void VolvoSpaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
       switch (incoming_poll) {
         case PID_POLL_SOH:
-          datalayer.batteries[0].status.soh_pptt = ((rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
+          datalayer_battery->status.soh_pptt = ((rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
           break;
         case PID_POLL_BECM_SUPPLY_VOLTAGE:
           BECMsupplyVoltage = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]);
@@ -390,7 +390,7 @@ void VolvoSpaBattery::transmit_can(unsigned long currentMillis) {
     if ((datalayer.system.status.system_status == ACTIVE) && startedUp) {
       datalayer.system.status.battery_link[0].allows_contactor_closing = true;
       transmit_can_frame(&VOLVO_140_CLOSE);  //Send 0x140 Close contactors message
-    } else {  //datalayer.batteries[0].status.bms_status == FAULT , OR inverter requested opening contactors, OR system not started yet
+    } else {  //datalayer_battery->status.bms_status == FAULT , OR inverter requested opening contactors, OR system not started yet
       datalayer.system.status.battery_link[0].allows_contactor_closing = false;
       transmit_can_frame(&VOLVO_140_OPEN);  //Send 0x140 Open contactors message
     }
@@ -437,11 +437,11 @@ void VolvoSpaBattery::transmit_can(unsigned long currentMillis) {
 void VolvoSpaBattery::setup(void) {  // Performs one time setup at startup
   strncpy(datalayer.system.info.battery_protocol, Name, 63);
   datalayer.system.info.battery_protocol[63] = '\0';
-  datalayer.batteries[0].info.number_of_cells = 0;        // Initializes when all cells have been read
-  datalayer.batteries[0].info.total_capacity_Wh = 78200;  //Startout in 78kWh mode (This value used for SOC calc)
-  datalayer.batteries[0].info.max_design_voltage_dV = MAX_PACK_VOLTAGE_108S_DV;  //Startout with max allowed range
-  datalayer.batteries[0].info.min_design_voltage_dV = MIN_PACK_VOLTAGE_96S_DV;   //Startout with min allowed range
-  datalayer.batteries[0].info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
-  datalayer.batteries[0].info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.batteries[0].info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  datalayer_battery->info.number_of_cells = 0;        // Initializes when all cells have been read
+  datalayer_battery->info.total_capacity_Wh = 78200;  //Startout in 78kWh mode (This value used for SOC calc)
+  datalayer_battery->info.max_design_voltage_dV = MAX_PACK_VOLTAGE_108S_DV;  //Startout with max allowed range
+  datalayer_battery->info.min_design_voltage_dV = MIN_PACK_VOLTAGE_96S_DV;   //Startout with min allowed range
+  datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
+  datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
+  datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
 }

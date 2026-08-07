@@ -8,7 +8,7 @@
 
 class FordMachEHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  FordMachEHtmlRenderer(DATALAYER_INFO_FORD_MACH_E* data) : data(data) {}
+  FordMachEHtmlRenderer(DATALAYER_INFO_FORD_MACH_E* data, DATALAYER_BATTERY_TYPE* bat) : data(data), bat_(bat) {}
   String get_status_html() {
     String content;
     content += "<h3>Ford Mach-E Extra Information</h2>";
@@ -151,12 +151,14 @@ class FordMachEHtmlRenderer : public BatteryHtmlRenderer {
       content += " " + String(data->pid_hvb_calendar_age_months / 100.0, 0) + " Months </h4>";
     }
 
-    content += render_dtc_section(datalayer.batteries[0].dtc);
+    content += render_dtc_section(bat_->dtc);
 
     return content;
   }
 
  private:
+  // this pack's datalayer entry - not batteries[0]
+  DATALAYER_BATTERY_TYPE* bat_;
   // The BMS reports standard 3-byte DTCs, but Ford service data and ford_machE_dtc.json
   // all use the 5-character short form (B11D5, U1000) built from the first two bytes only. That is
   // therefore what goes into data-dtc-code for the JSON loader to match on. The third byte is the

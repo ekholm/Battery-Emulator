@@ -9,7 +9,7 @@ class VolvoSpaBattery : public CanBattery {
   VolvoSpaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                   CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.volvoPolestar),
+        renderer(&datalayer_ptr->extended.volvoPolestar, datalayer_ptr),
         extended_data(datalayer_ptr->extended.volvoPolestar) {
     datalayer_ptr->extended_type = ExtendedDataType::VolvoPolestar;
     datalayer_battery = datalayer_ptr;

@@ -7,7 +7,7 @@
 
 class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  BmwPhevHtmlRenderer(DATALAYER_INFO_BMWPHEV* dl) : data(dl) {}
+  BmwPhevHtmlRenderer(DATALAYER_INFO_BMWPHEV* dl, DATALAYER_BATTERY_TYPE* bat) : data(dl), bat_(bat) {}
 
   String get_status_html() {
     String content;
@@ -17,11 +17,10 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         "<h3 style='color: #1e88e5; border-bottom: 2px solid #1e88e5; padding-bottom: 5px;'>⚡ Power & Voltage</h3>";
     content += "<div style='margin-left: 15px;'>";
     content += "<h4>Battery Voltage (After Contactor): " + String(data->battery_voltage_after_contactor) + " dV</h4>";
-    content += "<h4>Max Design Voltage: " + String(datalayer.batteries[0].info.max_design_voltage_dV) + " dV</h4>";
-    content += "<h4>Min Design Voltage: " + String(datalayer.batteries[0].info.min_design_voltage_dV) + " dV</h4>";
-    content += "<h4>Allowed Charge Power: " + String(datalayer.batteries[0].status.max_charge_power_W) + " W</h4>";
-    content +=
-        "<h4>Allowed Discharge Power: " + String(datalayer.batteries[0].status.max_discharge_power_W) + " W</h4>";
+    content += "<h4>Max Design Voltage: " + String(bat_->info.max_design_voltage_dV) + " dV</h4>";
+    content += "<h4>Min Design Voltage: " + String(bat_->info.min_design_voltage_dV) + " dV</h4>";
+    content += "<h4>Allowed Charge Power: " + String(bat_->status.max_charge_power_W) + " W</h4>";
+    content += "<h4>Allowed Discharge Power: " + String(bat_->status.max_discharge_power_W) + " W</h4>";
     content += "<h4>BMS Allowed Charge Amps: " + String(data->allowable_charge_amps) + " A</h4>";
     content += "<h4>BMS Allowed Discharge Amps: " + String(data->allowable_discharge_amps) + " A</h4>";
     content += "</div>";
@@ -291,9 +290,9 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
     content +=
         "<h3 style='color: #8e24aa; border-bottom: 2px solid #8e24aa; padding-bottom: 5px;'>📊 Cell Information</h3>";
     content += "<div style='margin-left: 15px;'>";
-    content += "<h4>Detected Cell Count: " + String(datalayer.batteries[0].info.number_of_cells) + "</h4>";
-    content += "<h4>Max Cell Design Voltage: " + String(datalayer.batteries[0].info.max_cell_voltage_mV) + " mV</h4>";
-    content += "<h4>Min Cell Design Voltage: " + String(datalayer.batteries[0].info.min_cell_voltage_mV) + " mV</h4>";
+    content += "<h4>Detected Cell Count: " + String(bat_->info.number_of_cells) + "</h4>";
+    content += "<h4>Max Cell Design Voltage: " + String(bat_->info.max_cell_voltage_mV) + " mV</h4>";
+    content += "<h4>Min Cell Design Voltage: " + String(bat_->info.min_cell_voltage_mV) + " mV</h4>";
     content += "<h4>Min Cell Voltage Data Age: " + String(data->min_cell_voltage_data_age) + " ms</h4>";
     content += "<h4>Max Cell Voltage Data Age: " + String(data->max_cell_voltage_data_age) + " ms</h4>";
     content += "</div>";
@@ -328,16 +327,14 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Unknown</h4>");
     }
     content += "<h4>Balancing Request: ";
-    content += datalayer.batteries[0].settings.user_requests_balancing
-                   ? String("<span style='color: #43a047;'>True</span>")
-                   : String("False");
+    content +=
+        bat_->settings.user_requests_balancing ? String("<span style='color: #43a047;'>True</span>") : String("False");
     content += "</h4>";
     // Max balancing time before the safety timer auto-cancels the request (shared
     // balancing_max_time_ms, default 1h). Editable here via the existing /BalTime route, since the
     // PHEV uses supports_balancing_request() and so doesn't get the Tesla manual-balancing settings UI.
-    content +=
-        "<h4>Balancing Max Time: " + String(datalayer.batteries[0].settings.balancing_max_time_ms / 60000.0f, 1) +
-        " min <button onclick='editPhevBalTime()'>Edit</button></h4>";
+    content += "<h4>Balancing Max Time: " + String(bat_->settings.balancing_max_time_ms / 60000.0f, 1) +
+               " min <button onclick='editPhevBalTime()'>Edit</button></h4>";
     content +=
         "<script>"
         "function editPhevBalTime(){"
@@ -439,6 +436,8 @@ class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
   }
 
  private:
+  // this pack's datalayer entry - not batteries[0]
+  DATALAYER_BATTERY_TYPE* bat_;
   DATALAYER_INFO_BMWPHEV* data;
 };
 

@@ -351,7 +351,7 @@ void MgGen1Battery::update_values() {
 void MgGen1Battery::announce_contactor_state(bool state) {
   // Only the primary battery should announce the contactor state
   if (allowed_contactor_closing == nullptr) {
-    datalayer.system.status.battery_allows_contactor_closing = state;
+    datalayer.system.status.battery_link[0].allows_contactor_closing = state;
   }
 }
 

@@ -188,6 +188,11 @@ class Battery {
   // BE-commanded state.
   virtual ContactorState reported_contactor_state() { return ContactorState::Unknown; }
 
+  // This instance's datalayer entry. Renderers and other collaborators that
+  // hold a Battery reference need it to show THIS pack's data; reaching for
+  // datalayer.batteries[0] instead shows pack 1's on every pack's page.
+  DATALAYER_BATTERY_TYPE& datalayer_entry() const { return *datalayer_battery; }
+
   // Which extended-data member this instance keeps live, read from its own
   // datalayer entry. Consumers gate union reads on this rather than on the
   // globally selected battery type, which is wrong for a second pack.

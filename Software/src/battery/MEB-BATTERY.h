@@ -19,7 +19,7 @@ class MebBattery : public CanBattery, public IsoTp {
   // instance's own schema slot rather than a shared singleton.
   MebBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
              CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&datalayer_ptr->extended.meb) {
+      : CanBattery(targetCan), renderer(&datalayer_ptr->extended.meb, datalayer_ptr) {
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     datalayer_meb = &datalayer_ptr->extended.meb;

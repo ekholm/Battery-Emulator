@@ -18,7 +18,7 @@ class TeslaBattery : public CanBattery {
   bool mandatory_charge_taper() { return true; }
   TeslaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                CAN_Interface targetCan = can_config.batteries[0])
-      : CanBattery(targetCan), renderer(&datalayer_ptr->extended.tesla) {
+      : CanBattery(targetCan), renderer(&datalayer_ptr->extended.tesla, datalayer_ptr) {
     datalayer_battery = datalayer_ptr;
     datalayer_tesla = &datalayer_ptr->extended.tesla;
     datalayer_ptr->extended_type = ExtendedDataType::Tesla;

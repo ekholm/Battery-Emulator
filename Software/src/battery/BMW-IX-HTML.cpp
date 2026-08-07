@@ -11,11 +11,11 @@ String BmwIXHtmlRenderer::get_status_html() {
   content += "<div style='margin-left: 15px;'>";
   content +=
       "<h4>Battery Voltage (After Contactor): " + String(batt.get_battery_voltage_after_contactor()) + " dV</h4>";
-  content += "<h4>Max Design Voltage: " + String(datalayer.batteries[0].info.max_design_voltage_dV) + " dV</h4>";
-  content += "<h4>Min Design Voltage: " + String(datalayer.batteries[0].info.min_design_voltage_dV) + " dV</h4>";
+  content += "<h4>Max Design Voltage: " + String(batt.datalayer_entry().info.max_design_voltage_dV) + " dV</h4>";
+  content += "<h4>Min Design Voltage: " + String(batt.datalayer_entry().info.min_design_voltage_dV) + " dV</h4>";
   content += "<h4>T30 Terminal Voltage: " + String(batt.get_T30_Voltage()) + " mV</h4>";
-  content += "<h4>Allowed Charge Power: " + String(datalayer.batteries[0].status.max_charge_power_W) + " W</h4>";
-  content += "<h4>Allowed Discharge Power: " + String(datalayer.batteries[0].status.max_discharge_power_W) + " W</h4>";
+  content += "<h4>Allowed Charge Power: " + String(batt.datalayer_entry().status.max_charge_power_W) + " W</h4>";
+  content += "<h4>Allowed Discharge Power: " + String(batt.datalayer_entry().status.max_discharge_power_W) + " W</h4>";
   content += "<h4>BMS Allowed Charge Amps: " + String(batt.get_allowable_charge_amps()) + " A</h4>";
   content += "<h4>BMS Allowed Discharge Amps: " + String(batt.get_allowable_discharge_amps()) + " A</h4>";
   content += "</div>";
@@ -24,9 +24,9 @@ String BmwIXHtmlRenderer::get_status_html() {
   content +=
       "<h3 style='color: #8e24aa; border-bottom: 2px solid #8e24aa; padding-bottom: 5px;'>📊 Cell Information</h3>";
   content += "<div style='margin-left: 15px;'>";
-  content += "<h4>Detected Cell Count: " + String(datalayer.batteries[0].info.number_of_cells) + "</h4>";
-  content += "<h4>Max Cell Design Voltage: " + String(datalayer.batteries[0].info.max_cell_voltage_mV) + " mV</h4>";
-  content += "<h4>Min Cell Design Voltage: " + String(datalayer.batteries[0].info.min_cell_voltage_mV) + " mV</h4>";
+  content += "<h4>Detected Cell Count: " + String(batt.datalayer_entry().info.number_of_cells) + "</h4>";
+  content += "<h4>Max Cell Design Voltage: " + String(batt.datalayer_entry().info.max_cell_voltage_mV) + " mV</h4>";
+  content += "<h4>Min Cell Design Voltage: " + String(batt.datalayer_entry().info.min_cell_voltage_mV) + " mV</h4>";
   content += "<h4>Min Cell Voltage Data Age: " + String(batt.get_min_cell_voltage_data_age()) + " ms</h4>";
   content += "<h4>Max Cell Voltage Data Age: " + String(batt.get_max_cell_voltage_data_age()) + " ms</h4>";
   content += "</div>";

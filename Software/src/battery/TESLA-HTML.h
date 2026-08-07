@@ -17,7 +17,7 @@ static void appendFault(String& string, const char* name, bool faultActive) {
 
 class TeslaHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  explicit TeslaHtmlRenderer(DATALAYER_INFO_TESLA* tesla) : tesla_(tesla) {}
+  TeslaHtmlRenderer(DATALAYER_INFO_TESLA* tesla, DATALAYER_BATTERY_TYPE* bat) : tesla_(tesla), bat_(bat) {}
 
   String get_status_html() {
     String content;
@@ -38,8 +38,8 @@ class TeslaHtmlRenderer : public BatteryHtmlRenderer {
     float energy_buffer = static_cast<float>(tesla_->battery_energy_buffer) * 0.1f;
     float energy_buffer_m1 = static_cast<float>(tesla_->battery_energy_buffer_m1) * 0.01f;
     float expected_energy_remaining_m1 = static_cast<float>(tesla_->battery_expected_energy_remaining_m1) * 0.02f;
-    float total_discharge = static_cast<float>(datalayer.batteries[0].status.total_discharged_battery_Wh) * 0.001f;
-    float total_charge = static_cast<float>(datalayer.batteries[0].status.total_charged_battery_Wh) * 0.001f;
+    float total_discharge = static_cast<float>(bat_->status.total_discharged_battery_Wh) * 0.001f;
+    float total_charge = static_cast<float>(bat_->status.total_charged_battery_Wh) * 0.001f;
     float packMass = static_cast<float>(tesla_->battery_packMass);
     float platformMaxBusVoltage = static_cast<float>(tesla_->battery_platformMaxBusVoltage) * 0.1f + 375;
     float bms_min_voltage = static_cast<float>(tesla_->BMS_min_voltage) * 0.01f * 2;
@@ -467,6 +467,8 @@ class TeslaHtmlRenderer : public BatteryHtmlRenderer {
   }
 
  private:
+  // this pack's datalayer entry - not batteries[0]
+  DATALAYER_BATTERY_TYPE* bat_;
   DATALAYER_INFO_TESLA* tesla_;
 };
 

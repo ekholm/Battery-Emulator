@@ -64,9 +64,18 @@ std::vector<Violation> scan(const fs::path& dir, const std::string& needle, cons
     int n = 0;
     for (const auto& raw : lines_of(e.path())) {
       ++n;
-      if (code_of(raw).find(needle) != std::string::npos) {
-        found.push_back({name, n, raw});
+      const auto code = code_of(raw);
+      const auto at = code.find(needle);
+      if (at == std::string::npos) {
+        continue;
       }
+      // `&datalayer.batteries[0]...` is the constructor default argument and
+      // the primary-instance comparison - both correct, neither is a read of
+      // another pack's data.
+      if (at > 0 && code[at - 1] == '&') {
+        continue;
+      }
+      found.push_back({name, n, raw});
     }
   }
   return found;
@@ -85,19 +94,9 @@ TEST(SourceInvariants, DriversDoNotIndexTheBatteryArrayDirectly) {
   // Files that predate the per-instance conversion. Each is a latent
   // multi-instance defect for a type that IS multi-capable; shrink this list,
   // never grow it.
-  const std::set<std::string> known_unconverted = {
-      "BMW-IX-HTML.cpp",             // 7 sites
-      "BMW-PHEV-HTML.h",             // 9 sites
-      "BYD-ATTO-3-BATTERY.h",        // 1 site
-      "FORD-MACH-E-BATTERY-HTML.h",  // 1 site
-      "GEELY-SEA-HTML.h",            // 1 site
-      "KIA-E-GMP-HTML.cpp",          // 1 site
-      "MEB-HTML.h",                  // 3 sites
-      "PYLON-HTML.h",                // 2 sites
-      "TESLA-HTML.h",                // 2 sites
-      "VOLVO-SPA-BATTERY.cpp",       // 44 sites
-      "VOLVO-SPA-HTML.h",            // 1 site
-  };
+  // Empty by design: the per-instance conversion is complete. This is now a
+  // hard assertion, not a ratchet - a new violation fails immediately.
+  const std::set<std::string> known_unconverted = {};
   // Infrastructure, not drivers: the factory and the fake legitimately name
   // instance 0.
   std::set<std::string> skip = {"BATTERIES.cpp", "BATTERIES.h",           "Battery.h",

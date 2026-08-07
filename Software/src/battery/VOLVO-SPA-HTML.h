@@ -3,12 +3,11 @@
 
 #include <cstring>
 #include "../datalayer/datalayer.h"
-#include "../datalayer/datalayer.h"
 #include "../devboard/webserver/BatteryHtmlRenderer.h"
 
 class VolvoSpaHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  explicit VolvoSpaHtmlRenderer(DATALAYER_INFO_VOLVO_POLESTAR* dl) : data(dl) {}
+  VolvoSpaHtmlRenderer(DATALAYER_INFO_VOLVO_POLESTAR* dl, DATALAYER_BATTERY_TYPE* bat) : data(dl), bat_(bat) {}
 
   String get_status_html() {
     String content;
@@ -17,16 +16,10 @@ class VolvoSpaHtmlRenderer : public BatteryHtmlRenderer {
     content += "<h4>Dynamic max voltage: " + String(data->BECMUDynMaxLim) + " V</h4>";
     content += "<h4>Dynamic min voltage: " + String(data->BECMUDynMinLim) + " V</h4>";
 
-    content +=
-        "<h4>Discharge power limit 1: " + String(data->HvBattPwrLimDcha1) + " kW</h4>";
-    content +=
-        "<h4>Discharge soft power limit: " + String(data->HvBattPwrLimDchaSoft) + " kW</h4>";
-    content +=
-        "<h4>Discharge power limit slow aging: " + String(data->HvBattPwrLimDchaSlowAgi) +
-        " kW</h4>";
-    content +=
-        "<h4>Charge power limit slow aging: " + String(data->HvBattPwrLimChrgSlowAgi) +
-        " kW</h4>";
+    content += "<h4>Discharge power limit 1: " + String(data->HvBattPwrLimDcha1) + " kW</h4>";
+    content += "<h4>Discharge soft power limit: " + String(data->HvBattPwrLimDchaSoft) + " kW</h4>";
+    content += "<h4>Discharge power limit slow aging: " + String(data->HvBattPwrLimDchaSlowAgi) + " kW</h4>";
+    content += "<h4>Charge power limit slow aging: " + String(data->HvBattPwrLimChrgSlowAgi) + " kW</h4>";
     content += "<h4>HVIL Circuit A status: ";
     switch (data->HVILstatusBits & 0x01) {
       case 0x01:
@@ -144,12 +137,14 @@ class VolvoSpaHtmlRenderer : public BatteryHtmlRenderer {
         content += String("Not valid");
     }
 
-    content += render_dtc_section(datalayer.batteries[0].dtc);
+    content += render_dtc_section(bat_->dtc);
 
     return content;
   }
 
  private:
+  // this pack's datalayer entry - not batteries[0]
+  DATALAYER_BATTERY_TYPE* bat_;
   // The BMS reports standard 3-byte DTCs, but Volvo service data and volvo_SPA_dtc.json
   // all use the 5-character short form (B11D5, U1000) built from the first two bytes only. That is
   // therefore what goes into data-dtc-code for the JSON loader to match on. The third byte is the

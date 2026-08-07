@@ -7,7 +7,7 @@
 
 class GeelySeaHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  explicit GeelySeaHtmlRenderer(DATALAYER_INFO_GEELY_SEA* data) : data(data) {}
+  GeelySeaHtmlRenderer(DATALAYER_INFO_GEELY_SEA* data, DATALAYER_BATTERY_TYPE* bat) : data(data), bat_(bat) {}
 
   String get_status_html() {
     String content;
@@ -20,7 +20,7 @@ class GeelySeaHtmlRenderer : public BatteryHtmlRenderer {
     content += "<h4>Highest cell voltage: " + String(data->CellVoltHighest / 1000.00) + " V</h4>";
     content += "<h4>Lowest cell voltage: " + String(data->CellVoltLowest / 1000.00) + " V</h4>";
     content += "<h4>BECM supply voltage: " + String(data->BECMsupplyVoltage / 1000.0) + " V</h4>";
-    content += "<h4>Cell count: " + String(datalayer.batteries[0].info.number_of_cells) + "</h4>";
+    content += "<h4>Cell count: " + String(bat_->info.number_of_cells) + "</h4>";
     content += "<h4>Highest cell temp: " + String((data->CellTempHighest / 100.0) - 50.0) + " ºC</h4>";
     content += "<h4>Average cell temp: " + String((data->CellTempAverage / 100.0) - 50.0) + " ºC</h4>";
     content += "<h4>Lowest cell temp: " + String((data->CellTempLowest / 100.0) - 50.0) + " ºC</h4>";
@@ -93,6 +93,8 @@ class GeelySeaHtmlRenderer : public BatteryHtmlRenderer {
   }
 
  private:
+  // this pack's datalayer entry - not batteries[0]
+  DATALAYER_BATTERY_TYPE* bat_;
   DATALAYER_INFO_GEELY_SEA* data;
 };
 

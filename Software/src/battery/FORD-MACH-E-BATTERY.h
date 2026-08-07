@@ -9,7 +9,7 @@ class FordMachEBattery : public CanBattery {
   FordMachEBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                    CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.fordMachE),
+        renderer(&datalayer_ptr->extended.fordMachE, datalayer_ptr),
         extended_data(datalayer_ptr->extended.fordMachE) {
     datalayer_ptr->extended_type = ExtendedDataType::FordMachE;
     const bool primary = (datalayer_ptr == &datalayer.batteries[0]);

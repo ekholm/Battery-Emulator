@@ -14,7 +14,8 @@ class PylonBattery : public CanBattery {
   PylonBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                bool* contactor_closing_allowed_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan,
-                   user_selected_pylon_baudrate == 500 ? CAN_Speed::CAN_SPEED_500KBPS : CAN_Speed::CAN_SPEED_250KBPS) {
+                   user_selected_pylon_baudrate == 500 ? CAN_Speed::CAN_SPEED_500KBPS : CAN_Speed::CAN_SPEED_250KBPS),
+        renderer(&extended_data, datalayer_ptr) {
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;
     contactor_closing_allowed = contactor_closing_allowed_ptr;
@@ -32,7 +33,7 @@ class PylonBattery : public CanBattery {
 
  private:
   PylonExtendedData extended_data;
-  PylonHtmlRenderer renderer = PylonHtmlRenderer(&extended_data);
+  PylonHtmlRenderer renderer;
   static const int MAX_CELL_DEVIATION_MV = 150;
   static const int MAX_CELLS = 192;                                 // Maximum cells supported
   static const uint32_t EMUS_BASE_ID = 0x19B50000;                  // EMUS extended ID base for cell count
