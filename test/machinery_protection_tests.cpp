@@ -18,6 +18,7 @@ class MachineryProtectionTest : public ::testing::Test {
   void SetUp() override {
     datalayer = DataLayer();
     reset_all_events();
+    reset_safety_state();
     init_hal();
     datalayer.system.status.system_status = STANDBY;
     batteries[0] = new TestFakeBattery(&datalayer.batteries[0], CAN_NATIVE);

@@ -13,7 +13,6 @@
 // (EVENT_CAN_CORRUPTED_WARNING is one event shared by all batteries).
 
 // Defined in safety.cpp; not exposed via safety.h like the battery latches are.
-extern bool charger_detected;
 
 namespace {
 
@@ -22,6 +21,7 @@ class BatteryAliveTest : public ::testing::Test {
   void SetUp() override {
     datalayer = DataLayer();
     reset_all_events();
+    reset_safety_state();
     init_hal();
     // Avoid tripping the low-heap check (CPU_free_heap defaults to 0)
     datalayer.system.info.CPU_free_heap = 200000;
@@ -43,7 +43,7 @@ class BatteryAliveTest : public ::testing::Test {
     datalayer.system.status.battery_link[0].detected = true;
     datalayer.system.status.battery_link[1].detected = true;
     datalayer.system.status.battery_link[2].detected = true;
-    charger_detected = true;
+    safety.charger_detected = true;
   }
 };
 
@@ -129,11 +129,11 @@ TEST_F(BatteryAliveTest, ChargerMissingSetsAtZeroAndClearsOnRefresh) {
 }
 
 TEST_F(BatteryAliveTest, ChargerDetectionFiresOnRefresh) {
-  charger_detected = false;
+  safety.charger_detected = false;
   datalayer.charger.CAN_charger_still_alive = CAN_STILL_ALIVE;
 
   update_machineryprotection();
 
-  EXPECT_TRUE(charger_detected);
+  EXPECT_TRUE(safety.charger_detected);
   EXPECT_EQ(get_event_pointer(EVENT_CAN_CHARGER_DETECTED)->occurences, 1);
 }

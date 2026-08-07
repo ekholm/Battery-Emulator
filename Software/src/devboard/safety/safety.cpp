@@ -5,9 +5,9 @@
 #include "../../devboard/utils/logging.h"
 #include "../../inverter/INVERTERS.h"
 #include "../utils/events.h"
+#include "parallel_safety.h"
 
-static bool battery_full_event_fired = false;
-static bool battery_empty_event_fired = false;
+SafetyState safety;
 
 #define MAX_SOH_DEVIATION_PPTT 2500
 // Some inverters take a while to boot and start sending CAN. Suppress the
@@ -23,11 +23,8 @@ static bool battery_empty_event_fired = false;
 bool emulator_pause_request_ON = false;
 bool emulator_pause_CAN_send_ON = false;
 bool allowed_to_send_CAN = true;
-static uint32_t emulator_restart_request_millis = 0;
 
 //component detection
-bool charger_detected = false;
-bool inverter_detected = false;
 
 battery_pause_status emulator_pause_status = NORMAL;
 //battery pause status end
@@ -196,14 +193,13 @@ static void check_battery_machinery_protection(int instance, MachineryProtection
   }
 
   // Cell overvoltage, further charging not possible. Battery might be imbalanced.
-  static bool cell_overvoltage_charge_blocked[MAX_BATTERIES] = {};
   if (bat.status.cell_max_voltage_mV >= bat.info.max_cell_voltage_mV) {
     v.cell_over = true;
-    cell_overvoltage_charge_blocked[instance] = true;  // Latch at the ceiling
+    safety.cell_overvoltage_charge_blocked[instance] = true;  // Latch at the ceiling
   } else if (bat.status.cell_max_voltage_mV < (bat.info.max_cell_voltage_mV - CELL_HYSTERESIS_MV)) {
-    cell_overvoltage_charge_blocked[instance] = false;  // Release only once well below the ceiling
+    safety.cell_overvoltage_charge_blocked[instance] = false;  // Release only once well below the ceiling
   }
-  if (cell_overvoltage_charge_blocked[instance]) {
+  if (safety.cell_overvoltage_charge_blocked[instance]) {
     bat.status.max_charge_power_W = 0;
   }
   // Cell CRITICAL overvoltage, critical latching error without automatic reset. Requires user action to inspect battery.
@@ -222,26 +218,24 @@ static void check_battery_machinery_protection(int instance, MachineryProtection
   }
 
   //If user is requesting charge to stop at a specific voltage
-  static bool charge_blocked[MAX_BATTERIES] = {};
-  static bool discharge_blocked[MAX_BATTERIES] = {};
   if (bat.settings.user_set_voltage_limits_active) {
     // --- Charge limiting with hysteresis ---
     if (bat.status.voltage_dV >= bat.settings.max_user_set_charge_voltage_dV) {
-      charge_blocked[instance] = true;  // Latch: block charging once target is hit
+      safety.charge_blocked[instance] = true;  // Latch: block charging once target is hit
     } else if (bat.status.voltage_dV < (bat.settings.max_user_set_charge_voltage_dV - HYSTERESIS_OFFSET_DV)) {
-      charge_blocked[instance] = false;  // Only release when voltage drops well below target
+      safety.charge_blocked[instance] = false;  // Only release when voltage drops well below target
     }
-    if (charge_blocked[instance]) {
+    if (safety.charge_blocked[instance]) {
       bat.status.max_charge_power_W = 0;
     }
 
     // --- Discharge limiting with hysteresis ---
     if (bat.status.voltage_dV <= bat.settings.max_user_set_discharge_voltage_dV) {
-      discharge_blocked[instance] = true;
+      safety.discharge_blocked[instance] = true;
     } else if (bat.status.voltage_dV > (bat.settings.max_user_set_discharge_voltage_dV + HYSTERESIS_OFFSET_DV)) {
-      discharge_blocked[instance] = false;
+      safety.discharge_blocked[instance] = false;
     }
-    if (discharge_blocked[instance]) {
+    if (safety.discharge_blocked[instance]) {
       bat.status.max_discharge_power_W = 0;
     }
   }
@@ -295,35 +289,33 @@ static void check_battery_machinery_protection(int instance, MachineryProtection
      The limits are unsigned, so cast before comparing against the signed power.
      The gate condition is global, so every instance takes the same branch and the
      aggregation below sees a uniform "evaluated, not exceeded" verdict. */
-  static uint8_t charge_limit_failures[MAX_BATTERIES] = {};
-  static uint8_t discharge_limit_failures[MAX_BATTERIES] = {};
   v.charge_limit_evaluated = true;
   v.discharge_limit_evaluated = true;
   if (emulator_pause_request_ON || emulator_pause_status != NORMAL ||
       datalayer.system.status.system_status == FAULT) {
-    charge_limit_failures[instance] = 0;
-    discharge_limit_failures[instance] = 0;
+    safety.charge_limit_failures[instance] = 0;
+    safety.discharge_limit_failures[instance] = 0;
   } else {
     // Inverter is charging with more power than battery wants!
     if (bat.status.active_power_W > (int32_t)(bat.status.max_charge_power_W + 2000)) {
-      if (charge_limit_failures[instance] > MAX_CHARGE_DISCHARGE_LIMIT_FAILURES) {
+      if (safety.charge_limit_failures[instance] > MAX_CHARGE_DISCHARGE_LIMIT_FAILURES) {
         v.charge_limit_exceeded = true;  // Alert when 2kW over requested max
       } else {
-        charge_limit_failures[instance]++;
+        safety.charge_limit_failures[instance]++;
       }
     } else {  // Also taken when idle at 0W, so a stopped inverter always clears the alert
-      charge_limit_failures[instance] = 0;
+      safety.charge_limit_failures[instance] = 0;
     }
 
     // Inverter is pulling too much power from battery!
     if (-bat.status.active_power_W > (int32_t)(bat.status.max_discharge_power_W + 2000)) {
-      if (discharge_limit_failures[instance] > MAX_CHARGE_DISCHARGE_LIMIT_FAILURES) {
+      if (safety.discharge_limit_failures[instance] > MAX_CHARGE_DISCHARGE_LIMIT_FAILURES) {
         v.discharge_limit_exceeded = true;  // Alert when 2kW over requested max
       } else {
-        discharge_limit_failures[instance]++;
+        safety.discharge_limit_failures[instance]++;
       }
     } else {  // Also taken when idle at 0W, so a stopped inverter always clears the alert
-      discharge_limit_failures[instance] = 0;
+      safety.discharge_limit_failures[instance] = 0;
     }
   }
 
@@ -399,23 +391,23 @@ static void raise_machinery_protection_events(const MachineryProtectionVerdicts&
     set_event(EVENT_CELL_CRITICAL_UNDER_VOLTAGE, 0);
   }
   if (v.full) {
-    if (!battery_full_event_fired) {
+    if (!safety.battery_full_event_fired) {
       set_event(EVENT_BATTERY_FULL, 0);
-      battery_full_event_fired = true;
+      safety.battery_full_event_fired = true;
     }
   } else {
     clear_event(EVENT_BATTERY_FULL);
-    battery_full_event_fired = false;
+    safety.battery_full_event_fired = false;
   }
   if (datalayer.system.status.system_status == ACTIVE) {
     if (v.empty) {
-      if (!battery_empty_event_fired) {
+      if (!safety.battery_empty_event_fired) {
         set_event(EVENT_BATTERY_EMPTY, 0);
-        battery_empty_event_fired = true;
+        safety.battery_empty_event_fired = true;
       }
     } else {
       clear_event(EVENT_BATTERY_EMPTY);
-      battery_empty_event_fired = false;
+      safety.battery_empty_event_fired = false;
     }
   }
   if (v.soh_low) {
@@ -450,15 +442,15 @@ static void raise_machinery_protection_events(const MachineryProtectionVerdicts&
 
 void update_machineryprotection() {
   //Check if we start to get low on memory
-  static uint8_t hysteresisHeapSeconds = 0;
   if (datalayer.system.info.CPU_free_heap < 62000) {
-    hysteresisHeapSeconds++;
-    if (hysteresisHeapSeconds > 5) {  //Trigger after X seconds of low heap, to prevent false positives during spikes
+    safety.hysteresis_heap_seconds++;
+    if (safety.hysteresis_heap_seconds >
+        5) {  //Trigger after X seconds of low heap, to prevent false positives during spikes
       set_event(EVENT_LOW_HEAP_MEMORY, (datalayer.system.info.CPU_free_heap / 1000));
     }
   } else {
     clear_event(EVENT_LOW_HEAP_MEMORY);
-    hysteresisHeapSeconds = 0;
+    safety.hysteresis_heap_seconds = 0;
   }
 
   // Check health status of CAN interfaces
@@ -527,11 +519,11 @@ void update_machineryprotection() {
   if (inverter && inverter->interface_type() == InverterInterfaceType::Can) {
 
     //Check if we have ever seen the inverter
-    if (!inverter_detected) {
+    if (!safety.inverter_detected) {
       // >= not ==: some drivers refresh the counter above CAN_STILL_ALIVE for a
       // longer timeout (SMA x3, Sofar x2), which would never match equality
       if (datalayer.system.status.CAN_inverter_still_alive >= CAN_STILL_ALIVE) {
-        inverter_detected = true;
+        safety.inverter_detected = true;
         set_event(EVENT_CAN_INVERTER_DETECTED, 1);
       }
     }
@@ -552,11 +544,10 @@ void update_machineryprotection() {
       // tripling the timeout (60 s -> 180 s) to give it more time to start up before we
       // report it as missing
       if (user_selected_inverter_long_CAN_timeout) {
-        static uint8_t slow_start_counter = 0;
-        slow_start_counter++;
-        if (slow_start_counter > 2) {  // Counts 1, 2, 3: the decrement runs on every third pass
+        safety.slow_start_counter++;
+        if (safety.slow_start_counter > 2) {  // Counts 1, 2, 3: the decrement runs on every third pass
           datalayer.system.status.CAN_inverter_still_alive--;
-          slow_start_counter = 0;
+          safety.slow_start_counter = 0;
         }
       } else {  //Normal 60s timeout for regular inverters
         datalayer.system.status.CAN_inverter_still_alive--;
@@ -568,8 +559,8 @@ void update_machineryprotection() {
     // Assuming chargers are all CAN here.
     // Check that the charger has been seen and is still sending CAN messages.
     // If we go 60s without messages we raise a warning
-    check_can_component_alive(datalayer.charger.CAN_charger_still_alive, charger_detected, EVENT_CAN_CHARGER_DETECTED,
-                              EVENT_CAN_CHARGER_MISSING, charger->interface());
+    check_can_component_alive(datalayer.charger.CAN_charger_still_alive, safety.charger_detected,
+                              EVENT_CAN_CHARGER_DETECTED, EVENT_CAN_CHARGER_MISSING, charger->interface());
   }
 
 
@@ -720,16 +711,16 @@ void graceful_restart() {
   setBatteryPause(true, false, EquipmentStop::UNCHANGED, false);
 
   uint32_t now = millis();
-  emulator_restart_request_millis = now > 0 ? now : 1;
+  safety.emulator_restart_request_millis = now > 0 ? now : 1;
 }
 
 void update_restart_progress() {
   // If is a restart has been requested, check the time and restart if the
   // conditions are met.
 
-  if (emulator_restart_request_millis > 0) {
+  if (safety.emulator_restart_request_millis > 0) {
     uint32_t now = millis();
-    uint32_t elapsed = now - emulator_restart_request_millis;
+    uint32_t elapsed = now - safety.emulator_restart_request_millis;
     // Restart after 5s if the emulator has paused. Always restart after 10s.
     if ((elapsed > INTERVAL_5_S && emulator_pause_status == PAUSED) || elapsed > INTERVAL_10_S) {
       ESP.restart();
@@ -789,3 +780,14 @@ std::string get_emulator_pause_status() {
   }
 }
 //battery pause status
+
+#ifdef UNIT_TEST
+void reset_safety_state() {
+  safety = SafetyState();
+  reset_parallel_join_state();
+  emulator_pause_request_ON = false;
+  emulator_pause_CAN_send_ON = false;
+  emulator_pause_status = NORMAL;
+  allowed_to_send_CAN = true;
+}
+#endif

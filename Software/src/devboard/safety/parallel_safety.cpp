@@ -26,6 +26,11 @@ static bool pack_holds_link(Battery* pack, bool commanded_engaged) {
 // itself.)
 static bool main_blocked_by_joiner[MAX_BATTERIES] = {};
 
+// Drift timers, one per joining pack. File scope rather than function-local so
+// reset_parallel_join_state() can clear them: they accumulate across calls by
+// design, which in a single-process test binary means across tests too.
+static uint8_t seconds_out_of_sync[MAX_BATTERIES] = {};
+
 static void update_main_join_permission() {
   bool blocked = false;
   for (int i = 1; i < MAX_BATTERIES; ++i) {
@@ -83,7 +88,6 @@ void check_parallel_battery_safety(uint8_t batteryNumber) {
   // Per-joiner state; [0] unused (the main battery is never a joiner).
   static constexpr EVENTS_ENUM_TYPE voltage_diff_event[MAX_BATTERIES] = {
       EVENT_VOLTAGE_DIFFERENCE_BAT2, EVENT_VOLTAGE_DIFFERENCE_BAT2, EVENT_VOLTAGE_DIFFERENCE_BAT3};
-  static uint8_t seconds_out_of_sync[MAX_BATTERIES] = {};
 
   int instance = batteryNumber - 1;
   if (instance < 1 || instance >= MAX_BATTERIES) {
@@ -98,3 +102,12 @@ void check_parallel_battery_safety(uint8_t batteryNumber) {
     update_main_join_permission();
   }
 }
+
+#ifdef UNIT_TEST
+void reset_parallel_join_state() {
+  for (int i = 0; i < MAX_BATTERIES; ++i) {
+    main_blocked_by_joiner[i] = false;
+    seconds_out_of_sync[i] = 0;
+  }
+}
+#endif

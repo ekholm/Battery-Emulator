@@ -22,6 +22,7 @@ void setup_can_inverter_test() {
   // Defined in safety.cpp; not exposed via safety.h like the battery latches are.
   inverter_detected = false;
   reset_all_events();
+  reset_safety_state();
   init_hal();
   // Avoid tripping the low-heap check (CPU_free_heap defaults to 0)
   datalayer.system.info.CPU_free_heap = 200000;
