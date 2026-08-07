@@ -1,0 +1,30 @@
+# Board declaration - the source for the generated block in the header
+# of the same name. Features own their pins; shared buses are declared
+# once and referenced. A pin is a GPIO number, NC (the board does not
+# have it), or setting/variant when the getter is chosen at runtime and
+# stays hand-written below the generated block.
+#
+# The microSD getters are NOT declared here and stay hand-written: this
+# board reaches its card over SPI and publishes SD_SPI_BUS(), which the
+# sd_mmc feature has no field for, and the whole group sits behind
+# #ifdef SDCARD, which the generated block cannot express. Declaring the
+# four pins without the bus and the guard would emit code that differs
+# from the header, so the group is left below the block until the schema
+# grows an sd_spi feature.
+board: dfrobot_edge101
+class: DFRobotEdge101Hal
+header: hw_dfrobot_edge101.h
+name: "DFRobot Edge101 IOT Controller"
+rs485:
+  - {tx: 17, rx: 36, de: 16}
+can:
+  - {driver: native, tx: 32, rx: 35}
+rgb_led:
+  - {pin: 15}
+ap_button:
+  - {pin: 38}
+# No comments: block. The original header carried its hardware notes as
+# block comments above each group, which a trailing comment cannot
+# reproduce verbatim - and board_verify_transcription.py is right to
+# reject that. The facts moved into the header's descriptive comment,
+# which sits outside the generated block and is left alone.
