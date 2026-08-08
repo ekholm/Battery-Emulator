@@ -64,7 +64,7 @@ void add_can_frame_to_buffer(CAN_frame frame, CAN_Interface interface, frameDire
     return;
 
   // Sized for the worst case: gap marker + header + 64 data bytes (CAN-FD) at 3 chars each
-  static char messagestr_buffer[320];
+  char messagestr_buffer[320];
   size_t size = 0;
 
   if (can_frames_dropped > 0) {

@@ -48,7 +48,7 @@ static void migrate_static_ip_settings(BatteryEmulatorSettingsStore& settings) {
 // Initialization functions
 
 void init_stored_settings() {
-  static uint32_t temp = 0;
+  uint32_t temp = 0;
   BatteryEmulatorSettingsStore settings(false);
   //  ATTENTION ! The maximum length for settings keys is 15 characters
 
