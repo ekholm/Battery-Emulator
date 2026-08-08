@@ -9,19 +9,6 @@
 
 /* Do not change code below unless you are sure what you are doing */
 
-static uint32_t lastPacket = 0;
-static int16_t temperature_min_dC = 0;
-static int16_t temperature_max_dC = 0;
-static int16_t current_dA = 0;
-static uint16_t voltage_dV = 0;
-static uint32_t remaining_capacity_mAh = 0;
-static uint16_t cellvoltages_mV[48] = {0};
-static uint16_t cellvoltage_min_mV = 3700;
-static uint16_t cellvoltage_max_mV = 3700;
-static uint16_t cell_count = 0;
-static uint16_t SOC = 0;
-static bool has_fault = false;
-
 void DalyBms::update_values() {
   datalayer_battery->status.real_soc = SOC;
   datalayer_battery->status.voltage_dV = voltage_dV;  //value is *10 (3700 = 370.0)
@@ -128,7 +115,7 @@ void dump_buff(const char* msg, uint8_t* buff, uint8_t len) {
   logging.println();
 }
 
-void decode_packet(DATALAYER_BATTERY_TYPE* datalayer_battery, uint8_t command, uint8_t data[8]) {
+void DalyBms::decode_packet(uint8_t command, uint8_t data[8]) {
   datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
   switch (command) {
@@ -177,8 +164,6 @@ void decode_packet(DATALAYER_BATTERY_TYPE* datalayer_battery, uint8_t command, u
 
 void DalyBms::transmit_rs485(unsigned long currentMillis) {
 
-  static uint8_t nextCommand = 0x90;
-
   if (currentMillis - lastPacket > 60) {
     lastPacket = currentMillis;
     uint8_t tx_buff[13] = {0};
@@ -196,8 +181,6 @@ void DalyBms::transmit_rs485(unsigned long currentMillis) {
 }
 
 void DalyBms::receive() {
-  static uint8_t recv_buff[13] = {0};
-  static uint8_t recv_len = 0;
 
   while (Serial2.available()) {
     recv_buff[recv_len] = Serial2.read();
@@ -214,7 +197,7 @@ void DalyBms::receive() {
 
     if (recv_len > 12) {
       dump_buff("decoding successfull rx: ", recv_buff, recv_len);
-      decode_packet(datalayer_battery, recv_buff[2], &recv_buff[4]);
+      decode_packet(recv_buff[2], &recv_buff[4]);
       recv_len = 0;
       lastPacket = millis();
     }
