@@ -368,13 +368,8 @@ static bool battery_supports_extra_instances(BatteryType type) {
   switch (type) {
     case BatteryType::None:
       return false;
-    case BatteryType::Chademo:               // singleton shunt/CT hardware + heavy static state
-    case BatteryType::JaguarIpace:           // pending de-static (32 file-scope statics)
-    case BatteryType::DalyBms:               // single RS485 transport
-    case BatteryType::TeslaLegacy:           // pending de-static (incl. shared buffers)
-    case BatteryType::BmwPhev:               // pending de-static
-    case BatteryType::ChargebyteCCSBattery:  // pending de-static
-    case BatteryType::GrowattHvArk:          // pending de-static
+    case BatteryType::Chademo:  // singleton shunt/CT hardware + heavy static state
+    case BatteryType::DalyBms:  // single RS485 transport
       return false;
     default:
       return true;
