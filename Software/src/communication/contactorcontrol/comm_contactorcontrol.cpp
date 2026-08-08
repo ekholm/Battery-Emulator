@@ -41,9 +41,7 @@ uint16_t pwm_hold_duty = 250;
 #define PWM_Negative_Channel 1
 uint32_t currentTime = 0;
 uint32_t lastPowerRemovalTime = 0;
-bool periodicResetDeferred = false;   //True while a due periodic reset is waiting for SOC to recover
-bool balancingPeriodSkipped = false;  //True once balancing has cost the reset a period
-uint32_t bmsPowerOnTime = 0;
+BmsResetState bms_reset;
 const uint32_t bmsWarmupDuration = 3000;
 #define BMS_RESET_DEFER_SOC_PPTT 1500  // 15.00%, below this the low-SOC guard defers the periodic reset
 
@@ -55,7 +53,6 @@ const uint32_t bmsWarmupDuration = 3000;
    the counter from ever reaching zero. Durations that fit inside the window are left
    alone and keep the original, unmasked behaviour. */
 #define BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS ((unsigned long)(CAN_STILL_ALIVE - 1) * 1000UL)
-unsigned long lastCanKeepaliveTime = 0;
 
 void set(uint8_t pin, bool direction, uint32_t pwm_freq = 0xFFFF) {
 
@@ -260,8 +257,7 @@ void handle_contactors() {
   }
 
   if (contactor_control_enabled[0]) {
-    currentTime = millis();
-    precharge_fsm.tick(currentTime);
+    precharge_fsm.tick(millis());
   }
 }
 
@@ -332,7 +328,7 @@ static PeriodicResetVerdict periodic_bms_reset_verdict(const char** reason) {
      period comes around the reset goes ahead anyway, so a pack that reports balancing more
      or less permanently cannot suppress the reset indefinitely.
      Batteries that are not present report BALANCING_STATUS_UNKNOWN, so they never skip. */
-  if (periodic_bms_reset_skip_balancing && !balancingPeriodSkipped) {
+  if (periodic_bms_reset_skip_balancing && !bms_reset.balancing_period_skipped) {
     static constexpr const char* balancing_reasons[MAX_BATTERIES] = {
         "balancing active on battery", "balancing active on battery 2", "balancing active on battery 3"};
     static_assert(MAX_BATTERIES == 3, "add the new instance's balancing reason");
@@ -358,8 +354,8 @@ static bool bms_reset_needs_can_keepalive() {
 /* Pretends the batteries were just heard from, and restarts the keepalive interval.
    Batteries that are not configured are skipped, since the safety layer does not look at
    their counters either. */
-static void bms_reset_refresh_can_alive() {
-  lastCanKeepaliveTime = currentTime;
+static void bms_reset_refresh_can_alive(unsigned long now) {
+  bms_reset.last_can_keepalive_time = now;
   for (int i = 0; i < MAX_BATTERIES; ++i) {
     if (batteries[i]) {
       datalayer_battery(i).status.CAN_battery_still_alive = CAN_STILL_ALIVE;
@@ -368,14 +364,14 @@ static void bms_reset_refresh_can_alive() {
 }
 
 // Called on every pass through the powered-off and powering-on states of a long reset.
-static void bms_reset_can_keepalive_tick() {
+static void bms_reset_can_keepalive_tick(unsigned long now) {
   if (!bms_reset_needs_can_keepalive()) {
     return;
   }
-  if (currentTime - lastCanKeepaliveTime < BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS) {
+  if (now - bms_reset.last_can_keepalive_time < BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS) {
     return;
   }
-  bms_reset_refresh_can_alive();
+  bms_reset_refresh_can_alive(now);
 }
 
 void handle_BMSpower() {
@@ -385,39 +381,39 @@ void handle_BMSpower() {
   }
 
   if (periodic_bms_reset || remote_bms_reset) {
-    currentTime = millis();
+    const unsigned long currentTime = millis();
 
     if (datalayer.system.status.bms_reset_status == BMS_RESET_IDLE) {
       // Idle state, no reset ongoing
 
       // Check if it's time to perform a periodic BMS reset
-      if (periodic_bms_reset && currentTime - lastPowerRemovalTime >= bms_reset_interval_ms()) {
+      if (periodic_bms_reset && currentTime - bms_reset.last_power_removal_time >= bms_reset_interval_ms()) {
         const char* reason = nullptr;
         switch (periodic_bms_reset_verdict(&reason)) {
           case PeriodicResetVerdict::Defer:
-            /* Leave lastPowerRemovalTime alone so the reset stays due. start_bms_reset()
+            /* Leave bms_reset.last_power_removal_time alone so the reset stays due. start_bms_reset()
                re-anchors it when the reset finally runs, which is what moves the following
                24h/48h periods to start from the deferred point. Logged once per episode,
                since this branch is evaluated on every loop while the reset is due. */
-            if (!periodicResetDeferred) {
-              periodicResetDeferred = true;
+            if (!bms_reset.period_deferred) {
+              bms_reset.period_deferred = true;
               logging.printf("BMS reset: Periodic reset deferred, %s.\n", reason);
             }
             break;
 
           case PeriodicResetVerdict::SkipPeriod:
             // Restarting the interval here is what turns this into a one period skip.
-            lastPowerRemovalTime = currentTime;
-            balancingPeriodSkipped = true;
+            bms_reset.last_power_removal_time = currentTime;
+            bms_reset.balancing_period_skipped = true;
             logging.printf("BMS reset: Periodic reset skipped for one period, %s.\n", reason);
             break;
 
           case PeriodicResetVerdict::Run:
-            if (periodicResetDeferred) {
-              periodicResetDeferred = false;
+            if (bms_reset.period_deferred) {
+              bms_reset.period_deferred = false;
               logging.printf("BMS reset: Running previously deferred periodic reset.\n");
             }
-            balancingPeriodSkipped = false;  // Each reset restores the one period allowance
+            bms_reset.balancing_period_skipped = false;  // Each reset restores the one period allowance
             start_bms_reset();
             break;
         }
@@ -434,12 +430,12 @@ void handle_BMSpower() {
           (battery_current_dA == 0 && battery2_current_dA == 0 && battery3_current_dA == 0)
           // or reasonably low current and 5 seconds has passed
           || (abs(battery_current_dA) < 10 && abs(battery2_current_dA) < 10 && abs(battery3_current_dA) < 10 &&
-              currentTime - lastPowerRemovalTime >= 5000)) {
+              currentTime - bms_reset.last_power_removal_time >= 5000)) {
 
         bms_power_off();
-        lastPowerRemovalTime = currentTime;
+        bms_reset.last_power_removal_time = currentTime;
         datalayer.system.status.bms_reset_status = BMS_RESET_POWERED_OFF;
-      } else if (currentTime - lastPowerRemovalTime >= 10000) {
+      } else if (currentTime - bms_reset.last_power_removal_time >= 10000) {
         // There's still current, and we don't want to weld the contactors, so give up.
 
         datalayer.system.status.bms_reset_status = BMS_RESET_IDLE;
@@ -447,25 +443,26 @@ void handle_BMSpower() {
         clear_event(EVENT_PERIODIC_BMS_RESET_FAILURE);
       }
     } else if (datalayer.system.status.bms_reset_status == BMS_RESET_POWERED_OFF) {
-      bms_reset_can_keepalive_tick();
+      bms_reset_can_keepalive_tick(currentTime);
 
       // Check if the user configured duration has passed
-      if (currentTime - lastPowerRemovalTime >= datalayer.batteries[0].settings.user_set_bms_reset_duration_ms) {
+      if (currentTime - bms_reset.last_power_removal_time >=
+          datalayer.batteries[0].settings.user_set_bms_reset_duration_ms) {
         bms_power_on();
-        bmsPowerOnTime = currentTime;
+        bms_reset.power_on_time = currentTime;
         /* The last periodic refresh can have been up to a full interval ago, which would leave
            the BMS only a sliver of the window to get back on the bus. Refreshing here gives it
            the whole window from power-on, measured from the same moment for every off time. */
         if (bms_reset_needs_can_keepalive()) {
-          bms_reset_refresh_can_alive();
+          bms_reset_refresh_can_alive(currentTime);
         }
         datalayer.system.status.bms_reset_status = BMS_RESET_POWERING_ON;
       }
     } else if (datalayer.system.status.bms_reset_status == BMS_RESET_POWERING_ON) {
-      bms_reset_can_keepalive_tick();
+      bms_reset_can_keepalive_tick(currentTime);
 
       // Wait for BMS to start up before unpausing
-      if (currentTime - bmsPowerOnTime >= bmsWarmupDuration) {
+      if (currentTime - bms_reset.power_on_time >= bmsWarmupDuration) {
         // Unpause the battery
         setBatteryPause(false, false, EquipmentStop::UNCHANGED, false);
 
@@ -483,10 +480,10 @@ void start_bms_reset() {
   if (periodic_bms_reset || remote_bms_reset) {
     if (datalayer.system.status.bms_reset_status == BMS_RESET_IDLE) {
       // Record when we started the BMS reset process
-      lastPowerRemovalTime = millis();
+      bms_reset.last_power_removal_time = millis();
       // Anchor the keepalive here so the first refresh lands one interval into the reset,
       // rather than immediately or after a gap left over from a previous reset.
-      lastCanKeepaliveTime = lastPowerRemovalTime;
+      bms_reset.last_can_keepalive_time = bms_reset.last_power_removal_time;
 
       // Issue a pause, which should stop charge/discharge whilst the reset is ongoing
       setBatteryPause(true, false, EquipmentStop::UNCHANGED, false);
@@ -555,3 +552,9 @@ void release_pins_across_reset() {
   }
 #endif
 }
+
+#ifdef UNIT_TEST
+void reset_bms_reset_state() {
+  bms_reset = BmsResetState();
+}
+#endif

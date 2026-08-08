@@ -158,12 +158,6 @@ TEST(BmsResetTests, BmsResetSequenceWaitSuccess) {
   EXPECT_EQ(emulator_pause_request_ON, false);
 }
 
-// Bring the reset scheduling state into the test so we can decide when the
-// configured interval has elapsed instead of having to simulate a full day.
-extern uint32_t lastPowerRemovalTime;
-extern bool periodicResetDeferred;
-extern bool balancingPeriodSkipped;
-
 static const unsigned long ONE_HOUR_MS = 60UL * 60UL * 1000UL;
 
 // Puts the state machine back to a known good starting point, with both guards
@@ -186,9 +180,8 @@ static void setup_periodic_reset_test(uint16_t interval_h) {
   }
 
   set_millis64(0);
-  lastPowerRemovalTime = 0;
-  periodicResetDeferred = false;
-  balancingPeriodSkipped = false;
+  // Clears the whole reset state, not just the members this test happens to name.
+  reset_bms_reset_state();
 }
 
 static void teardown_periodic_reset_test() {
@@ -196,8 +189,7 @@ static void teardown_periodic_reset_test() {
   periodic_bms_reset_interval_h = 24;
   periodic_bms_reset_defer_low_soc = false;
   periodic_bms_reset_skip_balancing = false;
-  periodicResetDeferred = false;
-  balancingPeriodSkipped = false;
+  reset_bms_reset_state();
   datalayer.system.status.bms_reset_status = BMS_RESET_IDLE;
   setBatteryPause(false, false, EquipmentStop::UNCHANGED, false);
 }
@@ -242,7 +234,7 @@ TEST(BmsResetTests, PeriodicBmsResetDeferLowRealSoc) {
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERED_OFF);
 
   // The interval is re-anchored to the deferred point, not to the original due time
-  EXPECT_EQ(lastPowerRemovalTime, 45 * ONE_HOUR_MS);
+  EXPECT_EQ(bms_reset.last_power_removal_time, 45 * ONE_HOUR_MS);
 
   teardown_periodic_reset_test();
 }
@@ -289,7 +281,7 @@ TEST(BmsResetTests, PeriodicBmsResetSkipBalancingOnePeriodOnly) {
   set_millis64(25 * ONE_HOUR_MS);
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
-  EXPECT_EQ(lastPowerRemovalTime, 25 * ONE_HOUR_MS);
+  EXPECT_EQ(bms_reset.last_power_removal_time, 25 * ONE_HOUR_MS);
 
   // Part way through the next period, still nothing
   set_millis64(40 * ONE_HOUR_MS);
@@ -318,7 +310,7 @@ TEST(BmsResetTests, PeriodicBmsResetBalancingAllowanceRestored) {
 
   // Pretend the reset sequence finished
   datalayer.system.status.bms_reset_status = BMS_RESET_IDLE;
-  lastPowerRemovalTime = 50 * ONE_HOUR_MS;
+  bms_reset.last_power_removal_time = 50 * ONE_HOUR_MS;
 
   set_millis64(75 * ONE_HOUR_MS);
   handle_BMSpower();
@@ -352,13 +344,13 @@ TEST(BmsResetTests, PeriodicBmsResetDeferDoesNotConsumeBalancingAllowance) {
   datalayer.batteries[0].status.balancing_status = BALANCING_STATUS_ACTIVE;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
-  EXPECT_FALSE(balancingPeriodSkipped);
+  EXPECT_FALSE(bms_reset.balancing_period_skipped);
 
   // SOC recovers while balancing is still active, so the balancing skip applies now
   datalayer.batteries[0].status.real_soc = 5000;
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_IDLE);
-  EXPECT_TRUE(balancingPeriodSkipped);
+  EXPECT_TRUE(bms_reset.balancing_period_skipped);
 
   teardown_periodic_reset_test();
 }
