@@ -24,6 +24,13 @@ class TeslaLegacyBattery : public CanBattery {
   void reset_BMS() { user_requests_bms_reset = true; }
 
  private:
+  // CAN parse cursors and the UDS poll timer, per instance: shared, two packs
+  // interleave each other's multiplex position and suppress each other's polls.
+  uint8_t mux = 0;
+  uint16_t volts = 0;
+  uint8_t mux_zero_counter = 0u;
+  uint8_t mux_max = 0u;
+  unsigned long lastUDS = 0;
   // If not null, this battery decides when the contactor can be closed and writes the value here.
   bool* allows_contactor_closing;
 

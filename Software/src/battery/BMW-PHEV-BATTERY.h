@@ -60,6 +60,11 @@ class BmwPhevBattery : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
 
  private:
+  // CAN-bus wakeup handshake state, per instance: each pack has its own bus
+  // and SME, so a shared timer would let one pack's wakeup satisfy the other's.
+  unsigned long wakeup_start_time = 0;
+  bool waiting_for_completion = false;
+
   DATALAYER_INFO_BMWPHEV& extended_data;
   bool* allows_contactor_closing;
   BmwPhevHtmlRenderer renderer;

@@ -9,20 +9,11 @@ class VoltageSyncTest : public ::testing::Test {
  protected:
   void SetUp() override {
     init_events();
-    // The drift counters in check_parallel_battery_safety() are function-local
-    // statics, so a preceding run of the timeout tests leaves them latched at
-    // 10 and the next run in the same process starts mid-fault - a plain
-    // --gtest_repeat=2 fails without this. They are not reachable from a
-    // fixture; one in-sync pass through the public API is the reset (the
-    // <=1.5V branch zeroes the counter). 3750 dodges the 3700-startup-default
-    // guard, which returns before touching the counter.
-    battery2_detected = true;
-    battery3_detected = true;
-    datalayer.battery.status.voltage_dV = 3750;
-    datalayer.battery2.status.voltage_dV = 3750;
-    datalayer.battery3.status.voltage_dV = 3750;
-    check_parallel_battery_safety(2);
-    check_parallel_battery_safety(3);
+    // The drift detector counts seconds in module state that outlives a single
+    // test. Without this, a test that leaves a counter part-way through makes
+    // the next one start mid-count - visible only under --gtest_shuffle or
+    // --gtest_repeat.
+    reset_safety_state();
     // Reset datalayer to known state
     datalayer.batteries[0].status.voltage_dV = 3700;  // 370.0V
     for (int i = 1; i < MAX_BATTERIES; i++) {

@@ -22,6 +22,42 @@ class JaguarIpaceBattery : public CanBattery {
   static constexpr const char* Name = "Jaguar I-PACE";
 
  private:
+  unsigned long previousMillisKeepAlive = 0;
+
+  // Parsed CAN values for THIS pack. These were file-scope statics, which is
+  // why the type was excluded from multi-instance: a second Jaguar overwrote
+  // the first pack's readings on every frame.
+  uint8_t HVBattAvgSOC = 0;
+  uint8_t HVBattFastChgCounter = 0;
+  uint8_t HVBattTempColdCellID = 0;
+  uint8_t HVBatTempHotCellID = 0;
+  uint8_t HVBattVoltMaxCellID = 0;
+  uint8_t HVBattVoltMinCellID = 0;
+  uint8_t HVBattPwerGPCS = 0;
+  uint8_t HVBattPwrGpCounter = 0;
+  int8_t HVBattCurrentTR = 0;
+  uint16_t HVBattCellVoltageMaxMv = 3700;
+  uint16_t HVBattCellVoltageMinMv = 3700;
+  uint16_t HVBattEnergyAvailable = 0;
+  uint16_t HVBattEnergyUsableMax = 0;
+  uint16_t HVBattTotalCapacityWhenNew = 0;
+  uint16_t HVBattDischargeContiniousPowerLimit = 0;
+  uint16_t HVBattDischargePowerLimitExt = 0;
+  uint16_t HVBattDischargeVoltageLimit = 0;
+  uint16_t HVBattVoltageExt = 0;
+  uint16_t HVBatteryVoltageOC = 0;
+  uint16_t HVBatteryChgCurrentLimit = 0;
+  uint16_t HVBattChargeContiniousPowerLimit = 0;
+  int16_t HVBattAverageTemperature = 0;
+  int16_t HVBattCellTempAverage = 0;
+  int16_t HVBattCellTempColdest = 0;
+  int16_t HVBattCellTempHottest = 0;
+  int16_t HVBattInletCoolantTemp = 0;
+  bool HVBatteryContactorStatus = false;
+  bool HVBatteryContactorStatusT = false;
+  bool HVBattHVILError = false;
+  bool HVILBattIsolationError = false;
+  bool HVIsolationTestStatus = false;
   static const int MAX_PACK_VOLTAGE_DV = 4546;  //5000 = 500.0V
   static const int MIN_PACK_VOLTAGE_DV = 3370;
   static const int MAX_CELL_DEVIATION_MV = 250;

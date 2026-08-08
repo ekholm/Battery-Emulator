@@ -24,6 +24,14 @@ class ChargebyteCCSBattery : public CanBattery {
   static constexpr const char* Name = "Chargebyte CCS V2X";
 
  private:
+  // Charge-sequence state, per instance: precharge position, contactor and
+  // CP/PP timers each belong to one pack's own charging session.
+  uint16_t prechargePos = 0;
+  uint16_t contactorCloseDelay = 0;
+  bool wasInCharge = false;
+  uint16_t cpPpDisconnectDelay = 0;
+  uint16_t presentVoltage_dV = 0;
+  unsigned long previousTransmit = 0;
   void dump_data();
   void setPrechargeVoltage(uint16_t value, bool writeEEPROM = false);
 

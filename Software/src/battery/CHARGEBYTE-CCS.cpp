@@ -54,7 +54,6 @@ void ChargebyteCCSBattery::dump_data() {
 // this is called every 10ms. We precharge from 1200 to 4095 in 7.24s which refers to 0 to 500V.
 // according to our tests e.g. a Tesla M3 allows 12 seconds of precharging before aborting
 void ChargebyteCCSBattery::handle_precharge() {
-  static uint16_t prechargePos = 0;
   if (inPrecharge) {
     if (prechargePos < 1200)
       prechargePos = 1200;
@@ -70,7 +69,6 @@ void ChargebyteCCSBattery::handle_precharge() {
     setPrechargeVoltage(0);
   }
 
-  static uint16_t contactorCloseDelay = 0;
   if (inCharge) {
     if (contactorCloseDelay == 100)  // start precharging after 1s
       digitalWrite(CCS_PRECHARGE_CONTACTOR_PIN(), HIGH);
@@ -87,8 +85,6 @@ void ChargebyteCCSBattery::handle_precharge() {
     contactorCloseDelay = 0;
   }
 
-  static bool wasInCharge = false;
-  static uint16_t cpPpDisconnectDelay = 0;
   if (inCharge) {
     wasInCharge = true;
     cpPpDisconnectDelay = 0;
@@ -112,7 +108,6 @@ void ChargebyteCCSBattery::handle_precharge() {
 void ChargebyteCCSBattery::update_values() {
   dump_data();
 
-  static uint16_t presentVoltage_dV = 0;
   if (inPrecharge && precharge_dV <= EVSE_MAX_VOLTAGE && precharge_dV > 0)
     presentVoltage_dV = precharge_dV;
   else if (inCharge && user_selected_shunt_type != ShuntType::None)
@@ -195,7 +190,6 @@ void ChargebyteCCSBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 }
 
 void ChargebyteCCSBattery::transmit_can(unsigned long now) {
-  static unsigned long previousTransmit = 0;
   // Send 100ms CAN Message
   if (now - previousTransmit >= INTERVAL_100_MS) {
     previousTransmit = now;

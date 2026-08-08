@@ -122,7 +122,6 @@ void TeslaLegacyBattery::update_values() {
 }
 
 void TeslaLegacyBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
-  static uint8_t mux = 0;
   switch (rx_frame.ID) {
     case 0x212:  // 530 BMS_status: 5
       battery_BMS_rapidDCLinkDchgRequest = (rx_frame.data.u8[0] & 0x01U);
@@ -188,9 +187,6 @@ void TeslaLegacyBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
       break;
     case 0x6F2:
-      static uint16_t volts;
-      static uint8_t mux_zero_counter = 0u;
-      static uint8_t mux_max = 0u;
 
       mux = rx_frame.data.u8[0];
 
@@ -274,7 +270,6 @@ void TeslaLegacyBattery::transmit_can(unsigned long currentMillis) {
   }
 
   if (stateMachineBMSReset != 0xFF) {
-    static unsigned long lastUDS = 0;
 
     if (bms_uds_response_received) {
       if (bms_uds_response == 0x7F) {
