@@ -31,7 +31,11 @@ failures = []
 
 def run(board, text):
     """Run the generator over one declaration in a sandbox; return
-    (rc, output, whether any header changed)."""
+    (rc, output, whether any header changed, the headers as generated).
+
+    The generated text is returned rather than read back from the tree: a
+    check that opens the real header proves nothing about this run, because
+    the file still holds whatever the last real generator run left there."""
     with tempfile.TemporaryDirectory() as tmp:
         boards, headers = Path(tmp) / 'boards', Path(tmp) / 'hal'
         boards.mkdir()
@@ -44,11 +48,11 @@ def run(board, text):
             [sys.executable, str(GEN), '--boards', str(boards), '--headers', str(headers)],
             capture_output=True, text=True)
         after = {p.name: p.read_text(encoding='utf-8') for p in headers.iterdir()}
-        return proc.returncode, proc.stdout + proc.stderr, before != after
+        return proc.returncode, proc.stdout + proc.stderr, before != after, after
 
 
 def expect_reject(case, text, *must_mention, board='stark'):
-    rc, output, changed = run(board, text)
+    rc, output, changed, _ = run(board, text)
     if rc == 0:
         failures.append(f'{case}: accepted a declaration it must reject')
         return
@@ -61,7 +65,7 @@ def expect_reject(case, text, *must_mention, board='stark'):
 
 
 def expect_accept(case, text, board='stark'):
-    rc, output, _ = run(board, text)
+    rc, output, _, _ = run(board, text)
     if rc != 0:
         failures.append(f'{case}: rejected a valid declaration\n    {output.strip()}')
 
@@ -123,6 +127,30 @@ def main():
                                 '  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}\n'
                                 '  - {driver: mcp2518fd, bus: SPI1, cs: 7, int: 8}'),
                   'stark', 'mcp2518fd')
+
+    # sd_spi: the SPI-attached card. Its chip select is not optional the way
+    # SD_MMC's is - an SPI slave with no CS is not addressable - and a board
+    # has one kind of card interface, never both.
+    dfrobot = (BOARDS / 'dfrobot_edge101.yaml').read_text(encoding='utf-8')
+    expect_accept('committed dfrobot_edge101', dfrobot, board='dfrobot_edge101')
+    expect_reject('sd_spi without chip select', drop(dfrobot, r', cs: 5'),
+                  'dfrobot_edge101', 'sd_spi', 'cs', board='dfrobot_edge101')
+    expect_reject('both card interfaces on one board',
+                  dfrobot.replace('sd_spi:', 'sd_mmc:\n  - {miso: 39, mosi: 12, clk: 14}\nsd_spi:'),
+                  'dfrobot_edge101', 'sd_mmc', 'sd_spi', board='dfrobot_edge101')
+
+    # The guard is what makes sd_spi expressible at all: the group is compiled
+    # out unless SDCARD is defined, so the block has to carry the #ifdef. A
+    # generator that emitted the getters bare would still pass every other
+    # check here and silently change what the board compiles.
+    rc, output, _, generated = run('dfrobot_edge101', dfrobot)
+    if rc != 0:
+        failures.append(f'sd_spi emission: the generator failed\n    {output.strip()}')
+    else:
+        header = generated['hw_dfrobot_edge101.h']
+        for marker in ('#ifdef SDCARD', '#endif  // SDCARD', 'uint8_t SD_SPI_BUS() override'):
+            if marker not in header:
+                failures.append(f'sd_spi emission: the generated header lacks {marker!r}')
 
     # Two product labels cannot name the same physical output.
     expect_reject('two outputs on one GPIO',

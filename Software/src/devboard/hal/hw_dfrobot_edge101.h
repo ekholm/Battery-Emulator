@@ -32,24 +32,21 @@ class DFRobotEdge101Hal : public Esp32Hal {
   virtual gpio_num_t CAN_TX_PIN() { return GPIO_NUM_32; }
   virtual gpio_num_t CAN_RX_PIN() { return GPIO_NUM_35; }
 
+  // microSD (SPI)
+#ifdef SDCARD
+  virtual gpio_num_t SD_MOSI_PIN() { return GPIO_NUM_12; }
+  virtual gpio_num_t SD_MISO_PIN() { return GPIO_NUM_39; }
+  virtual gpio_num_t SD_SCLK_PIN() { return GPIO_NUM_14; }
+  virtual gpio_num_t SD_CS_PIN() { return GPIO_NUM_5; }
+  uint8_t SD_SPI_BUS() override { return VSPI; }
+#endif  // SDCARD
+
   // LED
   virtual gpio_num_t LED_PIN() { return GPIO_NUM_15; }
 
   // Wi-Fi AP button
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_38; }
   // ---- END GENERATED ----
-
-  /* Hand-written: this board's card is on SPI, so the group publishes
-     SD_SPI_BUS() and sits behind #ifdef SDCARD. The sd_mmc feature has
-     no field for either, so declaring it would emit different code. */
-  // microSD (SPI)
-#ifdef SDCARD
-  uint8_t SD_SPI_BUS() override { return VSPI; }
-  virtual gpio_num_t SD_MOSI_PIN() { return GPIO_NUM_12; }
-  virtual gpio_num_t SD_MISO_PIN() { return GPIO_NUM_39; }
-  virtual gpio_num_t SD_SCLK_PIN() { return GPIO_NUM_14; }
-  virtual gpio_num_t SD_CS_PIN() { return GPIO_NUM_5; }
-#endif  // SDCARD
 
   std::vector<comm_interface> available_interfaces() {
     return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative};

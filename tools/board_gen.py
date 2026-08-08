@@ -114,6 +114,21 @@ FEATURES = {
                        'clk': 'SD_SCLK_PIN', 'cs': 'SD_CS_PIN'}],
         'requires': ['miso', 'mosi', 'clk'],
     },
+    # The SPI-attached card, a separate feature rather than a field on sd_mmc.
+    # The pins carry a different meaning - this is a chip-select SPI slave, not
+    # SD_MMC's 1-bit bus - so `cs` is required here and optional there, and the
+    # board must also say which SPI peripheral it sits on. The whole group is
+    # compiled out unless SDCARD is defined, which is what `guard` emits.
+    'sd_spi': {
+        'instances': [{'mosi': 'SD_MOSI_PIN', 'miso': 'SD_MISO_PIN',
+                       'clk': 'SD_SCLK_PIN', 'cs': 'SD_CS_PIN'}],
+        'requires': ['mosi', 'miso', 'clk', 'cs'],
+        # `override` rather than `virtual`: the base class already declares
+        # SD_SPI_BUS(), so this one overrides it and the emitted line has to
+        # match that shape or the transcription check rejects it.
+        'scalars': [{'spi_bus': ('uint8_t', 'SD_SPI_BUS', 'override')}],
+        'guard': 'SDCARD',
+    },
     'display_i2c': {
         'instances': [{'sda': 'DISPLAY_SDA_PIN', 'scl': 'DISPLAY_SCL_PIN'}],
         'requires': ['sda', 'scl'],
@@ -134,13 +149,14 @@ FEATURES = {
 
 # Emission order, chosen to sit close to how the headers already read.
 FEATURE_ORDER = ['rs485', 'can', 'chademo', 'contactors', 'precharge_auto', 'sma',
-                 'sd_mmc', 'rgb_led', 'equipment_stop', 'battery_wakeup', 'ap_button',
+                 'sd_mmc', 'sd_spi', 'rgb_led', 'equipment_stop', 'battery_wakeup', 'ap_button',
                  'display_i2c']
 
 SECTION_COMMENT = {
     'rs485': 'RS485', 'can': 'CAN interfaces', 'chademo': 'CHAdeMO support pins',
     'contactors': 'Contactor handling', 'precharge_auto': 'Automatic precharging',
-    'sma': 'SMA CAN contactor pins', 'sd_mmc': 'SD card', 'rgb_led': 'LED',
+    'sma': 'SMA CAN contactor pins', 'sd_mmc': 'SD card', 'sd_spi': 'microSD (SPI)',
+    'rgb_led': 'LED',
     'equipment_stop': 'Equipment stop pin', 'battery_wakeup': 'Battery wake up pins',
     'ap_button': 'Wi-Fi AP button', 'display_i2c': 'i2c display',
 }
@@ -338,6 +354,13 @@ def validate(board, data):
             if unknown:
                 errors.append(f'{where} has unknown field(s) {sorted(unknown)}')
 
+    # Both card features emit SD_MISO_PIN/SD_MOSI_PIN/SD_SCLK_PIN, so a board
+    # declaring both would define them twice. Caught here rather than left to
+    # the compiler, since the declaration is where the mistake is made.
+    if data.get('sd_mmc') and data.get('sd_spi'):
+        errors.append(f'{board}: declares both sd_mmc and sd_spi; a board has one kind of '
+                      f'card interface, and the two emit the same getters')
+
     seen_bus_pins = {}
     for name, bus in data.get('buses', {}).items():
         for field_name, value in bus.items():
@@ -371,6 +394,16 @@ def _pin_line(getter, value, comments):
     return line
 
 
+def _scalar_line(sspec, value):
+    """A scalar getter. The optional third element picks `override` over
+    `virtual`, for getters the base class already declares."""
+    ctype, getter = sspec[0], sspec[1]
+    style = sspec[2] if len(sspec) > 2 else 'virtual'
+    if style == 'override':
+        return f'  {ctype} {getter}() override {{ return {value}; }}'
+    return f'  virtual {ctype} {getter}() {{ return {value}; }}'
+
+
 def block(board, data):
     comments = data.get('comments', {})
     lines = [BEGIN.format(board=board), NOTE, '',
@@ -400,14 +433,19 @@ def block(board, data):
                 line = _pin_line(getter, inst.get(name), comments)
                 if line:
                     emitted.append(line)
-            for name, (ctype, getter) in (spec.get('scalars', [{}] * (index + 1))[index]
-                                          if index < len(spec.get('scalars', [])) else {}).items():
+            for name, sspec in (spec.get('scalars', [{}] * (index + 1))[index]
+                                if index < len(spec.get('scalars', [])) else {}).items():
                 if name in inst:
-                    emitted.append(f'  virtual {ctype} {getter}() {{ return {inst[name]}; }}')
+                    emitted.append(_scalar_line(sspec, inst[name]))
         if emitted:
+            guard = FEATURES[feature].get('guard')
             lines.append('')
             lines.append(f'  // {SECTION_COMMENT[feature]}')
+            if guard:
+                lines.append(f'#ifdef {guard}')
             lines += emitted
+            if guard:
+                lines.append(f'#endif  // {guard}')
     lines.append(END)
     return '\n'.join(lines) + '\n'
 

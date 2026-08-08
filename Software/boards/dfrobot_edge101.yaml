@@ -3,14 +3,6 @@
 # once and referenced. A pin is a GPIO number, NC (the board does not
 # have it), or setting/variant when the getter is chosen at runtime and
 # stays hand-written below the generated block.
-#
-# The microSD getters are NOT declared here and stay hand-written: this
-# board reaches its card over SPI and publishes SD_SPI_BUS(), which the
-# sd_mmc feature has no field for, and the whole group sits behind
-# #ifdef SDCARD, which the generated block cannot express. Declaring the
-# four pins without the bus and the guard would emit code that differs
-# from the header, so the group is left below the block until the schema
-# grows an sd_spi feature.
 board: dfrobot_edge101
 class: DFRobotEdge101Hal
 header: hw_dfrobot_edge101.h
@@ -19,6 +11,8 @@ rs485:
   - {tx: 17, rx: 36, de: 16}
 can:
   - {driver: native, tx: 32, rx: 35}
+sd_spi:
+  - {mosi: 12, miso: 39, clk: 14, cs: 5, spi_bus: VSPI}
 rgb_led:
   - {pin: 15}
 ap_button:
