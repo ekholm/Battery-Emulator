@@ -31,6 +31,12 @@ static bool main_blocked_by_joiner[MAX_BATTERIES] = {};
 // design, which in a single-process test binary means across tests too.
 static uint8_t seconds_out_of_sync[MAX_BATTERIES] = {};
 
+/* Startup grace, one per joining pack. 3700 dV is the datalayer's "not decoded
+   yet" default and also an ordinary reading for a pack at 370.0 V, so the skip
+   latches rather than applying forever: once a joiner and the main pack have
+   both been seen off it, the 1.5 V check runs from then on. */
+static bool voltages_seen[MAX_BATTERIES] = {};
+
 static void update_main_join_permission() {
   bool blocked = false;
   for (int i = 1; i < MAX_BATTERIES; ++i) {
@@ -43,15 +49,28 @@ static void update_main_join_permission() {
 // main battery, in both directions: gates the joiner's own permission (alert
 // after 3 s out of sync, disengage after 10 s), and computes whether the
 // joiner blocks the MAIN battery from (re-)closing onto the link.
-static void check_parallel_join(int instance, EVENTS_ENUM_TYPE voltage_diff_event, uint8_t& seconds_out_of_sync) {
+static void check_parallel_join(int instance, EVENTS_ENUM_TYPE voltage_diff_event, uint8_t& seconds_out_of_sync,
+                                bool& voltages_seen) {
   const DATALAYER_BATTERY_TYPE& joiner_datalayer = datalayer_battery(instance);
   DATALAYER_BATTERY_LINK_TYPE& joiner_link = datalayer.system.status.battery_link[instance];
 
   if (datalayer.batteries[0].status.voltage_dV == 0 || joiner_datalayer.status.voltage_dV == 0) {
     return;  // Both voltage values need to be available to start check
   }
-  if (datalayer.batteries[0].status.voltage_dV == 3700 || joiner_datalayer.status.voltage_dV == 3700) {
-    return;  // Also abort if both voltages happened to be initialized to the 3700 default value that most integrations use
+  /* 3700 dV is the datalayer's init default, i.e. "no voltage decoded yet", but
+     it is also an ordinary reading for a pack sitting at 370.0 V. Treating it as
+     a continuous skip condition has three failure directions: a pack genuinely
+     at 370.0 V blocks the joiner from ever joining; a joined pair that drifts
+     while one reads exactly 3700 never reaches the 10 s disengage; and - since
+     this returns before main_blocked_by_joiner is computed - the symmetric main
+     gate never engages either, leaving the main pack's permission at its
+     fail-open default. Latch instead: once both packs have been seen off the
+     sentinel, the check runs from then on. */
+  if (!voltages_seen) {
+    if (datalayer.batteries[0].status.voltage_dV == 3700 || joiner_datalayer.status.voltage_dV == 3700) {
+      return;  // Startup grace: either pack may still hold the init default
+    }
+    voltages_seen = true;
   }
   uint16_t voltage_diff_towards_main =
       abs(datalayer.batteries[0].status.voltage_dV - joiner_datalayer.status.voltage_dV);
@@ -96,7 +115,7 @@ void check_parallel_battery_safety(uint8_t batteryNumber) {
 
   /* Before the checks are started, we need to know the battery is alive via CAN, and that the voltages have ben read*/
   if (datalayer.system.status.battery_link[instance].detected) {
-    check_parallel_join(instance, voltage_diff_event[instance], seconds_out_of_sync[instance]);
+    check_parallel_join(instance, voltage_diff_event[instance], seconds_out_of_sync[instance], voltages_seen[instance]);
   } else {
     main_blocked_by_joiner[instance] = false;
     update_main_join_permission();
@@ -108,6 +127,7 @@ void reset_parallel_join_state() {
   for (int i = 0; i < MAX_BATTERIES; ++i) {
     main_blocked_by_joiner[i] = false;
     seconds_out_of_sync[i] = 0;
+    voltages_seen[i] = false;
   }
 }
 #endif

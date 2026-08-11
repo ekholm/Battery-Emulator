@@ -17,8 +17,9 @@
 void check_parallel_battery_safety(uint8_t batteryNumber);
 
 #ifdef UNIT_TEST
-// Test-only: clears the drift timers and main-gate blocks that persist between
-// calls by design (and therefore between tests in one binary).
+// Test-only: clears the drift timers, the startup-grace latches and the
+// main-gate blocks that persist between calls by design (and therefore between
+// tests in one binary).
 void reset_parallel_join_state();
 #endif
 
