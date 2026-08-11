@@ -203,13 +203,14 @@ target_link_libraries(tests
 # Define the path for tests
 target_compile_definitions(tests PRIVATE 
     TEST_CAN_LOG_DIR="${CMAKE_SOURCE_DIR}/can_log_based/can_logs"
+    # Golden CAN traces for the contactor equivalence tests, generated against
+    # the pre-refactor implementation (see test/contactor_traces/README.md).
+    # An absolute path like the CAN logs above, rather than a copy next to the
+    # binary opened relatively: a relative path silently reports every trace as
+    # missing when the binary is run from anywhere but its build directory,
+    # which reads as six real failures.
+    TEST_CONTACTOR_TRACE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/contactor_traces"
 )
 
-# Golden CAN traces for the contactor equivalence tests, generated against the
-# pre-refactor implementation (see test/contactor_traces/README.md).
-add_custom_command(TARGET tests POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/contactor_traces
-            $<TARGET_FILE_DIR:tests>/contactor_traces)
 
 gtest_discover_tests(tests)

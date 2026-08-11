@@ -56,8 +56,10 @@ std::vector<std::string> Actual(const std::vector<CAN_frame>& frames, uint32_t i
 
 std::vector<std::string> Golden(const std::string& name) {
   std::vector<std::string> out;
-  // CMake copies the traces next to the test binary.
-  std::ifstream in("contactor_traces/" + name + ".trace");
+  // Absolute path from CMake, so the traces are found wherever the binary is
+  // run from. Opened relatively, a run from outside the build directory reports
+  // every scenario as a missing trace rather than as a wrong path.
+  std::ifstream in(std::string(TEST_CONTACTOR_TRACE_DIR) + "/" + name + ".trace");
   EXPECT_TRUE(in.good()) << "missing golden trace: " << name;
   for (std::string line; std::getline(in, line);) {
     if (!line.empty()) {
