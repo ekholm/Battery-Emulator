@@ -27,8 +27,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from board_gen import BOARDS, HEADERS, ROOT, block, parse_yaml_subset, BLOCK_RE  # noqa: E402
 
-# The commit this work branched from; its headers are the transcription truth.
-DEFAULT_BASE = '6362af8e'
+# The transcription truth is the headers as they were before this tooling touched
+# them - the last upstream commit this branch sits on. That cannot be a fixed SHA:
+# pinned to the original fork point, this check hard-exited the moment upstream
+# added an eighth board, because hw_dfrobot_edge101.h does not exist back there.
+# Resolve it instead, and let --base override.
+BASE_CANDIDATES = ('upstream/main', 'origin/main', 'main')
+
+
+def default_base():
+    for ref in BASE_CANDIDATES:
+        out = subprocess.run(['git', 'merge-base', 'HEAD', ref], cwd=ROOT,
+                             capture_output=True, text=True)
+        if out.returncode == 0:
+            return out.stdout.strip()
+    sys.exit('cannot resolve a baseline from ' + ', '.join(BASE_CANDIDATES) +
+             '. In CI this needs full history (fetch-depth: 0); '
+             'otherwise pass --base REF.')
 
 # Any member defined on one line: virtual T NAME() { ... }  /  const char* name()
 MEMBER = re.compile(r'^\s*(?:virtual\s+)?[\w:<>*\s]+?\b(\w+)\(\)\s*(?:\{|$)')
@@ -56,7 +71,7 @@ def members(text):
 
 def main():
     argv = sys.argv[1:]
-    base = argv[argv.index('--base') + 1] if '--base' in argv else DEFAULT_BASE
+    base = argv[argv.index('--base') + 1] if '--base' in argv else default_base()
 
     problems, checked = [], 0
     counts = {}
