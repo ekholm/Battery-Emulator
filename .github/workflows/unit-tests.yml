@@ -63,6 +63,11 @@ jobs:
     - name: Declarations still reproduce the original board headers
       run: python3 tools/board_verify_transcription.py
 
+    # That check has an escape hatch for hardware the original headers never
+    # had; this is the guard around it.
+    - name: New-hardware exemptions are acknowledged and not stale
+      run: python3 tools/test_transcription_verify.py
+
     - name: Capability validation rejects what it should
       run: python3 tools/test_board_validation.py
 

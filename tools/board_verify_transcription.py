@@ -5,10 +5,20 @@ Three checks, against the headers as they were BEFORE any of this tooling
 touched them (a git ref, so the proof stays meaningful after the migration
 rather than comparing the generated block to itself):
 
-  1. every line the generated block emits appears verbatim in the original;
+  1. every line the generated block emits appears verbatim in the original,
+     unless the member is acknowledged below as new since the baseline;
   2. every member the original declared still exists - either in the block or
      hand-written below it. Nothing may quietly disappear;
   3. nothing is defined twice.
+
+Check 1 needed the escape hatch once the schema started expressing hardware the
+original headers never had: the Edge101's Ethernet PHY cannot be verbatim from
+a baseline that predates support for it. Moving the baseline forward would have
+"fixed" this by blinding the check, so instead a new member has to be named in
+NEW_SINCE_BASELINE with a reason - which keeps a board gaining hardware it never
+declared before a deliberate act rather than a silent one. Those entries are
+themselves checked: one whose member IS in the baseline, or which nothing emits
+any more, is a stale exemption and fails.
 
 Check 2 enumerates members by NAME, never by matching the shape of their body.
 An earlier version of this tool decided what was "constant" with the same
@@ -45,6 +55,21 @@ def default_base():
              '. In CI this needs full history (fetch-depth: 0); '
              'otherwise pass --base REF.')
 
+# Members the declarations emit that the original headers never had. Adding to
+# this list is how new hardware support passes check 1; each entry says why it
+# is not a transcription. Entries are validated in both directions, so the list
+# cannot rot: it may not name something the baseline already had, nor something
+# no board emits any more.
+NEW_SINCE_BASELINE = {
+    'dfrobot_edge101': {
+        'ETH_MDC_PIN': 'Ethernet: the Edge101 has a PHY no hw_*.h expressed before the schema did',
+        'ETH_MDIO_PIN': 'Ethernet, as above',
+        'ETH_POWER_PIN': 'Ethernet, as above',
+        'ETH_PHY_ADDR': 'Ethernet, as above',
+        'ETH_CLK_MODE': 'Ethernet, as above',
+    },
+}
+
 # Any member defined on one line: virtual T NAME() { ... }  /  const char* name()
 MEMBER = re.compile(r'^\s*(?:virtual\s+)?[\w:<>*\s]+?\b(\w+)\(\)\s*(?:\{|$)')
 CODE = re.compile(r'^\s{2}(?:const char\*|virtual)\s')
@@ -74,7 +99,7 @@ def main():
     base = argv[argv.index('--base') + 1] if '--base' in argv else default_base()
 
     problems, checked = [], 0
-    counts = {}
+    counts, new_counts = {}, {}
     for path in sorted(BOARDS.glob('*.yaml')):
         data = parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
         board, header = data['board'], data['header']
@@ -83,19 +108,49 @@ def main():
         generated = block(board, data)
         current = (HEADERS / header).read_text(encoding='utf-8')
 
-        # 1. verbatim
+        # 1. verbatim, for everything that HAS an original to be verbatim from
+        original_names = members(original)
+        acknowledged = NEW_SINCE_BASELINE.get(board, {})
         emitted = [ln for ln in generated.splitlines() if CODE.match(ln)]
+        emitted_new = set()
         for line in emitted:
+            member = MEMBER.match(line)
+            name = member.group(1) if member else None
+            if name is not None and name not in original_names:
+                # Nothing to compare against. Either this is acknowledged new
+                # hardware, or it is a member that should have had a baseline -
+                # a renamed or mistyped getter, which check 2 also catches from
+                # the other side.
+                emitted_new.add(name)
+                if name not in acknowledged:
+                    problems.append(
+                        f'{board}: {name}() is emitted but {header} never had it at {base}. '
+                        f'If the board genuinely gained this hardware, name it in '
+                        f'NEW_SINCE_BASELINE with the reason; otherwise the declaration is '
+                        f'describing something the header did not.')
+                continue
             checked += 1
             if line.rstrip() not in original_lines:
                 problems.append(f'{board}: generated line is not in {header} at {base}:\n'
                                 f'    {line.strip()}')
+        new_counts[board] = len(emitted_new & set(acknowledged))
+
+        # 1b. the acknowledgements themselves, so the list cannot rot
+        for name, reason in sorted(acknowledged.items()):
+            if name in original_names:
+                problems.append(f'{board}: {name}() is listed as new since {base}, but the header '
+                                f'had it there. Remove the entry - it is a transcription after all.')
+            elif name not in emitted_new:
+                problems.append(f'{board}: {name}() is listed as new since {base}, but nothing '
+                                f'emits it any more. Remove the entry.')
+            elif not reason.strip():
+                problems.append(f'{board}: {name}() is listed as new since {base} with no reason.')
 
         # 2. completeness, by name
         generated_names = members(generated)
         outside = BLOCK_RE.sub('', current) if BLOCK_RE.search(current) else current
         kept_names = members(outside)
-        for name in sorted(members(original) - generated_names - kept_names):
+        for name in sorted(original_names - generated_names - kept_names):
             problems.append(f'{board}: {name}() was declared in {header} at {base} '
                             f'but is now in neither the generated block nor the header')
 
@@ -104,18 +159,26 @@ def main():
             problems.append(f'{board}: {name}() is defined both in the generated block '
                             f'and by hand in {header}')
 
-        counts[board] = (len(generated_names), len(members(original)) - len(generated_names))
+        # Hand-written means what it says: members defined outside the block.
+        # This used to be derived as "original members minus generated", which
+        # agreed with it only while every generated member came from the
+        # original - the moment one did not, the column went negative.
+        counts[board] = (len(generated_names), len(kept_names))
 
     print(f'checked {checked} generated lines against the headers at {base}')
     for b, (gen, hand) in sorted(counts.items()):
-        print(f'  {b:12} {gen:3} generated  {hand:3} hand-written')
+        new = new_counts.get(b, 0)
+        suffix = f'  {new:3} new since the baseline' if new else ''
+        print(f'  {b:12} {gen:3} generated  {hand:3} hand-written{suffix}')
     if problems:
         print()
         print('\n'.join(problems))
         print(f'\n{len(problems)} problem(s)')
         sys.exit(1)
+    total_new = sum(new_counts.values())
+    tail = (f'; {total_new} acknowledged as new hardware since then' if total_new else '')
     print('transcription: every generated line is verbatim from the original header, '
-          'every original member still exists, none defined twice')
+          f'every original member still exists, none defined twice{tail}')
 
 
 if __name__ == '__main__':
