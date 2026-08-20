@@ -5,10 +5,10 @@
 #include "CanBattery.h"
 #include "RS485Battery.h"
 
+#include "../shunt/BMW-SBOX.h"
 #include "BMW-I3-BATTERY.h"
 #include "BMW-IX-BATTERY.h"
 #include "BMW-PHEV-BATTERY.h"
-#include "BMW-SBOX.h"
 #include "BOLT-AMPERA-BATTERY.h"
 #include "BYD-ATTO-3-BATTERY.h"
 #include "CELLPOWER-BMS.h"
@@ -423,7 +423,7 @@ void setup_battery() {
           battery2 = new CmfaEvBattery(&datalayer.battery2, can_config.battery_double);
           break;
         case BatteryType::CmpSmartCar:
-          battery2 = new CmpSmartCarBattery(&datalayer.battery2, nullptr, can_config.battery_double);
+          battery2 = new CmpSmartCarBattery(&datalayer.battery2, can_config.battery_double);
           break;
         case BatteryType::StellantisEcmp:
           battery2 = new EcmpBattery(&datalayer.battery2, can_config.battery_double);
@@ -448,7 +448,7 @@ void setup_battery() {
                                        &datalayer.system.status.battery2_allowed_contactor_closing);
           break;
         case BatteryType::RenaultZoe1:
-          battery2 = new RenaultZoeGen1Battery(&datalayer.battery2, nullptr, can_config.battery_double);
+          battery2 = new RenaultZoeGen1Battery(&datalayer.battery2, can_config.battery_double);
           break;
         case BatteryType::RenaultZoe2:
           battery2 = new RenaultZoeGen2Battery(&datalayer.battery2, nullptr, can_config.battery_double);
@@ -481,6 +481,9 @@ void setup_battery() {
           break;
         case BatteryType::CmfaEv:
           battery3 = new CmfaEvBattery(&datalayer.battery3, can_config.battery_triple);
+          break;
+        case BatteryType::CmpSmartCar:
+          battery3 = new CmpSmartCarBattery(&datalayer.battery3, can_config.battery_triple);
           break;
         case BatteryType::StellantisEcmp:
           battery3 = new EcmpBattery(&datalayer.battery3, can_config.battery_triple);
@@ -520,6 +523,7 @@ int user_selected_daly_power_per_degree_C = 60;
 int user_selected_daly_power_at_0_degree_C = 800;
 /* User-selected EGMP+others settings */
 bool user_selected_use_estimated_SOC = false;
+bool user_selected_use_estimated_charge_limits = false;
 uint16_t user_selected_pylon_baudrate = 500;
 // Use 0V for user selected cell/pack voltage defaults (On boot will be replaced with saved values from NVM)
 uint16_t user_selected_max_pack_voltage_dV = 0;

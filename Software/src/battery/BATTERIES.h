@@ -1,8 +1,8 @@
 #ifndef BATTERIES_H
 #define BATTERIES_H
 
+#include "../shunt/Shunt.h"
 #include "Battery.h"
-#include "Shunt.h"
 
 // Currently initialized objects for primary/secondary/tertiary battery.
 // Null value indicates that battery is not configured/initialized
@@ -28,6 +28,7 @@ extern uint16_t user_selected_min_pack_voltage_dV;
 extern uint16_t user_selected_max_cell_voltage_mV;
 extern uint16_t user_selected_min_cell_voltage_mV;
 extern bool user_selected_use_estimated_SOC;
+extern bool user_selected_use_estimated_charge_limits;
 extern bool user_selected_LEAF_interlock_mandatory;
 extern bool user_selected_tesla_digital_HVIL;
 extern uint16_t user_selected_tesla_GTW_country;
