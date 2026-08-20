@@ -65,3 +65,12 @@ jobs:
 
     - name: Capability validation rejects what it should
       run: python3 tools/test_board_validation.py
+
+    - name: Probe-safety checker refuses what it should
+      run: python3 tools/test_probe_plan.py
+
+    # The report is checked in so that a pin change which makes a runtime probe
+    # unsafe, or which collapses a distinction a cascade would rely on, arrives
+    # as a diff to read rather than as a discovery on a bench.
+    - name: Runtime probe plan is in sync with the declarations
+      run: python3 tools/board_probe_plan.py --check
