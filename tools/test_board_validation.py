@@ -26,6 +26,9 @@ BOARDS = ROOT / 'Software' / 'boards'
 HEADERS = ROOT / 'Software' / 'src' / 'devboard' / 'hal'
 GEN = ROOT / 'tools' / 'board_gen.py'
 
+sys.path.insert(0, str(ROOT / 'tools'))
+import board_gen  # noqa: E402  - after ROOT, and the declarations have one parser
+
 failures = []
 
 
@@ -40,6 +43,14 @@ def run(board, text):
         boards, headers = Path(tmp) / 'boards', Path(tmp) / 'hal'
         boards.mkdir()
         headers.mkdir()
+        # The generator resolves add-ons next to the boards directory it was
+        # given, so the sandbox needs them too: without this every board naming
+        # an add-on would be checked against an empty set, and the add-on cases
+        # would pass without exercising anything.
+        addons = Path(tmp) / 'addons'
+        addons.mkdir()
+        for src in (ROOT / 'Software' / 'addons').glob('*.yaml'):
+            shutil.copy(src, addons / src.name)
         for src in HEADERS.glob('hw_*.h'):
             shutil.copy(src, headers / src.name)
         before = {p.name: p.read_text(encoding='utf-8') for p in headers.iterdir()}
@@ -209,6 +220,66 @@ def main():
                                   "  - {driver: mcp2518fd, bus: SPI1, cs: 20, int: 21}"),
                   'stark', 'more instances declared than the driver supports')
 
+    # --- add-ons: the board says which pins it wires, the template says which
+    # signals the module needs and which way each one goes. Neither half can
+    # check itself, so these drive the seam between them.
+    lilygo = (BOARDS / 'lilygo.yaml').read_text(encoding='utf-8')
+
+    expect_reject('an add-on with no definition',
+                  lilygo.replace('addon: mcp2515', 'addon: mcp2515_deluxe'),
+                  'lilygo', 'no definition in Software/addons', board='lilygo')
+
+    # A signal the module RECEIVES has to be driven, so binding it to a pin
+    # that can only be read cannot work. Nothing catches this today: the pin
+    # simply never asserts and the module never answers.
+    expect_reject('an add-on input on a read-only pin',
+                  lilygo.replace('cs: 18, int: 35, addon: mcp2515',
+                                 'cs: 34, int: 35, addon: mcp2515'),
+                  'lilygo', 'input-only on the esp32', board='lilygo')
+
+    # ...and that check is chip-specific, so it must not fire on a part where
+    # the same number is a perfectly good output.
+    ws = (BOARDS / 'waveshare.yaml').read_text(encoding='utf-8')
+    expect_accept('an S3 board driving GPIO 34',
+                  ws.replace('cs: 13, int: 14', 'cs: 34, int: 14, addon: mcp2518fd'),
+                  board='waveshare')
+
+    # A module that needs a bus must be on one.
+    expect_reject('an add-on needing a bus with none referenced',
+                  lilygo.replace('  - {driver: mcp2515, bus: SPI1, cs: 18, int: 35, addon: mcp2515}',
+                                 '  - {driver: mcp2515, cs: 18, int: 35, addon: mcp2515}'),
+                  'lilygo', 'needs a spi bus', board='lilygo')
+
+    # Optional signals are optional. The MCP2515's reset can be tied high on
+    # the module, and three of the four boards carrying one do exactly that -
+    # if this ever becomes an error the templates have drifted from the tree.
+    expect_accept('an add-on with its optional signal unwired', lilygo, board='lilygo')
+
+    # But a mandatory one is not.
+    expect_reject('an add-on missing a signal it must have',
+                  lilygo.replace('cs: 18, int: 35, addon: mcp2518fd', 'int: 35, addon: mcp2518fd'),
+                  'lilygo', 'needs "cs" driven', board='lilygo')
+
+    # Every template on disk has to parse and name itself, or a board naming
+    # one gets "no definition" for a reason that has nothing to do with the board.
+    try:
+        addons = board_gen.load_addons()
+    except board_gen.DeclError as exc:
+        addons = {}
+        failures.append(f'add-on templates: one does not load\n    {exc}')
+    for name, decl in sorted(addons.items()):
+        if not decl.get('pins'):
+            failures.append(f'add-on {name}: declares no pins, so it checks nothing')
+        for pin, direction in (decl.get('pins') or {}).items():
+            if direction not in ('in', 'out'):
+                failures.append(f'add-on {name}: pin "{pin}" has direction "{direction}", '
+                                f'which is neither in nor out')
+        for pin in (decl.get('optional') or []):
+            if pin not in (decl.get('pins') or {}):
+                failures.append(f'add-on {name}: "{pin}" is marked optional but is not a pin')
+    if 'dual_isolated_canfd' not in addons:
+        failures.append('the dual isolated CAN-FD add-on has no template')
+
     # Two product labels cannot name the same physical output.
     expect_reject('two outputs on one GPIO',
                   stark.replace('{label: "Output 3", gpio: 32', '{label: "Output 3", gpio: 33'),
@@ -237,8 +308,6 @@ def main():
         block = env.split('\n[', 1)[0]
         if re.search(r'^\s*-D SDCARD\s*$', block, re.M):
             sdcard_macros.update(re.findall(r'-D (HW_[A-Z0-9_]+)', block))
-    sys.path.insert(0, str(ROOT / 'tools'))
-    import board_gen
     declaring = set()
     for path in sorted(BOARDS.glob('*.yaml')):
         data = board_gen.parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)

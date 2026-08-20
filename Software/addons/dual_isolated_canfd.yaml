@@ -1,0 +1,19 @@
+# Add-on definition: a board carrying two galvanically isolated CAN-FD
+# controllers, sharing the host's SPI bus.
+#
+# 2x MCP2518FDT-E/SL with 40 MHz crystals, so the same driver settings as the
+# on-board controller apply. The isolated side runs from a 12 V -> 5 V
+# isolated DC/DC (SPU02M-05, 2 W), which has headroom for a third transceiver
+# if the board is ever extended.
+#
+# Each controller needs two host pins: a chip select the host drives, and an
+# interrupt the controller drives. Directions are from the ADD-ON's side, as
+# for every template here - `in` is a signal this board receives.
+addon: dual_isolated_canfd
+name: "Dual isolated CAN-FD board (2x MCP2518FD)"
+channels: 2
+pins:
+  cs: in
+  int: out
+requires: {bus: spi}
+provides: [canfd, canfd]

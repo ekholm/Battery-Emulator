@@ -1,0 +1,19 @@
+# Add-on definition: the STM32F030 HV precharge controller, built to generate
+# the intermediate-circuit voltage an MEB BMS wants before it will close its
+# contactors. It replaces the HIA4V1 rather than extending it - the command
+# encoding is different enough that the two are separate drivers, not one
+# driver with parameters.
+#
+# Two lines, both driven by the host:
+#   enable  switches the controller's HV-side 5 V rail on before commanding,
+#           and off on completion or fault, so it wants a power output rather
+#           than a header logic pin
+#   pwm     encodes the target voltage in two dimensions - duty picks a coarse
+#           band, frequency trims within it - and the controller closes the
+#           loop on its own ADC
+addon: meb_precharge_stm32
+name: "STM32F030 HV precharge controller (MEB)"
+pins:
+  enable: in
+  pwm: in
+provides: [automatic_precharge]

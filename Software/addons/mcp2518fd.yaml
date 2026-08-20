@@ -1,0 +1,21 @@
+# Add-on definition: a CAN-FD controller module that attaches to a board.
+#
+# Pin directions are from the ADD-ON's point of view, which is the only side
+# that is fixed. `in` is a signal the add-on receives, so the MCU has to be
+# able to drive it; `out` is one the add-on drives, so the MCU only reads. The
+# board binding then says which of its pins carries each signal, and the
+# generator checks the board can actually do that - the ESP32's GPIO 34-39 can
+# only read, so a chip-select landed on one of them is a wiring mistake that
+# should not survive to a bench.
+#
+# Written this way round deliberately: a board binding that spelled the
+# directions itself would have to flip them, and the first sketch of this
+# schema did exactly that and got them backwards.
+addon: mcp2518fd
+name: "MCP2518FD CAN-FD controller"
+pins:
+  cs: in
+  int: out
+requires:
+  bus: spi
+provides: [canfd]

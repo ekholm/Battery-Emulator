@@ -1,0 +1,12 @@
+# Add-on definition: the HIA4V1 precharge module, the controller the tree has
+# driven since before any of this existed.
+#
+# Only the command line belongs to the module. The inverter-disconnect
+# contactor the same feature drives is the board's own hardware, so it is not
+# listed here - a template describes the module, not everything the feature
+# touches.
+addon: hia4v1
+name: "HIA4V1 precharge controller"
+pins:
+  pwm: in
+provides: [automatic_precharge]

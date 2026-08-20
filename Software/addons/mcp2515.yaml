@@ -1,0 +1,18 @@
+# Add-on definition: the classic CAN controller module, the other thing the
+# tree calls an "add-on" today. Same shape as mcp2518fd; directions are from
+# the add-on's point of view. RST is optional because the driver only pulses
+# it when the board defines one.
+addon: mcp2515
+name: "MCP2515 CAN controller"
+pins:
+  cs: in
+  int: out
+  rst: in
+# RST can be tied high on the module instead of being wired back to the host,
+# and three of the four boards carrying this part do exactly that - the driver
+# only drives the line when the board declares one. So it is a signal the host
+# MAY drive, not one it must.
+optional: [rst]
+requires:
+  bus: spi
+provides: [can]

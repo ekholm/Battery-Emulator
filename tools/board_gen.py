@@ -32,6 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 BOARDS = ROOT / 'Software' / 'boards'
+ADDONS = ROOT / 'Software' / 'addons'
 HEADERS = ROOT / 'Software' / 'src' / 'devboard' / 'hal'
 
 BEGIN = '  // ---- BEGIN GENERATED from Software/boards/{board}.yaml ----'
@@ -223,6 +224,14 @@ VALID_CHIPS = ('esp32', 'esp32s3')
 # a thing to be careful about.
 CHIP_ONLY_PINS = {'esp32': (22, 23, 24, 25), 'esp32s3': tuple(range(40, 49))}
 
+# GPIOs that can only be read. A signal an add-on RECEIVES has to be driven by
+# the MCU, so binding one of these to it cannot work - and the failure is
+# silent, because nothing complains and the pin simply never asserts.
+INPUT_ONLY = {
+    'esp32': (34, 35, 36, 37, 38, 39),
+    'esp32s3': (46,),
+}
+
 
 def cap_name(feature):
     """The enumerator a feature key contributes. Overridable per feature; the
@@ -304,6 +313,53 @@ def existing_cap_order(text):
         if name and name not in ('None', 'Count') and not name.startswith('//'):
             out.append(name)
     return out
+
+
+def load_addons(directory=None):
+    """Every add-on definition, keyed by name.
+
+    An add-on is a module that plugs onto a board: a CAN controller on a header,
+    a precharge controller, the isolated dual-FD card. The board says which pins
+    it wires to it; the template says which signals the module needs and which
+    way each one goes. Neither half can check itself, which is the point of
+    having both.
+
+    Directions are from the ADD-ON's side, as the templates state: `in` is a
+    signal the module receives and the host therefore has to drive."""
+    out = {}
+    for path in sorted((directory or ADDONS).glob('*.yaml')):
+        decl = parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
+        if 'addon' not in decl:
+            raise DeclError(f'{path.name}: no "addon:" name')
+        out[decl['addon']] = decl
+    return out
+
+
+def check_addon(chip, addon, inst, bus_name, where, addons):
+    """An attached module against its template: does the board give it every
+    signal, and can the board's pins actually carry them?"""
+    if addon not in addons:
+        return [f'{where} names add-on "{addon}", which has no definition in Software/addons']
+    template = addons[addon]
+    errors = []
+    needs_bus = (template.get('requires') or {}).get('bus')
+    if needs_bus and bus_name is None:
+        errors.append(f'{where} attaches "{addon}", which needs a {needs_bus} bus, but the '
+                      f'instance references none')
+    optional = set(template.get('optional') or [])
+    for pin, direction in (template.get('pins') or {}).items():
+        value = inst.get(pin)
+        if not present(value):
+            if direction == 'in' and pin not in optional:
+                errors.append(f'{where} attaches "{addon}", which needs "{pin}" driven, but the '
+                              f'board does not provide it')
+            continue
+        if direction != 'in' or not str(value).isdigit():
+            continue
+        if int(value) in INPUT_ONLY.get(chip, ()):
+            errors.append(f'{where} attaches "{addon}" with "{pin}" on GPIO {value}, which is '
+                          f'input-only on the {chip} and cannot drive it')
+    return errors
 
 
 class DeclError(Exception):
@@ -449,8 +505,9 @@ def present(value):
 # Validation
 # --------------------------------------------------------------------------
 
-def validate(board, data):
+def validate(board, data, addons=None):
     errors = []
+    addons = {} if addons is None else addons
     for feature in FEATURES:
         try:
             declared = instances_of(data, feature)
@@ -476,6 +533,8 @@ def validate(board, data):
                     return bus[name]
                 return None
 
+            if 'addon' in inst:
+                errors += check_addon(data.get('chip'), inst['addon'], inst, bus_name, where, addons)
             for name in spec.get('requires', []):
                 if not present(field(name)):
                     errors.append(f'{where} needs "{name}", which the board does not define')
@@ -493,7 +552,7 @@ def validate(board, data):
                     for name in ('clk', 'mosi', 'miso'):
                         if not present(bus.get(name)):
                             errors.append(f'{where} uses bus "{bus_name}", which does not define "{name}"')
-            unknown = set(inst) - set(spec['instances'][index]) - {'driver', 'bus'} - set(
+            unknown = set(inst) - set(spec['instances'][index]) - {'driver', 'bus', 'addon'} - set(
                 spec.get('scalars', [{}] * (index + 1))[index] if index < len(spec.get('scalars', [])) else {})
             if unknown:
                 errors.append(f'{where} has unknown field(s) {sorted(unknown)}')
@@ -754,12 +813,18 @@ def main():
     hal_cpp = headers / 'hal.cpp'
     HAL_MACROS = hal_cpp.read_text(encoding='utf-8') if hal_cpp.exists() else ''
 
+    try:
+        addons = load_addons(boards.parent / 'addons' if '--boards' in argv else None)
+    except DeclError as exc:
+        print(f'add-on declaration error: {exc}', file=sys.stderr)
+        sys.exit(1)
+
     updates, errors, declared = [], [], []
     for path in sorted(boards.glob('*.yaml')):
         try:
             data = parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
             board = data['board']
-            board_errors = validate(board, data)
+            board_errors = validate(board, data, addons)
             if board_errors:
                 errors += board_errors
                 continue
