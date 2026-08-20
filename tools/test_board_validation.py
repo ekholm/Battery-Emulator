@@ -366,6 +366,20 @@ def main():
     if 'Zigbee' in grown and 'no declaration carries this any more' not in grown:
         failures.append('a capability no declaration carries is kept but not marked as such')
 
+    # A declaration nothing builds is a declaration nothing checks: no CI job
+    # compiles the board, and board_gen's chip/flash cross-check has no env to
+    # compare against, so those two fields are whatever the file says. The 3LB
+    # sat in exactly that state from 2024 until this was added.
+    ini = (ROOT / 'platformio.ini').read_text(encoding='utf-8')
+    for declaration in sorted(BOARDS.glob('*.yaml')):
+        macro = re.search(r'^macro:\s*(\S+)', declaration.read_text(encoding='utf-8'), re.M)
+        if macro is None:
+            failures.append(f'{declaration.name} declares no macro')
+            continue
+        if not re.search(r'-D\s+%s\b' % re.escape(macro.group(1)), ini):
+            failures.append(f'{declaration.name} is declared but no platformio env defines '
+                            f'{macro.group(1)} - nothing builds it, so nothing checks it')
+
     if failures:
         print(f'board validation: {len(failures)} FAILED')
         for f in failures:

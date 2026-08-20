@@ -19,7 +19,7 @@ is dependably the harmless one.
 
 | board | build macro | env | chip family | flash | PSRAM |
 |---|---|---|---|---|---|
-| 3lb | `HW_3LB` | **none** | ESP32 | 4 MB | no |
+| 3lb | `HW_3LB` | `3lb_330` | ESP32 | 4 MB | no |
 | becom | `HW_BECOM` | `BECom_330` | ESP32-S3 | 16 MB | no |
 | devkit | `HW_DEVKIT` | `esp32devkit_330` | ESP32 | 4 MB | no |
 | dfrobot_edge101 | `HW_DFROBOT_EDGE101` | `dfrobot_edge101_330` | ESP32 | 16 MB | no |
@@ -27,10 +27,6 @@ is dependably the harmless one.
 | lilygo2can | `HW_LILYGO2CAN` | `lilygo_2CAN_330` | ESP32-S3 | 16 MB | yes |
 | stark | `HW_STARK` | `stark_330` | ESP32 | 8 MB | no |
 | waveshare | `HW_WAVESHARE` | `waveshare_330` | ESP32-S3 | 16 MB | yes |
-
-> **`3lb` has a declaration and a header (`hal.cpp` switches on `HW_3LB`) but no `platformio.ini` env, so nothing builds it today.** Its chip and flash come from the
-> declaration, which is the case for declaring them rather than reading the build; its PSRAM does not, so it is taken as having none. Still a gap worth closing: a board the
-> tree can select but cannot build is one nothing else checks.
 
 ## Which boards can be confused with which
 

@@ -96,9 +96,19 @@ def main():
     # nothing lands in a group by default or goes unplaced.
     data = {b: load(b) for b in ('3lb', 'stark', 'waveshare')}
     facts = pp.board_facts(list(data), data)
+    check('a declared board is matched to the env that builds it',
+          facts['3lb']['env'] == '3lb_330', f'got {facts["3lb"]}')
+
+    # The property is that the declaration alone is enough to place a board, so
+    # it must not be tested by pointing at whichever board happens to be
+    # unbuilt: this used to name the 3LB, and adding the env it had been
+    # missing since 2024 turned the case green-by-accident into a failure.
+    unbuilt = dict(load('3lb'))
+    unbuilt[bg.MACRO_KEY] = 'HW_NO_ENV_DEFINES_THIS'
+    orphan = pp.board_facts(['3lb'], {'3lb': unbuilt})['3lb']
     check('a board with no env is still placed',
-          facts['3lb']['env'] is None and facts['3lb']['family'] == 'ESP32'
-          and facts['3lb']['flash_mb'] == 4, f'got {facts["3lb"]}')
+          orphan['env'] is None and orphan['family'] == 'ESP32' and orphan['flash_mb'] == 4,
+          f'got {orphan}')
     check('a declared S3 board reads as one', facts['waveshare']['family'] == 'ESP32-S3')
     check('flash size comes through', facts['stark']['flash_mb'] == 8, f'got {facts["stark"]}')
 

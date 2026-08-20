@@ -37,6 +37,8 @@ jobs:
             pio_env: "waveshare_330"
           - board_name: "DFRobot Edge101"
             pio_env: "dfrobot_edge101_330"
+          - board_name: "3LB"
+            pio_env: "3lb_330"
 
     steps:
     - uses: actions/checkout@v7
