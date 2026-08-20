@@ -6,6 +6,7 @@
 board: waveshare
 class: WaveshareS3Rs485CanHal
 header: hw_waveshare.h
+macro: HW_WAVESHARE
 name: "Waveshare ESP32-S3-RS485-CAN"
 buses:
   SPI1: {clk: 10, mosi: 11, miso: 12}

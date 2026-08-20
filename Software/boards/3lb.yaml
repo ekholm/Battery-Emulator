@@ -6,6 +6,7 @@
 board: 3lb
 class: ThreeLBHal
 header: hw_3LB.h
+macro: HW_3LB
 name: "3LB board"
 buses:
   SPI1: {clk: 12, mosi: 5, miso: 34}

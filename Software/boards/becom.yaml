@@ -6,6 +6,7 @@
 board: becom
 class: BEComHal
 header: hw_becom.h
+macro: HW_BECOM
 name: "BECom"
 buses:
   SPI1: {clk: 12, mosi: 11, miso: 13}

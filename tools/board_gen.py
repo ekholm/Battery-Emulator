@@ -113,6 +113,7 @@ FEATURES = {
         'instances': [{'miso': 'SD_MISO_PIN', 'mosi': 'SD_MOSI_PIN',
                        'clk': 'SD_SCLK_PIN', 'cs': 'SD_CS_PIN'}],
         'requires': ['miso', 'mosi', 'clk'],
+        'provides': ['SdCard'],
     },
     # The SPI-attached card, a separate feature rather than a field on sd_mmc.
     # The pins carry a different meaning - this is a chip-select SPI slave, not
@@ -127,6 +128,7 @@ FEATURES = {
         # SD_SPI_BUS(), so this one overrides it and the emitted line has to
         # match that shape or the transcription check rejects it.
         'scalars': [{'spi_bus': ('uint8_t', 'SD_SPI_BUS', 'override')}],
+        'provides': ['SdCard'],
         'guard': 'SDCARD',
     },
     'display_i2c': {
@@ -160,6 +162,78 @@ SECTION_COMMENT = {
     'equipment_stop': 'Equipment stop pin', 'battery_wakeup': 'Battery wake up pins',
     'ap_button': 'Wi-Fi AP button', 'display_i2c': 'i2c display',
 }
+
+
+# --------------------------------------------------------------------------
+# Capabilities
+# --------------------------------------------------------------------------
+# A board's CAPABILITY SET is the union of the features it declares - the
+# mechanical tie between this schema and the registries that gate rows on
+# hardware (the settings table's `requires` column is the first consumer).
+# When upstream adds hardware, the feature lands in a YAML and the enum grows;
+# nothing keeps a hand-written list in step.
+#
+# A feature contributes its own cap, plus any it `provides`. The provided caps
+# are what lets a consumer ask a question the boards answer two ways: SD-card
+# logging needs a card, and a board has one over SD_MMC or over SPI. Asking for
+# `SdCard` keeps the requirement a single value, so requirement rows stay a
+# conjunction of single ids with no OR anywhere in them.
+CAPABILITIES = ROOT / 'Software' / 'src' / 'devboard' / 'hal' / 'capabilities.h'
+
+# Board declarations name their build macro rather than having it derived from
+# the board name: it is the macro `hal.cpp` switches on, and the two agreeing
+# is checked below rather than assumed from a spelling convention.
+MACRO_KEY = 'macro'
+
+
+def cap_name(feature):
+    """The enumerator a feature key contributes. Overridable per feature; the
+    default is the key in CamelCase."""
+    override = FEATURES.get(feature, {}).get('cap')
+    return override or ''.join(part.capitalize() for part in feature.split('_'))
+
+
+def caps_of(data):
+    """Every capability a board declaration carries, in emission order."""
+    out = []
+    for feature in FEATURE_ORDER:
+        if not instances_of(data, feature):
+            continue
+        for cap in [cap_name(feature)] + FEATURES[feature].get('provides', []):
+            if cap not in out:
+                out.append(cap)
+    return out
+
+
+def all_caps():
+    """Every capability the schema can express, in emission order."""
+    out = []
+    for feature in FEATURE_ORDER:
+        for cap in [cap_name(feature)] + FEATURES[feature].get('provides', []):
+            if cap not in out:
+                out.append(cap)
+    return out
+
+
+def existing_cap_order(text):
+    """The enumerators an already-generated capabilities.h carries, in file
+    order. Ids are compile-time only and never persisted, so renumbering would
+    be safe - the order is preserved anyway so that adding a feature shows up
+    as one added line rather than a renumbered file."""
+    if not text:
+        return []
+    body = text.split('enum class BoardCap : uint8_t {', 1)
+    if len(body) < 2:
+        return []
+    out = []
+    for line in body[1].split('};', 1)[0].splitlines():
+        # The trailing marker on a retained cap has to come off, or the name
+        # read back would carry it and the next run would treat the same cap
+        # as a new one.
+        name = line.split('//')[0].strip().rstrip(',').split('=')[0].strip()
+        if name and name not in ('None', 'Count') and not name.startswith('//'):
+            out.append(name)
+    return out
 
 
 class DeclError(Exception):
@@ -354,6 +428,15 @@ def validate(board, data):
             if unknown:
                 errors.append(f'{where} has unknown field(s) {sorted(unknown)}')
 
+    # The build macro feeds the #if chain in the generated capabilities.h, so a
+    # missing or misspelled one silently leaves a board with no capability set
+    # rather than failing to build.
+    macro = data.get(MACRO_KEY)
+    if not macro:
+        errors.append(f'{board}: no "{MACRO_KEY}:" - name the build macro hal.cpp switches on')
+    elif not re.fullmatch(r'HW_[A-Z0-9_]+', str(macro)):
+        errors.append(f'{board}: macro "{macro}" is not of the form HW_SOMETHING')
+
     # Both card features emit SD_MISO_PIN/SD_MOSI_PIN/SD_SCLK_PIN, so a board
     # declaring both would define them twice. Caught here rather than left to
     # the compiler, since the declaration is where the mistake is made.
@@ -450,6 +533,73 @@ def block(board, data):
     return '\n'.join(lines) + '\n'
 
 
+
+CAP_HEADER_NOTE = """// GENERATED by tools/board_gen.py from Software/boards/*.yaml - do not edit.
+// Rebuild with `python3 tools/board_gen.py`; CI fails if this file and the
+// declarations disagree.
+//
+// What each board can do, as the union of the features its declaration
+// carries. This is the tie between the board schema and the registries that
+// gate rows on hardware: a row asks for a capability, and the answer comes
+// from the same file that already says which pins the feature uses, so a
+// board cannot advertise a feature it has no pins for.
+//
+// Ids are compile-time only - never stored, never sent - so they may be
+// renumbered freely. The generator preserves the order it already emitted
+// anyway, so that declaring a new feature is one added line here."""
+
+
+def capabilities_header(boards, previous):
+    """The generated capabilities.h. `boards` is [(board, data)] sorted by
+    board; `previous` is the file's current text, read for its enumerator
+    order."""
+    order = existing_cap_order(previous)
+    for cap in all_caps():
+        if cap not in order:
+            order.append(cap)
+    known = set(all_caps())
+
+    lines = [CAP_HEADER_NOTE, '',
+             '#ifndef BE_DEVBOARD_HAL_CAPABILITIES_H',
+             '#define BE_DEVBOARD_HAL_CAPABILITIES_H', '',
+             '#include <stdint.h>', '',
+             'enum class BoardCap : uint8_t {',
+             '  None = 0,  // "no requirement on this axis", so it is never a board\'s capability']
+    for cap in order:
+        lines.append(f'  {cap},' + ('' if cap in known else '  // no declaration carries this any more'))
+    lines += ['  Count,', '};', '',
+              'inline constexpr uint8_t BOARD_CAP_COUNT = static_cast<uint8_t>(BoardCap::Count);',
+              '',
+              '// The sets below are bitmasks, so the whole enum has to fit one word.',
+              'static_assert(BOARD_CAP_COUNT <= 64, "BoardCap has outgrown the 64-bit capability set");',
+              '',
+              'constexpr uint64_t board_cap_bit(BoardCap cap) {',
+              '  return cap == BoardCap::None ? uint64_t{0} : (uint64_t{1} << static_cast<uint8_t>(cap));',
+              '}', '',
+              '// Per-board capability sets. Constant expressions on purpose: a per-board',
+              '// build folds a requirement check away entirely, so a row gated off on this',
+              '// board costs it nothing.']
+    for board, data in boards:
+        caps = caps_of(data)
+        const = f'BOARD_CAPS_{board.upper()}'
+        if caps:
+            body = ' |\n    '.join(f'board_cap_bit(BoardCap::{c})' for c in caps)
+        else:
+            body = 'uint64_t{0}'
+        lines.append(f'inline constexpr uint64_t {const} =')
+        lines.append(f'    {body};')
+    lines += ['',
+              "// The active board's set, where the build has exactly one board - the same",
+              '// macro hal.cpp switches on. A build that compiles every board (one image',
+              '// for all of them) matches no branch and leaves this undefined, which is the',
+              '// signal to bind the set at runtime from the board that was selected.']
+    for i, (board, data) in enumerate(boards):
+        lines.append(f'#{"if" if i == 0 else "elif"} defined({data[MACRO_KEY]})')
+        lines.append(f'#define BE_BOARD_CAPS BOARD_CAPS_{board.upper()}')
+    lines += ['#endif', '', '#endif  // BE_DEVBOARD_HAL_CAPABILITIES_H']
+    return '\n'.join(lines) + '\n'
+
+
 BLOCK_RE = re.compile(r'^  // ---- BEGIN GENERATED.*?^  // ---- END GENERATED ----\n',
                       re.S | re.M)
 
@@ -467,7 +617,10 @@ def main():
     boards = Path(argv[argv.index('--boards') + 1]) if '--boards' in argv else BOARDS
     headers = Path(argv[argv.index('--headers') + 1]) if '--headers' in argv else HEADERS
 
-    updates, errors = [], []
+    hal_cpp = headers / 'hal.cpp'
+    HAL_MACROS = hal_cpp.read_text(encoding='utf-8') if hal_cpp.exists() else ''
+
+    updates, errors, declared = [], [], []
     for path in sorted(boards.glob('*.yaml')):
         try:
             data = parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
@@ -482,10 +635,30 @@ def main():
                 continue
             text = target.read_text(encoding='utf-8')
             updates.append((target, text, splice(text, block(board, data))))
+            declared.append((board, data))
         except DeclError as exc:
             errors.append(f'{path.stem}: {exc}' if not str(exc).startswith(path.stem) else str(exc))
 
     if errors:
+        print('board declaration errors:', file=sys.stderr)
+        for err in errors:
+            print(f'  {err}', file=sys.stderr)
+        sys.exit(1)
+
+    # The capability header covers every board at once, so it is emitted only
+    # once all the declarations have parsed and validated.
+    caps_path = (boards.parent.parent / 'capabilities.h' if '--boards' in argv
+                 else CAPABILITIES)
+    if '--headers' in argv:
+        caps_path = headers / 'capabilities.h'
+    previous = caps_path.read_text(encoding='utf-8') if caps_path.exists() else ''
+    updates.append((caps_path, previous, capabilities_header(declared, previous)))
+
+    missing = ([b for b, d in declared if f'defined({d[MACRO_KEY]})' not in HAL_MACROS]
+               if HAL_MACROS else [])
+    if missing:
+        errors.append('capabilities.h would emit a branch hal.cpp never takes, for: '
+                      + ', '.join(missing))
         print('board declaration errors:', file=sys.stderr)
         for err in errors:
             print(f'  {err}', file=sys.stderr)

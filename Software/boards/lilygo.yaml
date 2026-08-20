@@ -6,6 +6,7 @@
 board: lilygo
 class: LilyGoHal
 header: hw_lilygo.h
+macro: HW_LILYGO
 name: "LilyGo T-CAN485"
 buses:
   SPI1: {clk: 12, mosi: 5, miso: 34}

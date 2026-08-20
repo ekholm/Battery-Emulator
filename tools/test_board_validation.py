@@ -48,7 +48,10 @@ def run(board, text):
             [sys.executable, str(GEN), '--boards', str(boards), '--headers', str(headers)],
             capture_output=True, text=True)
         after = {p.name: p.read_text(encoding='utf-8') for p in headers.iterdir()}
-        return proc.returncode, proc.stdout + proc.stderr, before != after, after
+        # capabilities.h lands in the same directory but is not a board header;
+        # excluded so that "did a header change" keeps meaning what it says.
+        touched = {k: v for k, v in after.items() if k != 'capabilities.h'}
+        return proc.returncode, proc.stdout + proc.stderr, before != touched, after
 
 
 def expect_reject(case, text, *must_mention, board='stark'):
@@ -160,6 +163,47 @@ def main():
     # The parser refuses what it does not understand rather than guessing.
     expect_reject('unparseable indent', stark.replace('rs485:', 'rs485:\n      deep: 1'),
                   'indent')
+
+    # A board with no build macro, or one that is not a macro, gets no branch in
+    # the capability header's #if chain - and would silently have no capability
+    # set rather than failing to build.
+    expect_reject('no macro', drop(stark, r'macro: HW_STARK\n'), 'stark', 'macro')
+    expect_reject('macro is not one', stark.replace('macro: HW_STARK', 'macro: stark'),
+                  'stark', 'HW_SOMETHING')
+
+    # THE MIGRATION'S SAFETY ARGUMENT, checked rather than asserted: a row that
+    # asks for BoardCap::SdCard must be live on exactly the builds where the
+    # `#ifdef SDCARD` it replaces is true. The two are derived from different
+    # files - the declarations and platformio.ini - so nothing but this test
+    # keeps them in step, and if they ever diverge the migration has silently
+    # changed which boards log to a card.
+    ini = (ROOT / 'platformio.ini').read_text(encoding='utf-8')
+    sdcard_macros = set()
+    for env in re.split(r'^\[env:', ini, flags=re.M)[1:]:
+        block = env.split('\n[', 1)[0]
+        if re.search(r'^\s*-D SDCARD\s*$', block, re.M):
+            sdcard_macros.update(re.findall(r'-D (HW_[A-Z0-9_]+)', block))
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import board_gen
+    declaring = set()
+    for path in sorted(BOARDS.glob('*.yaml')):
+        data = board_gen.parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
+        if 'SdCard' in board_gen.caps_of(data):
+            declaring.add(data[board_gen.MACRO_KEY])
+    if declaring != sdcard_macros:
+        failures.append('SdCard capability and -D SDCARD disagree: declared by '
+                        f'{sorted(declaring)}, built with the define on {sorted(sdcard_macros)}')
+
+    # Ids are preserved across regeneration. A feature added in the middle of
+    # the emission order must not renumber the enumerators already emitted -
+    # that is the difference between one added line and a rewritten file.
+    caps = board_gen.capabilities_header([], '')
+    grown = board_gen.capabilities_header([], caps.replace('  Rs485,', '  Ethernet,\n  Rs485,'))
+    order = board_gen.existing_cap_order(grown)
+    if order[:1] != ['Ethernet']:
+        failures.append(f'capability ids are not append-only: {order[:3]} lost its first entry')
+    if 'Ethernet' in grown and 'no declaration carries this any more' not in grown:
+        failures.append('a capability no declaration carries is kept but not marked as such')
 
     if failures:
         print(f'board validation: {len(failures)} FAILED')

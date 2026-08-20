@@ -6,6 +6,7 @@
 board: lilygo2can
 class: LilyGo2CANHal
 header: hw_lilygo2can.h
+macro: HW_LILYGO2CAN
 name: "LilyGo T_2CAN"
 buses:
   SPI1: {clk: variant, mosi: variant, miso: variant}

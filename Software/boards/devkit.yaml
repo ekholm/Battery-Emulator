@@ -6,6 +6,7 @@
 board: devkit
 class: DevKitHal
 header: hw_devkit.h
+macro: HW_DEVKIT
 name: "ESP32 DevKit V1"
 buses:
   SPI1: {clk: 22, mosi: 21, miso: 19}

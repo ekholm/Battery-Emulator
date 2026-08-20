@@ -6,6 +6,7 @@
 board: dfrobot_edge101
 class: DFRobotEdge101Hal
 header: hw_dfrobot_edge101.h
+macro: HW_DFROBOT_EDGE101
 name: "DFRobot Edge101 IOT Controller"
 rs485:
   - {tx: 17, rx: 36, de: 16}

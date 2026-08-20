@@ -6,6 +6,7 @@
 board: stark
 class: StarkHal
 header: hw_stark.h
+macro: HW_STARK
 name: "Stark CMR Module"
 buses:
   SPI1: {clk: variant, mosi: 5, miso: 34}
