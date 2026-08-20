@@ -210,12 +210,57 @@ CAPABILITIES = ROOT / 'Software' / 'src' / 'devboard' / 'hal' / 'capabilities.h'
 # is checked below rather than assumed from a spelling convention.
 MACRO_KEY = 'macro'
 
+# The part a board is built around, and how much program flash it has. Declared
+# rather than derived: platformio.ini knows both, but only for boards an env
+# actually builds, and a declaration that describes hardware should not go
+# missing because nobody wired up a build for it. Where an env DOES exist the
+# two are cross-checked below, so the pair cannot drift apart.
+VALID_CHIPS = ('esp32', 'esp32s3')
+
+# GPIO numbers only one part has. The ESP32-S3 has no GPIO 22-25 at all and the
+# classic ESP32 stops at 39, so a declaration using one of these could not be
+# describing the other part - which makes a wrong `chip:` catchable rather than
+# a thing to be careful about.
+CHIP_ONLY_PINS = {'esp32': (22, 23, 24, 25), 'esp32s3': tuple(range(40, 49))}
+
 
 def cap_name(feature):
     """The enumerator a feature key contributes. Overridable per feature; the
     default is the key in CamelCase."""
     override = FEATURES.get(feature, {}).get('cap')
     return override or ''.join(part.capitalize() for part in feature.split('_'))
+
+
+def declared_pins(data):
+    """Every GPIO a declaration puts a role on.
+
+    Only fields that map to a pin getter count. Walking the declaration for
+    anything numeric would sweep up the scalars too, and an LED brightness of
+    40 or a 16 MHz crystal is not a GPIO - which is exactly the false positive
+    the first version of this produced."""
+    found = set()
+
+    def take(value):
+        if str(value).isdigit():
+            found.add(int(value))
+
+    for feature in FEATURE_ORDER:
+        try:
+            declared = instances_of(data, feature)
+        except DeclError:
+            continue  # reported elsewhere; a broken feature has no pins to read
+        for spec, index, inst, driver in declared:
+            if index >= len(spec['instances']):
+                continue
+            _, bus = bus_of(data, inst, feature)
+            if bus and 'bus' in spec and index < len(spec['bus']):
+                for role in spec['bus'][index]:
+                    take(bus.get(role))
+            for role in spec['instances'][index]:
+                take(inst.get(role))
+    for out in data.get('outputs', []):
+        take(out.get('gpio'))
+    return found
 
 
 def caps_of(data):
@@ -456,6 +501,24 @@ def validate(board, data):
     # The build macro feeds the #if chain in the generated capabilities.h, so a
     # missing or misspelled one silently leaves a board with no capability set
     # rather than failing to build.
+    chip = data.get('chip')
+    if chip not in VALID_CHIPS:
+        errors.append(f'{board}: chip must be one of {VALID_CHIPS}, got "{chip}"')
+    else:
+        for other, pins in CHIP_ONLY_PINS.items():
+            if other == chip:
+                continue
+            used = sorted({p for p in declared_pins(data) if p in pins})
+            if used:
+                errors.append(f'{board}: declares chip "{chip}" but uses GPIO '
+                              f'{", ".join(map(str, used))}, which only the {other} has')
+    flash_mb = data.get('flash_mb')
+    try:
+        if int(str(flash_mb)) <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        errors.append(f'{board}: flash_mb must be a positive integer, got "{flash_mb}"')
+
     macro = data.get(MACRO_KEY)
     if not macro:
         errors.append(f'{board}: no "{MACRO_KEY}:" - name the build macro hal.cpp switches on')

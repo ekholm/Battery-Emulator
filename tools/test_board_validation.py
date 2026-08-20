@@ -248,6 +248,44 @@ def main():
         failures.append('SdCard capability and -D SDCARD disagree: declared by '
                         f'{sorted(declaring)}, built with the define on {sorted(sdcard_macros)}')
 
+    # chip/flash_mb are declared, but platformio.ini also knows both for every
+    # board an env builds. Two files stating the same fact drift unless
+    # something compares them, and a wrong flash size here would mislead
+    # anything reasoning about what a build can hold.
+    for path in sorted(BOARDS.glob('*.yaml')):
+        data = board_gen.parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
+        macro = data.get(board_gen.MACRO_KEY)
+        env = None
+        for block in re.split(r'^\[env:', ini, flags=re.M)[1:]:
+            body = block.split('\n[', 1)[0]
+            if f'-D {macro}' in body:
+                env = (block.split(']')[0], body)
+                break
+        if env is None:
+            continue  # no env builds it; the declaration is the only source
+        env_name, body = env
+        base = ''
+        extends = re.search(r'extends\s*=\s*(\S+)', body)
+        if extends:
+            m = re.search(r'^\[' + extends.group(1) + r'\]([\s\S]*?)(?=^\[)', ini, flags=re.M)
+            base = m.group(1) if m else ''
+        expect_s3 = 's3' in (extends.group(1) if extends else '')
+        if (data.get('chip') == 'esp32s3') != expect_s3:
+            failures.append(f'{data["board"]}: declares chip "{data.get("chip")}" but {env_name} '
+                            f'builds it as {"an ESP32-S3" if expect_s3 else "a classic ESP32"}')
+        size = re.search(r'flash_size\s*=\s*(\d+)MB', body) or re.search(r'flash_size\s*=\s*(\d+)MB', base)
+        if size and int(size.group(1)) != int(data.get('flash_mb', 0)):
+            failures.append(f'{data["board"]}: declares flash_mb {data.get("flash_mb")} but '
+                            f'{env_name} builds it with flash_size {size.group(1)}MB')
+
+    # A board whose declared chip cannot have the pins it declares.
+    expect_reject('chip contradicted by its own pins',
+                  stark.replace('chip: esp32', 'chip: esp32s3'),
+                  'stark', 'only the esp32 has')
+    expect_reject('no chip at all', drop(stark, r'chip: esp32\n'), 'stark', 'chip must be one of')
+    expect_reject('a nonsense flash size',
+                  stark.replace('flash_mb: 8', 'flash_mb: none'), 'stark', 'flash_mb')
+
     # Ids are preserved across regeneration. A feature added in the middle of
     # the emission order must not renumber the enumerators already emitted -
     # that is the difference between one added line and a rewritten file.

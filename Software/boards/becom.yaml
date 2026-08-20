@@ -7,6 +7,8 @@ board: becom
 class: BEComHal
 header: hw_becom.h
 macro: HW_BECOM
+chip: esp32s3
+flash_mb: 16
 name: "BECom"
 buses:
   SPI1: {clk: 12, mosi: 11, miso: 13}

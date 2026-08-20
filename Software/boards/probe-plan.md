@@ -6,8 +6,8 @@ Derived from `Software/boards/*.yaml` and `platformio.ini`. See the header of
 
 ## Verdict
 
-**1 of 5 groups are settled by the free facts alone** - no probe
-needed. Of the 4 that are not, **3 cannot be resolved safely at all**; 1 can.
+**3 of 5 groups are settled by the free facts alone** - no probe
+needed. Of the 2 that are not, **2 cannot be resolved safely at all**; 0 can.
 
 The blocker is not that the parts are unreadable. It is that reaching them means driving
 pins that are contactor, precharge, wake-up or product-output lines on the other boards
@@ -19,7 +19,7 @@ is dependably the harmless one.
 
 | board | build macro | env | chip family | flash | PSRAM |
 |---|---|---|---|---|---|
-| 3lb | `HW_3LB` | **none** | unknown | unknown | unknown |
+| 3lb | `HW_3LB` | **none** | ESP32 | 4 MB | no |
 | becom | `HW_BECOM` | `BECom_330` | ESP32-S3 | 16 MB | no |
 | devkit | `HW_DEVKIT` | `esp32devkit_330` | ESP32 | 4 MB | no |
 | dfrobot_edge101 | `HW_DFROBOT_EDGE101` | `dfrobot_edge101_330` | ESP32 | 16 MB | no |
@@ -28,19 +28,18 @@ is dependably the harmless one.
 | stark | `HW_STARK` | `stark_330` | ESP32 | 8 MB | no |
 | waveshare | `HW_WAVESHARE` | `waveshare_330` | ESP32-S3 | 16 MB | yes |
 
-> **`3lb` has a declaration and a header (`hal.cpp` switches on `HW_3LB`) but no `platformio.ini` env, so nothing builds it today.** Its flash size is therefore
-> unknown, but its family is not a guess: it declares GPIO 23, 25, which the ESP32-S3 does not have, so it is an **ESP32** board. It
-> is placed in every ESP32 group and none of the others.
-> Either way this is a gap worth closing: a board the tree can select but cannot build is one nothing can check.
+> **`3lb` has a declaration and a header (`hal.cpp` switches on `HW_3LB`) but no `platformio.ini` env, so nothing builds it today.** Its chip and flash come from the
+> declaration, which is the case for declaring them rather than reading the build; its PSRAM does not, so it is taken as having none. Still a gap worth closing: a board the
+> tree can select but cannot build is one nothing else checks.
 
 ## Which boards can be confused with which
 
 Chip family is a compile-time choice - the toolchain differs - so one image never spans
 both. Flash size and PSRAM are read at runtime and drive no pins, so they are free.
 
-- **ESP32, 16 MB flash, PSRAM no** → `3lb`, `dfrobot_edge101` still in contention.
+- **ESP32, 16 MB flash, PSRAM no** → `dfrobot_edge101` alone. Nothing to probe for.
 - **ESP32, 4 MB flash, PSRAM no** → `3lb`, `devkit`, `lilygo` still in contention.
-- **ESP32, 8 MB flash, PSRAM no** → `3lb`, `stark` still in contention.
+- **ESP32, 8 MB flash, PSRAM no** → `stark` alone. Nothing to probe for.
 - **ESP32-S3, 16 MB flash, PSRAM no** → `becom` alone. Nothing to probe for.
 - **ESP32-S3, 16 MB flash, PSRAM yes** → `lilygo2can`, `waveshare` still in contention.
 
@@ -48,14 +47,6 @@ both. Flash size and PSRAM are read at runtime and drive no pins, so they are fr
 
 A probe drives some pins and reads one. Only the DRIVEN pins can do harm - MISO is an
 input on our side, so reading it is free whatever the other board calls that pad.
-
-### Contending: `3lb`, `dfrobot_edge101` (ESP32, 16 MB, PSRAM no)
-
-- **SAFE** — probe `3lb` for mcp2515 on bus SPI1: drives GPIO 5, 12, 18, reads 34.
-  No driven pin is an actuating or externally-driven role on any board still in
-  contention here.
-
-**Result: COMPLETE.** Every board in this group is reachable by safe probes alone.
 
 ### Contending: `3lb`, `devkit`, `lilygo` (ESP32, 4 MB, PSRAM no)
 
@@ -112,25 +103,6 @@ input on our side, so reading it is free whatever the other board calls that pad
 - **STUCK** — no safe probe separates `3lb`, `devkit`, `lilygo`.
 
 **Result: INCOMPLETE.** `3lb` vs `devkit` vs `lilygo` cannot be told apart safely.
-
-### Contending: `3lb`, `stark` (ESP32, 8 MB, PSRAM no)
-
-- **REFUSED** — probe `3lb` for mcp2515 on bus SPI1 would drive GPIO 5, 12, 18:
-  - on `stark`, the declaration does not say which pad `contactors.precharge` lands on — **UNPLACED**, so no pin can be certified
-  - on `stark`, the declaration does not say which pad `contactors.bms_power` lands on — **UNPLACED**, so no pin can be certified
-- **REFUSED** — probe `3lb` for mcp2518fd on bus SPI2 would drive GPIO 17, 21, 23:
-  - on `stark`, GPIO 23 is `output "Output 4"` — **ACTUATING**
-  - on `stark`, the declaration does not say which pad `contactors.precharge` lands on — **UNPLACED**, so no pin can be certified
-  - on `stark`, the declaration does not say which pad `contactors.bms_power` lands on — **UNPLACED**, so no pin can be certified
-- **REFUSED** — probe `stark` for mcp2518fd on bus SPI1 would drive GPIO 5, 18:
-  - on `3lb`, GPIO 5 is `chademo.pin10` — **GUARDED_INPUT**
-  - on `3lb`, GPIO 18 is `chademo.lock` — **ACTUATING**
-- **REFUSED** — probe `stark` for mcp2518fd on bus SPI1 would drive GPIO 5, 12:
-  - on `3lb`, GPIO 5 is `chademo.pin10` — **GUARDED_INPUT**
-  - on `3lb`, GPIO 12 is `chademo.pin2` — **GUARDED_INPUT**
-- **STUCK** — no safe probe separates `3lb`, `stark`.
-
-**Result: INCOMPLETE.** `3lb` vs `stark` cannot be told apart safely.
 
 ### Contending: `lilygo2can`, `waveshare` (ESP32-S3, 16 MB, PSRAM yes)
 

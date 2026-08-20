@@ -89,15 +89,27 @@ def main():
           not pp.indistinct_against(twin, 'a', ['b'],
                                     {'b': [{'driven': [4, 5, 6], 'family': 'spi:mcp2518fd', 'what': 'y'}]}))
 
-    # --- family placement is a constraint, not a guess ----------------------
-    fam, why = pp.family_from_pins({23: [], 25: [], 5: []})
-    check('classic-only GPIOs place a board as ESP32', fam == 'ESP32', f'got {fam}')
-    fam, _ = pp.family_from_pins({45: [], 5: []})
-    check('S3-only GPIOs place a board as ESP32-S3', fam == 'ESP32-S3', f'got {fam}')
-    fam, _ = pp.family_from_pins({23: [], 45: []})
-    check('contradictory pins place nothing', fam is None, f'got {fam}')
-    fam, _ = pp.family_from_pins({5: [], 18: []})
-    check('pins common to both place nothing', fam is None, f'got {fam}')
+    # --- the free facts come from the declarations, for every board ---------
+    # Grouping is only as good as these. A board that no env builds still has a
+    # chip and a flash size, because both are declared and board_gen checks
+    # them against platformio.ini wherever an env exists to check against - so
+    # nothing lands in a group by default or goes unplaced.
+    data = {b: load(b) for b in ('3lb', 'stark', 'waveshare')}
+    facts = pp.board_facts(list(data), data)
+    check('a board with no env is still placed',
+          facts['3lb']['env'] is None and facts['3lb']['family'] == 'ESP32'
+          and facts['3lb']['flash_mb'] == 4, f'got {facts["3lb"]}')
+    check('a declared S3 board reads as one', facts['waveshare']['family'] == 'ESP32-S3')
+    check('flash size comes through', facts['stark']['flash_mb'] == 8, f'got {facts["stark"]}')
+
+    # Boards of different families are never in contention: one image cannot
+    # span them, so a probe for one can never run on the other.
+    groups = pp.split_free(list(data), facts)
+    for members in groups.values():
+        families = {facts[b]['family'] for b in members}
+        check('a group never mixes chip families', len(families) == 1, f'got {families}')
+    check('stark and 3lb are separated by flash size alone',
+          all(not {'stark', '3lb'} <= set(m) for m in groups.values()))
 
     if failures:
         print(f'probe plan: {len(failures)} FAILED')
