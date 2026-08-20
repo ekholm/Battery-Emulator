@@ -11,8 +11,8 @@ class GeelySeaBattery : public CanBattery {
   GeelySeaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                   CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.geelySea, datalayer_ptr),
-        extended_data(datalayer_ptr->extended.geelySea) {
+        extended_data(datalayer_ptr->extended.geelySea),
+        renderer(&datalayer_ptr->extended.geelySea, datalayer_ptr) {
     datalayer_ptr->extended_type = ExtendedDataType::GeelySea;
     datalayer_battery = datalayer_ptr;
   }

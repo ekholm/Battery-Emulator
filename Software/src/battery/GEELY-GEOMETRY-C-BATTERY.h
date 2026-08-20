@@ -9,8 +9,8 @@ class GeelyGeometryCBattery : public CanBattery {
   GeelyGeometryCBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                         CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.geometryC),
-        extended_data(datalayer_ptr->extended.geometryC) {
+        extended_data(datalayer_ptr->extended.geometryC),
+        renderer(&datalayer_ptr->extended.geometryC) {
     datalayer_ptr->extended_type = ExtendedDataType::GeometryC;
     datalayer_battery = datalayer_ptr;
     datalayer_geometryc = &datalayer_ptr->extended.geometryC;

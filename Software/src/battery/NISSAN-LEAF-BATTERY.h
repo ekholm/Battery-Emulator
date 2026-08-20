@@ -13,8 +13,8 @@ class NissanLeafBattery : public CanBattery {
   NissanLeafBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                     CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(datalayer_ptr, &datalayer_ptr->extended.nissanLeaf),
-        extended_data(datalayer_ptr->extended.nissanLeaf) {
+        extended_data(datalayer_ptr->extended.nissanLeaf),
+        renderer(datalayer_ptr, &datalayer_ptr->extended.nissanLeaf) {
     datalayer_ptr->extended_type = ExtendedDataType::NissanLeaf;
     datalayer_battery = datalayer_ptr;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];

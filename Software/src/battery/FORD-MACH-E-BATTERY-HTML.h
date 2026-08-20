@@ -8,7 +8,7 @@
 
 class FordMachEHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  FordMachEHtmlRenderer(DATALAYER_INFO_FORD_MACH_E* data, DATALAYER_BATTERY_TYPE* bat) : data(data), bat_(bat) {}
+  FordMachEHtmlRenderer(DATALAYER_INFO_FORD_MACH_E* data, DATALAYER_BATTERY_TYPE* bat) : bat_(bat), data(data) {}
   String get_status_html() {
     String content;
     content += "<h3>Ford Mach-E Extra Information</h2>";

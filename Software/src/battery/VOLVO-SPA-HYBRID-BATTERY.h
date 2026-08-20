@@ -11,8 +11,8 @@ class VolvoSpaHybridBattery : public CanBattery {
   VolvoSpaHybridBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                         bool* allows_contactor_closing_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.volvoHybrid),
-        extended_data(datalayer_ptr->extended.volvoHybrid) {
+        extended_data(datalayer_ptr->extended.volvoHybrid),
+        renderer(&datalayer_ptr->extended.volvoHybrid) {
     datalayer_ptr->extended_type = ExtendedDataType::VolvoHybrid;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;

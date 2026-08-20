@@ -7,7 +7,7 @@
 
 class GeelySeaHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  GeelySeaHtmlRenderer(DATALAYER_INFO_GEELY_SEA* data, DATALAYER_BATTERY_TYPE* bat) : data(data), bat_(bat) {}
+  GeelySeaHtmlRenderer(DATALAYER_INFO_GEELY_SEA* data, DATALAYER_BATTERY_TYPE* bat) : bat_(bat), data(data) {}
 
   String get_status_html() {
     String content;

@@ -103,6 +103,9 @@ void update_remote_limit_expiry(uint32_t currentMillis) {
     datalayer.batteries[0].settings.remote_settings_limit_discharge = false;
     datalayer.batteries[0].settings.max_remote_set_charge_dA = 0;
     datalayer.batteries[0].settings.max_remote_set_discharge_dA = 0;
+  }
+}
+
 // ---- Per-battery machinery protection --------------------------------------
 // One helper runs the full protection suite for one instance. Shared events
 // cannot be set/cleared per instance (a clean battery would mask another's

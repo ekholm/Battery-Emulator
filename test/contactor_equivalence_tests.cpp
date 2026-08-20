@@ -21,7 +21,7 @@
 #include <Arduino.h>
 
 #include "../Software/src/battery/BMW-I3-BATTERY.h"
-#include "../Software/src/battery/BMW-SBOX.h"
+#include "../Software/src/shunt/BMW-SBOX.h"
 #include "../Software/src/communication/contactorcontrol/comm_contactorcontrol.h"
 #include "../Software/src/datalayer/datalayer.h"
 #include "../Software/src/devboard/hal/hal.h"

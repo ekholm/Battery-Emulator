@@ -76,7 +76,7 @@ class CanLogTestFixture : public testing::Test {
     // cycles through a list of PIDs and will only accept responses for that
     // particular PID during the window after that particular poll transmission.
 
-    UdsCanBattery* udsBattery = dynamic_cast<UdsCanBattery*>(battery);
+    UdsCanBattery* udsBattery = dynamic_cast<UdsCanBattery*>(batteries[0]);
     const auto& tx_frames = get_transmitted_frames();
 
     // Does this message looks like a UDS/KWP2000 poll response?
@@ -271,7 +271,7 @@ class PidDemuxTest : public CanLogTestFixture {
 
     // 0x61 metrics group: mileage 0xBB7C (47996 km), lifetime energy 0x23E4
     // (9188 kWh), surfaced on the advanced page via get_uds_info_html().
-    UdsCanBattery* udsBattery = dynamic_cast<UdsCanBattery*>(battery);
+    UdsCanBattery* udsBattery = dynamic_cast<UdsCanBattery*>(batteries[0]);
     ASSERT_NE(udsBattery, nullptr);
     String uds_html = udsBattery->get_uds_info_html();
     EXPECT_NE(std::string(uds_html.c_str()).find("47996 km"), std::string::npos);

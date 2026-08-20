@@ -15,7 +15,6 @@
 #include <string.h>
 #include "../../battery/BATTERIES.h"
 #include "../../datalayer/datalayer.h"
-#include "../../datalayer/datalayer_extended.h"
 #include "../hal/hal.h"
 #include "../safety/safety.h"
 #include "../utils/events.h"
@@ -449,15 +448,15 @@ static void send_battery_frame(uint8_t index) {
     if (index == 0 && (user_selected_battery_type == BatteryType::TeslaModel3Y ||
                        user_selected_battery_type == BatteryType::TeslaModelSX)) {
       put_i16_field(ESPNOW_KEY_DCDC_CURRENT_DA,
-                    static_cast<int16_t>(datalayer_extended.tesla.battery_dcdcLvOutputCurrent));
+                    static_cast<int16_t>(datalayer.batteries[0].extended.tesla.battery_dcdcLvOutputCurrent));
       // Raw unit is 0.0390625 V; 1/0.0390625 == 25.6, so *1000/25.6 == *125/3.2. Scaled
       // with integer maths to millivolts to keep floats out of the send path.
       put_u16_field(
           ESPNOW_KEY_DCDC_VOLTAGE_MV,
-          static_cast<uint16_t>((static_cast<uint32_t>(datalayer_extended.tesla.battery_dcdcLvBusVolt) * 625u) / 16u));
+          static_cast<uint16_t>((static_cast<uint32_t>(datalayer.batteries[0].extended.tesla.battery_dcdcLvBusVolt) * 625u) / 16u));
     }
     if (user_selected_battery_type == BatteryType::BydAtto3) {
-      const DATALAYER_INFO_BYDATTO3& byd = (index == 1) ? datalayer_extended.bydAtto3_2 : datalayer_extended.bydAtto3;
+      const DATALAYER_INFO_BYDATTO3& byd = datalayer.batteries[index].extended.bydAtto3;
       put_bool_field(ESPNOW_KEY_AUTOCAL_TAPER, byd.autocal_crit_taper);
       put_u32_field(ESPNOW_KEY_AUTOCAL_DWELL_S, byd.autocal_dwell_accumulated_ms / 1000u);
       put_bool_field(ESPNOW_KEY_AUTOCAL_COOLDOWN_READY, byd.autocal_crit_cooldown_ready);

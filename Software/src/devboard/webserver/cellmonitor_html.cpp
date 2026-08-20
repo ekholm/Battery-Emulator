@@ -78,7 +78,7 @@ String cellmonitor_processor(const String& var) {
       content +=
           "<span style='color: black; background-color: #00FFFF; font-weight: bold; padding: 2px 8px; border-radius: "
           "4px; margin-right: 15px;'>";
-      content += balancing_legend_label(datalayer.battery.status.balancing_status);
+      content += balancing_legend_label(datalayer.batteries[0].status.balancing_status);
       content += "</span>";
     }
     // Also check overall balancing status enum (for batteries without per-cell data)
@@ -122,7 +122,7 @@ String cellmonitor_processor(const String& var) {
         content +=
             "<span style='color: black; background-color: #00FFFF; font-weight: bold; padding: 2px 8px; border-radius: "
             "4px; margin-right: 15px;'>";
-        content += balancing_legend_label(datalayer.battery2.status.balancing_status);
+        content += balancing_legend_label(datalayer.batteries[1].status.balancing_status);
         content += "</span>";
       }
       content +=
@@ -160,7 +160,7 @@ String cellmonitor_processor(const String& var) {
         content +=
             "<span style='color: black; background-color: #00FFFF; font-weight: bold; padding: 2px 8px; border-radius: "
             "4px; margin-right: 15px;'>";
-        content += balancing_legend_label(datalayer.battery3.status.balancing_status);
+        content += balancing_legend_label(datalayer.batteries[2].status.balancing_status);
         content += "</span>";
       }
       content +=

@@ -12,7 +12,7 @@ static constexpr int32_t meb_interm_raw_to_dV(int32_t raw) {
 
 class MebHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  MebHtmlRenderer(DATALAYER_INFO_MEB* meb, DATALAYER_BATTERY_TYPE* bat) : meb_(meb), bat_(bat) {}
+  MebHtmlRenderer(DATALAYER_INFO_MEB* meb, DATALAYER_BATTERY_TYPE* bat) : bat_(bat), meb_(meb) {}
 
   // platform's battery setup() overrides
   const char* dtc_json_filename = "vag_meb_dtc.json";

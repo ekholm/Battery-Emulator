@@ -31,11 +31,11 @@ extern uint16_t pwm_hold_duty;
    test could leave part of it set for the next one. */
 struct BmsResetState {
   // When the BMS power was last removed; the periodic interval is measured from here.
-  unsigned long last_power_removal_time = 0;
+  uint32_t last_power_removal_time = 0;
   // When power came back, used to time the warmup before unpausing.
-  unsigned long power_on_time = 0;
+  uint32_t power_on_time = 0;
   // Last time the CAN liveness counters were refreshed during a long reset.
-  unsigned long last_can_keepalive_time = 0;
+  uint32_t last_can_keepalive_time = 0;
   // True while a due periodic reset waits for SOC to recover.
   bool period_deferred = false;
   // True once balancing has cost the reset a period.

@@ -18,7 +18,7 @@ struct PylonExtendedData {
 
 class PylonHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  PylonHtmlRenderer(PylonExtendedData* d, DATALAYER_BATTERY_TYPE* bat) : data(d), bat_(bat) {}
+  PylonHtmlRenderer(PylonExtendedData* d, DATALAYER_BATTERY_TYPE* bat) : bat_(bat), data(d) {}
 
   String get_status_html() {
     String content;

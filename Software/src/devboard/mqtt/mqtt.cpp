@@ -445,10 +445,8 @@ void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& bat
     doc["min_cell_number"] = byd.BMS_min_cell_voltage_number;
     doc["max_cell_number"] = byd.BMS_max_cell_voltage_number;
   }
-  if (supports_leaf_metrics(::battery)) {
-    const DATALAYER_INFO_NISSAN_LEAF& leaf = (battery_index == 3)   ? datalayer_extended.nissanleaf_3
-                                             : (battery_index == 2) ? datalayer_extended.nissanleaf_2
-                                                                    : datalayer_extended.nissanleaf;
+  if (supports_leaf_metrics(batteries[0])) {
+    const DATALAYER_INFO_NISSAN_LEAF& leaf = datalayer.batteries[battery_index - 1].extended.nissanLeaf;
     // Omit until a group 1 reply with a known layout has been decoded, so HA shows "unknown"
     // instead of a false 0 % before the first poll completes.
     if (leaf.battery_HX_pptt != 0u) {

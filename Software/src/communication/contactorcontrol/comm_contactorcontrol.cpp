@@ -52,7 +52,7 @@ const uint32_t bmsWarmupDuration = 3000;
    ourselves while the reset runs. Refreshing one second before the window closes keeps
    the counter from ever reaching zero. Durations that fit inside the window are left
    alone and keep the original, unmasked behaviour. */
-#define BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS ((unsigned long)(CAN_STILL_ALIVE - 1) * 1000UL)
+#define BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS ((uint32_t)(CAN_STILL_ALIVE - 1) * 1000UL)
 
 void set(uint8_t pin, bool direction, uint32_t pwm_freq = 0xFFFF) {
 
@@ -354,7 +354,7 @@ static bool bms_reset_needs_can_keepalive() {
 /* Pretends the batteries were just heard from, and restarts the keepalive interval.
    Batteries that are not configured are skipped, since the safety layer does not look at
    their counters either. */
-static void bms_reset_refresh_can_alive(unsigned long now) {
+static void bms_reset_refresh_can_alive(uint32_t now) {
   bms_reset.last_can_keepalive_time = now;
   for (int i = 0; i < MAX_BATTERIES; ++i) {
     if (batteries[i]) {
@@ -364,7 +364,7 @@ static void bms_reset_refresh_can_alive(unsigned long now) {
 }
 
 // Called on every pass through the powered-off and powering-on states of a long reset.
-static void bms_reset_can_keepalive_tick(unsigned long now) {
+static void bms_reset_can_keepalive_tick(uint32_t now) {
   if (!bms_reset_needs_can_keepalive()) {
     return;
   }
@@ -381,7 +381,7 @@ void handle_BMSpower() {
   }
 
   if (periodic_bms_reset || remote_bms_reset) {
-    const unsigned long currentTime = millis();
+    const uint32_t currentTime = millis();
 
     if (datalayer.system.status.bms_reset_status == BMS_RESET_IDLE) {
       // Idle state, no reset ongoing

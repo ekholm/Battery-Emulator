@@ -17,7 +17,7 @@ static void appendFault(String& string, const char* name, bool faultActive) {
 
 class TeslaHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  TeslaHtmlRenderer(DATALAYER_INFO_TESLA* tesla, DATALAYER_BATTERY_TYPE* bat) : tesla_(tesla), bat_(bat) {}
+  TeslaHtmlRenderer(DATALAYER_INFO_TESLA* tesla, DATALAYER_BATTERY_TYPE* bat) : bat_(bat), tesla_(tesla) {}
 
   String get_status_html() {
     String content;

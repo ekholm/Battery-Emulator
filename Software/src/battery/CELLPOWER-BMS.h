@@ -10,8 +10,8 @@ class CellPowerBms : public CanBattery {
   CellPowerBms(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan, CAN_Speed::CAN_SPEED_250KBPS),
-        renderer(&datalayer_ptr->extended.cellpower),
-        extended_data(datalayer_ptr->extended.cellpower) {
+        extended_data(datalayer_ptr->extended.cellpower),
+        renderer(&datalayer_ptr->extended.cellpower) {
     datalayer_ptr->extended_type = ExtendedDataType::CellPower;
     datalayer_battery = datalayer_ptr;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];

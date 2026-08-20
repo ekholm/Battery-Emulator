@@ -13,14 +13,13 @@
 // fixture now clears it directly, the same way battery_alive_tests.cpp clears
 // the battery and charger latches, so these tests are order-independent.
 
-extern bool inverter_detected;
 
 namespace {
 
 void setup_can_inverter_test() {
   datalayer = DataLayer();
   // Defined in safety.cpp; not exposed via safety.h like the battery latches are.
-  inverter_detected = false;
+  safety.inverter_detected = false;
   reset_all_events();
   reset_safety_state();
   init_hal();

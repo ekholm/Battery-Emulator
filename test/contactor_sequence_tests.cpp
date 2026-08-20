@@ -21,7 +21,6 @@
 namespace {
 
 // Mirrors the file-scope FSM in comm_contactorcontrol.cpp. Must match it.
-enum SeqState { DISCONNECTED, START_PRECHARGE, PRECHARGE, POSITIVE, PRECHARGE_OFF, COMPLETED, SHUTDOWN_REQUESTED };
 
 // Values published in datalayer.system.status.contactors_engaged. Named here
 // because the production code writes the numbers inline.
@@ -39,7 +38,6 @@ constexpr unsigned long kBootMs = 100000;  // Well past INTERVAL_10_S
 
 }  // namespace
 
-extern SeqState contactorStatus;
 
 class ContactorSequenceTest : public ::testing::Test {
  protected:
@@ -48,10 +46,13 @@ class ContactorSequenceTest : public ::testing::Test {
     reset_all_events();
     init_hal();
     set_millis64(kBootMs);
-    contactor_control_enabled = true;
-    contactorStatus = DISCONNECTED;
+    contactor_control_enabled[0] = true;
+    precharge_fsm.set_state(ContactorActuator::DISCONNECTED);
     emulator_pause_status = NORMAL;
-    battery_detected = true;
+    datalayer.system.status.battery_link[0].detected = true;
+    // The symmetric join gate: [0] is set true at battery setup, which this
+    // fixture never runs, so grant it explicitly.
+    datalayer.system.status.battery_link[0].allowed_contactor_closing = true;
     datalayer.system.status.system_status = ACTIVE;
     datalayer.system.status.inverter_allows_contactor_closing = true;
     datalayer.system.info.equipment_stop_active = false;
@@ -61,13 +62,13 @@ class ContactorSequenceTest : public ::testing::Test {
     // the next one closer to the shutdown latch than it expects. One pass with
     // the system healthy zeroes it; the state it advances is put back after.
     handle_contactors();
-    contactorStatus = DISCONNECTED;
+    precharge_fsm.set_state(ContactorActuator::DISCONNECTED);
     reset_all_events();
   }
 
   void TearDown() override {
-    contactor_control_enabled = false;
-    contactorStatus = DISCONNECTED;
+    contactor_control_enabled[0] = false;
+    precharge_fsm.set_state(ContactorActuator::DISCONNECTED);
     emulator_pause_status = NORMAL;
     datalayer.system.info.equipment_stop_active = false;
     set_millis64(0);
@@ -85,28 +86,28 @@ class ContactorSequenceTest : public ::testing::Test {
 // The ladder must not start inside the first 10 seconds after boot. That window
 // exists so the battery has a chance to report a fault before anything closes.
 TEST_F(ContactorSequenceTest, DoesNotCloseContactorsDuringTheStartupWindow) {
-  contactorStatus = START_PRECHARGE;
+  precharge_fsm.set_state(ContactorActuator::START_PRECHARGE);
 
   for (unsigned long t = 0; t < INTERVAL_10_S; t += 1000) {
     tick_at(t);
-    ASSERT_EQ(contactorStatus, START_PRECHARGE) << "the ladder advanced at t=" << t << ", inside the startup window";
+    ASSERT_EQ(precharge_fsm.state(), ContactorActuator::START_PRECHARGE) << "the ladder advanced at t=" << t << ", inside the startup window";
   }
 
   tick_at(INTERVAL_10_S + 1);
-  EXPECT_EQ(contactorStatus, PRECHARGE) << "the ladder must start once the window has passed";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE) << "the ladder must start once the window has passed";
 }
 
 // No battery communication means nothing is known about the pack, so the ladder
 // stays put however long the system has been up.
 TEST_F(ContactorSequenceTest, DoesNotCloseContactorsBeforeBatteryIsDetected) {
-  battery_detected = false;
-  contactorStatus = START_PRECHARGE;
+  datalayer.system.status.battery_link[0].detected = false;
+  precharge_fsm.set_state(ContactorActuator::START_PRECHARGE);
 
   for (int i = 0; i < 10; ++i) {
     tick_at(kBootMs + i * 1000);
   }
 
-  EXPECT_EQ(contactorStatus, START_PRECHARGE);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::START_PRECHARGE);
 }
 
 // --- The permission gate ---------------------------------------------------
@@ -116,7 +117,7 @@ TEST_F(ContactorSequenceTest, StaysDisconnectedWithoutInverterPermission) {
 
   tick_at(kBootMs);
 
-  EXPECT_EQ(contactorStatus, DISCONNECTED);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::DISCONNECTED);
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedNone);
 }
 
@@ -125,7 +126,7 @@ TEST_F(ContactorSequenceTest, StaysDisconnectedWhileEquipmentStopIsActive) {
 
   tick_at(kBootMs);
 
-  EXPECT_EQ(contactorStatus, DISCONNECTED);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::DISCONNECTED);
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedNone);
 }
 
@@ -136,7 +137,7 @@ TEST_F(ContactorSequenceTest, StaysDisconnectedWhileEquipmentStopIsActive) {
 TEST_F(ContactorSequenceTest, LeavesDisconnectedOncePermittedAndNoStop) {
   tick_at(kBootMs);
 
-  EXPECT_EQ(contactorStatus, PRECHARGE);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE);
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedClosing);
 }
 
@@ -151,31 +152,31 @@ TEST_F(ContactorSequenceTest, ClosesInOrderWithEachStepGatedOnItsTimer) {
 
   // One pass: permission granted and the negative contactor closed.
   tick_at(negative_closed_at);
-  ASSERT_EQ(contactorStatus, PRECHARGE);
+  ASSERT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE);
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedClosing);
 
   // Too early for precharge.
   tick_at(negative_closed_at + kNegativeToPrechargeMs - 1);
-  EXPECT_EQ(contactorStatus, PRECHARGE) << "precharge engaged before the negative settling time elapsed";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE) << "precharge engaged before the negative settling time elapsed";
 
   tick_at(negative_closed_at + kNegativeToPrechargeMs);
-  ASSERT_EQ(contactorStatus, POSITIVE);
+  ASSERT_EQ(precharge_fsm.state(), ContactorActuator::POSITIVE);
   const unsigned long precharge_started_at = negative_closed_at + kNegativeToPrechargeMs;
 
   // Too early for the positive contactor.
   tick_at(precharge_started_at + precharge_time_ms - 1);
-  EXPECT_EQ(contactorStatus, POSITIVE) << "positive contactor closed before precharge finished";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::POSITIVE) << "positive contactor closed before precharge finished";
 
   tick_at(precharge_started_at + precharge_time_ms);
-  ASSERT_EQ(contactorStatus, PRECHARGE_OFF);
+  ASSERT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE_OFF);
   const unsigned long positive_closed_at = precharge_started_at + precharge_time_ms;
 
   // Too early to drop the precharge resistor.
   tick_at(positive_closed_at + kPrechargeToEconomizeMs - 1);
-  EXPECT_EQ(contactorStatus, PRECHARGE_OFF);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE_OFF);
 
   tick_at(positive_closed_at + kPrechargeToEconomizeMs);
-  EXPECT_EQ(contactorStatus, COMPLETED);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED);
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedEconomized);
 }
 
@@ -195,7 +196,7 @@ TEST_F(ContactorSequenceTest, DcBusIsLiveOnlyWhenTheSequenceHasCompleted) {
   EXPECT_FALSE(datalayer.system.status.dc_bus_live) << "reported live before the sequence completed";
 
   tick_at(t + kNegativeToPrechargeMs + precharge_time_ms + kPrechargeToEconomizeMs);
-  ASSERT_EQ(contactorStatus, COMPLETED);
+  ASSERT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED);
   // Still false on the completing tick: the flag is computed from the status at
   // the top of the pass, before the ladder advances.
   EXPECT_FALSE(datalayer.system.status.dc_bus_live);
@@ -210,7 +211,7 @@ TEST_F(ContactorSequenceTest, DcBusIsLiveOnlyWhenTheSequenceHasCompleted) {
 // cycle, deliberately, so a fault that comes and goes cannot re-close the
 // contactors behind the operator's back.
 TEST_F(ContactorSequenceTest, SustainedFaultLatchesShutdownAndDoesNotRecover) {
-  contactorStatus = COMPLETED;
+  precharge_fsm.set_state(ContactorActuator::COMPLETED);
   datalayer.system.status.system_status = FAULT;
 
   // The latch is a tick count, not a wall-clock time. Tick until it trips
@@ -219,12 +220,12 @@ TEST_F(ContactorSequenceTest, SustainedFaultLatchesShutdownAndDoesNotRecover) {
   unsigned long tick = kBootMs;
   for (unsigned long i = 0; i <= kFaultTicksBeforeShutdown + 1; ++i) {
     tick_at(tick++);
-    if (contactorStatus == SHUTDOWN_REQUESTED) {
+    if (precharge_fsm.state() == ContactorActuator::SHUTDOWN_REQUESTED) {
       break;
     }
   }
 
-  ASSERT_EQ(contactorStatus, SHUTDOWN_REQUESTED);
+  ASSERT_EQ(precharge_fsm.state(), ContactorActuator::SHUTDOWN_REQUESTED);
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedFaultLatched);
 
   // dc_bus_live is computed from the status at the top of the pass, so on the
@@ -241,14 +242,14 @@ TEST_F(ContactorSequenceTest, SustainedFaultLatchesShutdownAndDoesNotRecover) {
     tick_at(kBootMs + kFaultTicksBeforeShutdown + 100 + i);
   }
 
-  EXPECT_EQ(contactorStatus, SHUTDOWN_REQUESTED) << "the fault latch must survive the fault clearing";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::SHUTDOWN_REQUESTED) << "the fault latch must survive the fault clearing";
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedFaultLatched);
 }
 
 // A fault shorter than the allowance must not latch: brief faults are expected
 // during normal operation and latching on them would strand the system.
 TEST_F(ContactorSequenceTest, BriefFaultDoesNotLatchShutdown) {
-  contactorStatus = COMPLETED;
+  precharge_fsm.set_state(ContactorActuator::COMPLETED);
   datalayer.system.status.system_status = FAULT;
 
   // Each episode is most of the allowance, so together they comfortably exceed
@@ -259,7 +260,7 @@ TEST_F(ContactorSequenceTest, BriefFaultDoesNotLatchShutdown) {
   for (unsigned long i = 0; i < episode; ++i) {
     tick_at(tick++);
   }
-  ASSERT_EQ(contactorStatus, COMPLETED);
+  ASSERT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED);
 
   // Recovering resets the counter, so the next fault starts from zero.
   datalayer.system.status.system_status = ACTIVE;
@@ -270,30 +271,30 @@ TEST_F(ContactorSequenceTest, BriefFaultDoesNotLatchShutdown) {
     tick_at(tick++);
   }
 
-  EXPECT_EQ(contactorStatus, COMPLETED) << "two short faults must not add up to a latch";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED) << "two short faults must not add up to a latch";
 }
 
 // The latch is strictly greater-than the allowance, so exactly the allowance
 // must not trip it. An off-by-one here would open the contactors a tick early.
 TEST_F(ContactorSequenceTest, ExactlyTheAllowedFaultTicksDoesNotLatch) {
-  contactorStatus = COMPLETED;
+  precharge_fsm.set_state(ContactorActuator::COMPLETED);
   datalayer.system.status.system_status = FAULT;
 
   for (unsigned long i = 0; i < kFaultTicksBeforeShutdown; ++i) {
     tick_at(kBootMs + i);
   }
 
-  EXPECT_EQ(contactorStatus, COMPLETED) << "latched at the threshold instead of beyond it";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::COMPLETED) << "latched at the threshold instead of beyond it";
 }
 
 TEST_F(ContactorSequenceTest, ShutdownLatchRaisesTheOpenContactorEvent) {
-  contactorStatus = COMPLETED;
+  precharge_fsm.set_state(ContactorActuator::COMPLETED);
   datalayer.system.status.system_status = FAULT;
 
-  for (unsigned long i = 0; i <= kFaultTicksBeforeShutdown + 1 && contactorStatus != SHUTDOWN_REQUESTED; ++i) {
+  for (unsigned long i = 0; i <= kFaultTicksBeforeShutdown + 1 && precharge_fsm.state() != ContactorActuator::SHUTDOWN_REQUESTED; ++i) {
     tick_at(kBootMs + i);
   }
-  ASSERT_EQ(contactorStatus, SHUTDOWN_REQUESTED);
+  ASSERT_EQ(precharge_fsm.state(), ContactorActuator::SHUTDOWN_REQUESTED);
 
   const EVENTS_STRUCT_TYPE* entry = get_event_pointer(EVENT_ERROR_OPEN_CONTACTOR);
   EXPECT_TRUE(entry->state == EVENT_STATE_ACTIVE || entry->state == EVENT_STATE_ACTIVE_LATCHED);
@@ -304,11 +305,11 @@ TEST_F(ContactorSequenceTest, ShutdownLatchRaisesTheOpenContactorEvent) {
 // With contactor control off the firmware drives no contactors at all; the
 // state machine must stay where it is rather than tracking permissions.
 TEST_F(ContactorSequenceTest, DoesNothingWhenContactorControlIsDisabled) {
-  contactor_control_enabled = false;
+  contactor_control_enabled[0] = false;
 
   for (int i = 0; i < 20; ++i) {
     tick_at(kBootMs + i * 100);
   }
 
-  EXPECT_EQ(contactorStatus, DISCONNECTED);
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::DISCONNECTED);
 }

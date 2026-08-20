@@ -11,8 +11,8 @@ class KiaHyundai64Battery : public CanBattery {
   KiaHyundai64Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                       bool* contactor_closing_allowed_ptr = nullptr, CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.kiaHyundai64),
-        extended_data(datalayer_ptr->extended.kiaHyundai64) {
+        extended_data(datalayer_ptr->extended.kiaHyundai64),
+        renderer(&datalayer_ptr->extended.kiaHyundai64) {
     datalayer_ptr->extended_type = ExtendedDataType::KiaHyundai64;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];
     datalayer_battery = datalayer_ptr;

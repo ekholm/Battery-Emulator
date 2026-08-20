@@ -9,8 +9,8 @@ class RenaultZoeGen2Battery : public CanBattery {
   RenaultZoeGen2Battery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
                         CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.zoePh2),
-        extended_data(datalayer_ptr->extended.zoePh2) {
+        extended_data(datalayer_ptr->extended.zoePh2),
+        renderer(&datalayer_ptr->extended.zoePh2) {
     datalayer_ptr->extended_type = ExtendedDataType::ZoePh2;
     datalayer_battery = datalayer_ptr;
     const bool primary = datalayer_ptr == &datalayer.batteries[0];

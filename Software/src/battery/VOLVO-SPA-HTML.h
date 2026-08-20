@@ -7,7 +7,7 @@
 
 class VolvoSpaHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  VolvoSpaHtmlRenderer(DATALAYER_INFO_VOLVO_POLESTAR* dl, DATALAYER_BATTERY_TYPE* bat) : data(dl), bat_(bat) {}
+  VolvoSpaHtmlRenderer(DATALAYER_INFO_VOLVO_POLESTAR* dl, DATALAYER_BATTERY_TYPE* bat) : bat_(bat), data(dl) {}
 
   String get_status_html() {
     String content;

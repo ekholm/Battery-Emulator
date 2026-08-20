@@ -7,7 +7,7 @@
 
 class BmwPhevHtmlRenderer : public BatteryHtmlRenderer {
  public:
-  BmwPhevHtmlRenderer(DATALAYER_INFO_BMWPHEV* dl, DATALAYER_BATTERY_TYPE* bat) : data(dl), bat_(bat) {}
+  BmwPhevHtmlRenderer(DATALAYER_INFO_BMWPHEV* dl, DATALAYER_BATTERY_TYPE* bat) : bat_(bat), data(dl) {}
 
   String get_status_html() {
     String content;

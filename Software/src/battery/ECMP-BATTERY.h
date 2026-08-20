@@ -12,9 +12,9 @@ class EcmpBattery : public CanBattery {
   EcmpBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr = &datalayer.batteries[0],
               CAN_Interface targetCan = can_config.batteries[0])
       : CanBattery(targetCan),
-        renderer(&datalayer_ptr->extended.ecmp),
+        extended_data(datalayer_ptr->extended.ecmp),
         datalayer_ecmp(&datalayer_ptr->extended.ecmp),
-        extended_data(datalayer_ptr->extended.ecmp) {
+        renderer(&datalayer_ptr->extended.ecmp) {
     datalayer_ptr->extended_type = ExtendedDataType::Ecmp;
     datalayer_battery = datalayer_ptr;
   }
