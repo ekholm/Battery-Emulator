@@ -76,7 +76,14 @@ FEATURES = {
         'mcp2518fd': {
             'instances': [{'cs': 'MCP2517_CS', 'int': 'MCP2517_INT',
                            'int0': 'MCP2517_INT0', 'int1': 'MCP2517_INT1'},
-                          {'cs': 'MCP2517_CS2', 'int': 'MCP2517_INT2'}],
+                          {'cs': 'MCP2517_CS2', 'int': 'MCP2517_INT2'},
+                          {'cs': 'MCP2517_CS3', 'int': 'MCP2517_INT3'},
+                          {'cs': 'MCP2517_CS4', 'int': 'MCP2517_INT4'}],
+            # Instances 3 and 4 - an isolated dual-FD add-on board sharing the
+            # host's bus - have no bus or scalar getters of their own: they sit
+            # on the first instance's SPI bus and crystal, which is what "no
+            # entry below" means. A board that puts them on a bus of their own
+            # needs those getters added first.
             'bus': [{'clk': 'MCP2517_SCK', 'mosi': 'MCP2517_SDI', 'miso': 'MCP2517_SDO'},
                     {'clk': 'MCP2517_SCK2', 'mosi': 'MCP2517_SDI2', 'miso': 'MCP2517_SDO2'}],
             'requires': ['cs'],

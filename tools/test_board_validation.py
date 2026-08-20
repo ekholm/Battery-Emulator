@@ -125,11 +125,9 @@ def main():
                   'stark', 'nativ')
     expect_reject('unknown field', stark.replace('cs: 12, int: 14', 'cs: 12, int: 14, csx: 9'),
                   'stark', 'csx')
-    expect_reject('more instances than the driver has',
-                  stark.replace('  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}',
-                                '  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}\n'
-                                '  - {driver: mcp2518fd, bus: SPI1, cs: 7, int: 8}'),
-                  'stark', 'mcp2518fd')
+    # The ceiling is four CAN-FD instances, because that is how far the getter
+    # names go (MCP2517_CS..CS4). A fifth is checked further down, where the
+    # four-instance case that made room for it is set up.
 
     # sd_spi: the SPI-attached card. Its chip select is not optional the way
     # SD_MMC's is - an SPI slave with no CS is not addressable - and a board
@@ -177,6 +175,39 @@ def main():
                        'uint8_t ETH_CLK_MODE() { return 0; }'):
             if marker not in header:
                 failures.append(f'ethernet emission: the generated header lacks {marker!r}')
+
+    # Four CAN-FD controllers on one bus. The Stark's isolated dual-FD add-on
+    # board takes the count past the two the schema used to allow, and the
+    # third and fourth share the first instance's bus and crystal rather than
+    # declaring their own - so this pins BOTH that they emit their own CS/INT
+    # and that they emit no second set of bus getters.
+    four_fd = stark.replace(
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}",
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 12, int: 14}\n"
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 13, int: 15}\n"
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 19, int: 16}")
+    rc, output, _, generated = run('stark', four_fd)
+    if rc != 0:
+        failures.append(f'four CAN-FD instances: rejected a valid declaration\n    {output.strip()}')
+    else:
+        header = generated['hw_stark.h']
+        for marker in ('gpio_num_t MCP2517_CS3() { return GPIO_NUM_13; }',
+                       'gpio_num_t MCP2517_INT3() { return GPIO_NUM_15; }',
+                       'gpio_num_t MCP2517_CS4() { return GPIO_NUM_19; }',
+                       'gpio_num_t MCP2517_INT4() { return GPIO_NUM_16; }'):
+            if marker not in header:
+                failures.append(f'four CAN-FD instances: the generated header lacks {marker!r}')
+        if 'MCP2517_SCK3' in header or 'MCP2517_SCK4' in header:
+            failures.append('four CAN-FD instances: instances 3/4 emitted bus getters of their own, '
+                            'but they share the first instance\'s bus')
+
+    # A fifth is not a thing the getter names can express, and must be refused
+    # rather than silently dropped.
+    expect_reject('a fifth CAN-FD instance',
+                  four_fd.replace("  - {driver: mcp2518fd, bus: SPI1, cs: 19, int: 16}",
+                                  "  - {driver: mcp2518fd, bus: SPI1, cs: 19, int: 16}\n"
+                                  "  - {driver: mcp2518fd, bus: SPI1, cs: 20, int: 21}"),
+                  'stark', 'more instances declared than the driver supports')
 
     # Two product labels cannot name the same physical output.
     expect_reject('two outputs on one GPIO',
