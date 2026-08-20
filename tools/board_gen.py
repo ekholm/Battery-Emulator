@@ -147,12 +147,29 @@ FEATURES = {
         'requires': ['wup1', 'wup2'],
     },
     'ap_button': {'instances': [{'pin': 'AP_BUTTON_PIN'}], 'requires': ['pin']},
+    # Wired Ethernet. Drivers are PHY/MAC chips, like can's are controllers: an
+    # RMII PHY's data pins are fixed ESP32 silicon functions, so a board
+    # declares only what actually varies - the management pair, the PHY power
+    # switch, the strap address and where the 50 MHz reference clock comes
+    # from. clk_mode carries arduino-esp32's eth_clock_mode_t value verbatim
+    # (0 = GPIO0 in, 1 = GPIO0 out, 2 = GPIO16 out, 3 = GPIO17 out). Nothing
+    # in the tree drives Ethernet yet; the declaration exists so the one board
+    # that has it (Edge101, IP101GRI) is expressed completely - the SD_CS_PIN
+    # precedent. An SPI-attached MAC (W5500 and kin) gets its own driver with
+    # cs/int/rst roles when a board needs one.
+    'ethernet': {'by_driver': {
+        'ip101': {
+            'instances': [{'mdc': 'ETH_MDC_PIN', 'mdio': 'ETH_MDIO_PIN', 'power': 'ETH_POWER_PIN'}],
+            'requires': ['mdc', 'mdio'],
+            'scalars': [{'phy_addr': ('uint8_t', 'ETH_PHY_ADDR'), 'clk_mode': ('uint8_t', 'ETH_CLK_MODE')}],
+        },
+    }},
 }
 
 # Emission order, chosen to sit close to how the headers already read.
 FEATURE_ORDER = ['rs485', 'can', 'chademo', 'contactors', 'precharge_auto', 'sma',
                  'sd_mmc', 'sd_spi', 'rgb_led', 'equipment_stop', 'battery_wakeup', 'ap_button',
-                 'display_i2c']
+                 'display_i2c', 'ethernet']
 
 SECTION_COMMENT = {
     'rs485': 'RS485', 'can': 'CAN interfaces', 'chademo': 'CHAdeMO support pins',
@@ -161,6 +178,7 @@ SECTION_COMMENT = {
     'rgb_led': 'LED',
     'equipment_stop': 'Equipment stop pin', 'battery_wakeup': 'Battery wake up pins',
     'ap_button': 'Wi-Fi AP button', 'display_i2c': 'i2c display',
+    'ethernet': 'Ethernet (RMII PHY)',
 }
 
 
@@ -444,11 +462,57 @@ def validate(board, data):
         errors.append(f'{board}: declares both sd_mmc and sd_spi; a board has one kind of '
                       f'card interface, and the two emit the same getters')
 
-    seen_bus_pins = {}
+    # Two dedicated-function features on one GPIO is always a declaration
+    # mistake: a CAN transceiver, an SD line, a display bus, an RMII management
+    # pin cannot time-share a pad. The actuator features (contactors, outputs,
+    # battery_wakeup, equipment_stop, sma, precharge_auto, chademo) are
+    # deliberately NOT in this list - the Stark muxes those lines by design
+    # (its product outputs ARE the contactor pins, its wake-up pins double as
+    # outputs), so sharing there expresses the hardware rather than a typo.
+    # Declared buses are counted once each: instances referencing the same bus
+    # share its pins legitimately.
+    # Within one by_driver feature, DIFFERENT drivers may share pins: the
+    # LilyGo's MCP2515 and MCP2518FD add-ons plug onto the same header (cs 18,
+    # int 35), and only one is ever fitted. The same driver claiming a pin
+    # twice is still a mistake.
+    claims = {}
+    for feature in ('rs485', 'can', 'sd_mmc', 'sd_spi', 'display_i2c', 'rgb_led', 'ap_button', 'ethernet'):
+        try:
+            declared = instances_of(data, feature)
+        except DeclError:
+            continue  # already reported above
+        for spec, index, inst, driver in declared:
+            if index >= len(spec['instances']):
+                continue  # over-declared instance count, already reported above
+            for role in spec['instances'][index]:
+                value = inst.get(role)
+                if value is not None and str(value).isdigit():
+                    claims.setdefault(int(value), []).append((feature, driver, f'{feature}.{role}'))
     for name, bus in data.get('buses', {}).items():
         for field_name, value in bus.items():
             if str(value).isdigit():
-                seen_bus_pins.setdefault(int(value), []).append(f'{name}.{field_name}')
+                claims.setdefault(int(value), []).append((f'bus {name}', None, f'bus {name}.{field_name}'))
+
+    def conflicts(users):
+        for i in range(len(users)):
+            for j in range(i + 1, len(users)):
+                a, b = users[i], users[j]
+                a_bus, b_bus = a[0].startswith('bus '), b[0].startswith('bus ')
+                if a_bus != b_bus:
+                    # A bus line reused by an alternative fitment is real
+                    # hardware: the 3LB's MCP2517 add-on takes its INT from
+                    # the SPI MISO line the MCP2515 fitment uses as a bus pin.
+                    continue
+                if a_bus and a[0] != b[0]:
+                    continue  # two buses may describe alternative wiring
+                if not a_bus and a[0] == b[0] and a[1] != b[1]:
+                    continue  # alternative fitments of the same feature
+                return True
+        return False
+
+    for gpio, users in sorted(claims.items()):
+        if len(users) > 1 and conflicts(users):
+            errors.append(f'{board}: GPIO {gpio} is claimed by ' + ' and '.join(u[2] for u in users))
 
     labelled = {}
     for out in data.get('outputs', []):

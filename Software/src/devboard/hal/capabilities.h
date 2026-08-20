@@ -33,6 +33,7 @@ enum class BoardCap : uint8_t {
   BatteryWakeup,
   ApButton,
   DisplayI2c,
+  Ethernet,
   Count,
 };
 
@@ -84,7 +85,8 @@ inline constexpr uint64_t BOARD_CAPS_DFROBOT_EDGE101 =
     board_cap_bit(BoardCap::SdSpi) |
     board_cap_bit(BoardCap::SdCard) |
     board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::ApButton);
+    board_cap_bit(BoardCap::ApButton) |
+    board_cap_bit(BoardCap::Ethernet);
 inline constexpr uint64_t BOARD_CAPS_LILYGO =
     board_cap_bit(BoardCap::Rs485) |
     board_cap_bit(BoardCap::Can) |

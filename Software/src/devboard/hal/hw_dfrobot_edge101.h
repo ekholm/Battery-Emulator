@@ -46,6 +46,13 @@ class DFRobotEdge101Hal : public Esp32Hal {
 
   // Wi-Fi AP button
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_38; }
+
+  // Ethernet (RMII PHY)
+  virtual gpio_num_t ETH_MDC_PIN() { return GPIO_NUM_4; }
+  virtual gpio_num_t ETH_MDIO_PIN() { return GPIO_NUM_13; }
+  virtual gpio_num_t ETH_POWER_PIN() { return GPIO_NUM_2; }
+  virtual uint8_t ETH_PHY_ADDR() { return 1; }
+  virtual uint8_t ETH_CLK_MODE() { return 0; }
   // ---- END GENERATED ----
 
   std::vector<comm_interface> available_interfaces() {

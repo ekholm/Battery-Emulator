@@ -18,6 +18,8 @@ rgb_led:
   - {pin: 15}
 ap_button:
   - {pin: 38}
+ethernet:
+  - {driver: ip101, mdc: 4, mdio: 13, power: 2, phy_addr: 1, clk_mode: 0}
 # No comments: block. The original header carried its hardware notes as
 # block comments above each group, which a trailing comment cannot
 # reproduce verbatim - and board_verify_transcription.py is right to

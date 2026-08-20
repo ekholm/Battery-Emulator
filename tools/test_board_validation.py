@@ -155,6 +155,29 @@ def main():
             if marker not in header:
                 failures.append(f'sd_spi emission: the generated header lacks {marker!r}')
 
+    # Ethernet: the management pair is what makes the PHY reachable, so it is
+    # required; the driver name is a chip, so a typo must not pass; and its
+    # pins are dedicated functions, so a collision with another dedicated
+    # feature (here the SD chip select) must be reported. The committed
+    # declaration accepting (above) pins the valid shape.
+    expect_reject('ethernet without mdio', drop(dfrobot, r'mdio: 13, '),
+                  'dfrobot_edge101', 'ethernet', 'mdio', board='dfrobot_edge101')
+    expect_reject('unknown ethernet driver', dfrobot.replace('driver: ip101', 'driver: ip102'),
+                  'dfrobot_edge101', 'ip102', board='dfrobot_edge101')
+    expect_reject('ethernet pin colliding with the SD chip select',
+                  dfrobot.replace('mdc: 4', 'mdc: 5'),
+                  'dfrobot_edge101', 'GPIO 5', 'ethernet.mdc', 'sd_spi.cs', board='dfrobot_edge101')
+    rc, output, _, generated = run('dfrobot_edge101', dfrobot)
+    if rc != 0:
+        failures.append(f'ethernet emission: the generator failed\n    {output.strip()}')
+    else:
+        header = generated['hw_dfrobot_edge101.h']
+        for marker in ('ETH_MDC_PIN() { return GPIO_NUM_4; }', 'ETH_MDIO_PIN() { return GPIO_NUM_13; }',
+                       'ETH_POWER_PIN() { return GPIO_NUM_2; }', 'uint8_t ETH_PHY_ADDR() { return 1; }',
+                       'uint8_t ETH_CLK_MODE() { return 0; }'):
+            if marker not in header:
+                failures.append(f'ethernet emission: the generated header lacks {marker!r}')
+
     # Two product labels cannot name the same physical output.
     expect_reject('two outputs on one GPIO',
                   stark.replace('{label: "Output 3", gpio: 32', '{label: "Output 3", gpio: 33'),
@@ -198,11 +221,11 @@ def main():
     # the emission order must not renumber the enumerators already emitted -
     # that is the difference between one added line and a rewritten file.
     caps = board_gen.capabilities_header([], '')
-    grown = board_gen.capabilities_header([], caps.replace('  Rs485,', '  Ethernet,\n  Rs485,'))
+    grown = board_gen.capabilities_header([], caps.replace('  Rs485,', '  Zigbee,\n  Rs485,'))
     order = board_gen.existing_cap_order(grown)
-    if order[:1] != ['Ethernet']:
+    if order[:1] != ['Zigbee']:
         failures.append(f'capability ids are not append-only: {order[:3]} lost its first entry')
-    if 'Ethernet' in grown and 'no declaration carries this any more' not in grown:
+    if 'Zigbee' in grown and 'no declaration carries this any more' not in grown:
         failures.append('a capability no declaration carries is kept but not marked as such')
 
     if failures:
