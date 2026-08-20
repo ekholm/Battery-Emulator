@@ -1,0 +1,54 @@
+{
+  "i18n_manifest_version": 1,
+  "strings_id": "e4f50a5de007395f",
+  "languages": [
+    {
+      "code": "de",
+      "file": "de.blp",
+      "sha256": "dd8d653bafd1f4cbb1400d2d7397380ab4ed7835857173b9c2cf81910fda94dd",
+      "size": 57324
+    },
+    {
+      "code": "en",
+      "file": "en.blp",
+      "sha256": "e8ec6b2b11037c4417b3a95e15d3fc86582339f5180cb8712d6ca3351bb6f02a",
+      "size": 51772
+    },
+    {
+      "code": "fi",
+      "file": "fi.blp",
+      "sha256": "e036be8e51388388f8ac9a9da08462096b6b500e6f80e4e92c9e6667fa06103c",
+      "size": 56456
+    },
+    {
+      "code": "fr",
+      "file": "fr.blp",
+      "sha256": "b0ca7ef17b3e45982d0b8ab9b476ccf45ec3f3ae571a3c6dec70a614be8d22cb",
+      "size": 61857
+    },
+    {
+      "code": "hu",
+      "file": "hu.blp",
+      "sha256": "975b1840a848885d93412b03fcac6bf1d568cdf1580f5ac32a4820516a6ef517",
+      "size": 64170
+    },
+    {
+      "code": "nl",
+      "file": "nl.blp",
+      "sha256": "13ae17c32bd21da104e6a5e71fdf0c175f7fa9024cc73a8269c46d036e24f4f0",
+      "size": 55503
+    },
+    {
+      "code": "sv",
+      "file": "sv.blp",
+      "sha256": "2d165837e8b59d9e45d25635a084e52aec51ec0a8433e29891f8a8bc19aa0f46",
+      "size": 55437
+    },
+    {
+      "code": "uk",
+      "file": "uk.blp",
+      "sha256": "d66f2ccec62d970382debb28647dc878a3961414f58c857ce66c531e582f8f15",
+      "size": 95246
+    }
+  ]
+}
