@@ -62,6 +62,31 @@ TEST_F(ChademoRestorationTest, ShuntFramesDoNotCountAsVehicleLiveness) {
   EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 0);
 }
 
+// The routing range must match ISA_handleFrame's own guard exactly
+// (0x510..0x528, CHADEMO-SHUNTS.cpp). An off-by-one in the router either
+// starves the decoder of an endpoint frame or, worse, feeds a neighbouring
+// ID into it as vehicle traffic. Both endpoints decode; both neighbours are
+// ignored by the shunt path and do not disturb the measurement.
+TEST_F(ChademoRestorationTest, IsaRoutingRangeMatchesTheDecoderExactly) {
+  // In-range endpoints reach the decoder: 0x522 is voltage (proven above);
+  // 0x521 is current in mA, 0x528 is energy - use current for the low check.
+  chademo->handle_incoming_can_frame(isa_frame(0x521, 12500));  // 12.5 A
+  EXPECT_FLOAT_EQ(get_measured_current(), 12.5f) << "0x521 (low neighbourhood) must reach ISA_handleFrame";
+
+  chademo->handle_incoming_can_frame(isa_frame(0x522, 370000));
+  EXPECT_FLOAT_EQ(get_measured_voltage(), 370.0f);
+
+  // One past each end: not shunt frames. They must not change measurements,
+  // and (not being vehicle IDs either) must not feed liveness.
+  datalayer.battery.status.CAN_battery_still_alive = 0;
+  chademo->handle_incoming_can_frame(isa_frame(0x50F, 999999));
+  chademo->handle_incoming_can_frame(isa_frame(0x529, 999999));
+  EXPECT_FLOAT_EQ(get_measured_voltage(), 370.0f) << "out-of-range IDs disturbed the shunt measurement";
+  EXPECT_FLOAT_EQ(get_measured_current(), 12.5f);
+  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 0)
+      << "a non-vehicle, non-shunt ID must not count as vehicle liveness";
+}
+
 // Regression D: update_values() used to write the liveness counter
 // unconditionally ("Always write the CAN as alive!"), which defeated both the
 // battery-missing alarm and the battery_detected contactor guard - the system
