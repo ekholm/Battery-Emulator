@@ -8,6 +8,10 @@
   "0x3894faf5": {
    "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/manifest-0x3894faf5.json",
    "updated": "2026-08-21"
+  },
+  "0x0072a6ba": {
+   "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/manifest-0x0072a6ba.json",
+   "updated": "2026-08-21"
   }
  },
  "strings": {
