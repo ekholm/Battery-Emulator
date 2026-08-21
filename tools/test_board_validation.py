@@ -380,7 +380,11 @@ def main():
     # compiles the board, and board_gen's chip/flash cross-check has no env to
     # compare against, so those two fields are whatever the file says. The 3LB
     # sat in exactly that state from 2024 until this was added.
-    ini = (ROOT / 'platformio.ini').read_text(encoding='utf-8')
+    # Commented lines are dropped first: retiring an env by prefixing `;` is
+    # the usual soft-disable in an ini file, and a define that only survives
+    # inside a comment builds nothing, which the guard used to accept.
+    ini = '\n'.join(line for line in (ROOT / 'platformio.ini').read_text(encoding='utf-8').splitlines()
+                    if not line.lstrip().startswith(';'))
     for declaration in sorted(BOARDS.glob('*.yaml')):
         macro = re.search(r'^macro:\s*(\S+)', declaration.read_text(encoding='utf-8'), re.M)
         if macro is None:
