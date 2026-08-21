@@ -1,5 +1,4 @@
 #include "webserver.h"
-#include <Preferences.h>
 #include <vector>
 #include "../../battery/BATTERIES.h"
 #include "../../battery/Battery.h"
@@ -683,10 +682,8 @@ void init_webserver() {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
-      Preferences prefs;
-      prefs.begin("batterySettings", false);
-      prefs.putBool("BYDAUTOCALEN", enabled);
-      prefs.end();
+      BatteryEmulatorSettingsStore settings;
+      setting_save<Sid::BYDAUTOCALEN>(settings, enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -697,10 +694,8 @@ void init_webserver() {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
         datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
-        Preferences prefs;
-        prefs.begin("batterySettings", false);
-        prefs.putUInt("BYDAUTOCALDRIFT", (uint8_t)value);
-        prefs.end();
+        BatteryEmulatorSettingsStore settings;
+        setting_save<Sid::BYDAUTOCALDRIFT>(settings, static_cast<uint32_t>(value));
       }
     }
     request->send(200, "text/plain", "OK");
@@ -727,10 +722,8 @@ void init_webserver() {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3.keep_iso_disabled = enabled;
       datalayer_extended.bydAtto3_2.keep_iso_disabled = enabled;
-      Preferences prefs;
-      prefs.begin("batterySettings", false);
-      prefs.putBool("BYDKEEPISOOFF", enabled);
-      prefs.end();
+      BatteryEmulatorSettingsStore settings;
+      setting_save<Sid::BYDKEEPISOOFF>(settings, enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -748,10 +741,8 @@ void init_webserver() {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3_2.auto_calibrate_soc_enabled = enabled;
-      Preferences prefs;
-      prefs.begin("batterySettings", false);
-      prefs.putBool("BYDAUTOCALEN2", enabled);
-      prefs.end();
+      BatteryEmulatorSettingsStore settings;
+      setting_save<Sid::BYDAUTOCALEN2>(settings, enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -761,10 +752,8 @@ void init_webserver() {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
         datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent = (uint8_t)value;
-        Preferences prefs;
-        prefs.begin("batterySettings", false);
-        prefs.putUInt("BYDAUTOCALDRFT2", (uint8_t)value);
-        prefs.end();
+        BatteryEmulatorSettingsStore settings;
+        setting_save<Sid::BYDAUTOCALDRFT2>(settings, static_cast<uint32_t>(value));
       }
     }
     request->send(200, "text/plain", "OK");
