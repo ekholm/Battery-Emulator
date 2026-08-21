@@ -6,7 +6,7 @@
     "ref": "deploy/stark-20260821-9cef7760"
   },
   "core": {
-    "core_build_id": "0x6d69d344",
+    "core_build_id": "0x2edaf801",
     "env": "one_image_lx6_core",
     "fw_version": "deploy/stark-20260821-9cef7760"
   },
@@ -16,7 +16,7 @@
       "type_id": 22,
       "name": "Pylon /Dyness compatible battery",
       "file": "pylon.bemod",
-      "sha256": "c1f352ae862b2cd9cf2469fc16351e2557701c3c654959861d2d8845fd017f83",
+      "sha256": "336c08861b31fc9a0681fa342a1c3f384607ced2d965fe1dac721c10531ecfce",
       "size": 3424,
       "irom": 2924,
       "drom": 436
@@ -26,7 +26,7 @@
       "type_id": 2,
       "name": "BMW i3",
       "file": "bmw-i3.bemod",
-      "sha256": "4aa29f82a27eb72e572e61269c78ef37d8652408cd6f05938a84586d5d90798d",
+      "sha256": "c690d5fcabdc6562182b2ec1a77f609929f9e0d34a4d2a7086b20e280315ec8a",
       "size": 10808,
       "irom": 8276,
       "drom": 2468
@@ -36,7 +36,7 @@
       "type_id": 19,
       "name": "VW Group MEB platform via CAN-FD",
       "file": "meb.bemod",
-      "sha256": "6f471516885f6f297cf51cf9d42571d42247bea9e9b7de72584e57399f04caad",
+      "sha256": "caba79a577bc751b087094e8f24315366b115b1d0ecbed5afa12d2d1eebb2c77",
       "size": 22948,
       "irom": 15124,
       "drom": 7760
@@ -46,7 +46,7 @@
       "type_id": 32,
       "name": "Tesla Model 3/Y",
       "file": "tesla-3y.bemod",
-      "sha256": "b78e31924cb54abaa8087368c00521da9e22fda47ec2fcc17821c7d69c85ee4a",
+      "sha256": "7be74f62c0c07ff0930256e35bf39fddd590e82d6250763f7489f466e703fef0",
       "size": 38420,
       "irom": 28964,
       "drom": 9392
@@ -56,7 +56,7 @@
       "type_id": 21,
       "name": "Sungrow SBRXXX emulation over CAN bus",
       "file": "sungrow-inv.bemod",
-      "sha256": "bc2b481a68ab5c1ef0e8418e8b8aaffb23324c1dde10582c53a5ab22c0b9381c",
+      "sha256": "ce99e4ac12faa2c05b043e236074c34a227618f8c915a1f156b6c6421504739b",
       "size": 7912,
       "irom": 7404,
       "drom": 444
@@ -66,7 +66,7 @@
       "type_id": 10,
       "name": "Pylontech HV battery over CAN bus",
       "file": "pylon-inv.bemod",
-      "sha256": "1810d47c2d774c535bc83833483bb9c5dc805b0eaa31329a2cab3480265688e4",
+      "sha256": "84f5ee99d6e063f223022eacd13c260fa133a9c0c29861015b033cfda5aca65d",
       "size": 2744,
       "irom": 2352,
       "drom": 328

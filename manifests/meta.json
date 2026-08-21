@@ -1,8 +1,8 @@
 {
   "meta_version": 1,
   "cores": {
-    "0x6d69d344": {
-      "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/manifest-0x6d69d344.json",
+    "0x2edaf801": {
+      "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/manifest-0x2edaf801.json",
       "updated": "2026-08-20"
     }
   },
