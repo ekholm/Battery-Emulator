@@ -88,6 +88,31 @@ def main():
     expect_reject('an acknowledgement with no reason', 'ETH_MDC_PIN', 'no reason')
     bvt.NEW_SINCE_BASELINE = {b: dict(v) for b, v in shipped.items()}
 
+    # review R7: the exemption is a hatch in check 1, so pin that the checks
+    # AROUND it still bite - the DONE row asserts both, and an assertion nobody
+    # can re-run mechanically decays into a belief. Both cases mutate a real
+    # schema file and restore it; expect_reject re-runs the verifier in between.
+
+    # Check 1 for a baselined member: a changed pin is not verbatim any more.
+    devkit_yaml = Path(bvt.ROOT) / 'Software' / 'boards' / 'devkit.yaml'
+    yaml_orig = devkit_yaml.read_text()
+    import re as _re
+    can_line = _re.search(r' *- \{driver: native, tx: (\d+), rx: \d+\}', yaml_orig)
+    tx = can_line.group(1)
+    try:
+        devkit_yaml.write_text(yaml_orig.replace(f'tx: {tx}', f'tx: {int(tx) + 1}', 1))
+        expect_reject('a baselined member whose generated line drifted', 'devkit')
+    finally:
+        devkit_yaml.write_text(yaml_orig)
+
+    # Check 2: a baselined member the schema stops emitting is caught from the
+    # other side - which is also what still catches a renamed getter.
+    try:
+        devkit_yaml.write_text(yaml_orig.replace(can_line.group(0) + '\n', '', 1))
+        expect_reject('a baselined member the schema dropped', 'neither the generated block nor the header')
+    finally:
+        devkit_yaml.write_text(yaml_orig)
+
     if failures:
         print(f'transcription exemptions: {len(failures)} FAILED')
         for f in failures:
