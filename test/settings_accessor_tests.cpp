@@ -177,3 +177,68 @@ TEST_F(SettingsAccessorTest, ResavingTheStoredValueIsANoOp) {
   setting_save<Sid::MQTTPORT>(reopened, 1883u);
   EXPECT_FALSE(reopened.were_settings_updated());
 }
+
+// --- The BYD routes' old on-flash contract (item 61) ------------------------
+
+// Those five routes used to open Preferences themselves and write these keys
+// by hand. Moving them onto the accessors is only safe if the bytes on flash
+// are the same bytes: a device provisioned by the old firmware has to read
+// back through the accessor exactly what the old route wrote, and what the new
+// route writes has to be found by a reader that still uses the old typed call.
+// The emulation enforces NVS tags, so a kind that disagreed with the old
+// putX would default here rather than round-trip.
+//
+// Values are deliberately not the row defaults - a silently defaulting read
+// returns the default, and would pass a test that stored one.
+TEST_F(SettingsAccessorTest, MigratedBydRoutesKeepTheOldOnFlashContract) {
+  {  // what the old routes wrote, read through the accessor
+    Preferences prefs;
+    prefs.begin("batterySettings", false);
+    prefs.putBool("BYDAUTOCALEN", false);
+    prefs.putUInt("BYDAUTOCALDRIFT", (uint8_t)17);
+    prefs.putBool("BYDAUTOCALEN2", false);
+    prefs.putUInt("BYDAUTOCALDRFT2", (uint8_t)3);
+    prefs.putBool("BYDKEEPISOOFF", false);
+    prefs.end();
+
+    BatteryEmulatorSettingsStore store;
+    EXPECT_FALSE(setting_get<Sid::BYDAUTOCALEN>(store)) << "a provisioned device lost its auto-calibrate flag";
+    EXPECT_EQ(setting_get<Sid::BYDAUTOCALDRIFT>(store), 17u) << "a provisioned device lost its drift threshold";
+    EXPECT_FALSE(setting_get<Sid::BYDAUTOCALEN2>(store));
+    EXPECT_EQ(setting_get<Sid::BYDAUTOCALDRFT2>(store), 3u);
+    EXPECT_FALSE(setting_get<Sid::BYDKEEPISOOFF>(store)) << "a provisioned device lost keep-iso-disabled";
+  }
+
+  emul_nvs_reset();
+
+  {  // what the new routes write, read the way the old code read it
+    BatteryEmulatorSettingsStore store;
+    setting_save<Sid::BYDAUTOCALEN>(store, false);
+    setting_save<Sid::BYDAUTOCALDRIFT>(store, 17u);
+    setting_save<Sid::BYDKEEPISOOFF>(store, false);
+
+    Preferences prefs;
+    prefs.begin("batterySettings", true);
+    EXPECT_FALSE(prefs.getBool("BYDAUTOCALEN", true)) << "the new route wrote somewhere the old reader cannot see";
+    EXPECT_EQ(prefs.getUInt("BYDAUTOCALDRIFT", 0), 17u);
+    EXPECT_FALSE(prefs.getBool("BYDKEEPISOOFF", true));
+    EXPECT_EQ(prefs.getType("BYDAUTOCALEN"), PT_U8) << "the tag on flash changed under an existing key";
+    EXPECT_EQ(prefs.getType("BYDAUTOCALDRIFT"), PT_U32) << "the tag on flash changed under an existing key";
+    prefs.end();
+  }
+}
+
+// The gain the raw handles were giving up: they called putX unconditionally,
+// so every hit on one of these routes wrote flash. Through the store, a repeat
+// of the stored value writes nothing.
+TEST_F(SettingsAccessorTest, ARepeatedBydRouteHitDoesNotWriteFlash) {
+  {
+    BatteryEmulatorSettingsStore store;
+    setting_save<Sid::BYDAUTOCALDRIFT>(store, 12u);
+    EXPECT_TRUE(store.were_settings_updated());
+  }
+
+  BatteryEmulatorSettingsStore reopened;
+  setting_save<Sid::BYDAUTOCALDRIFT>(reopened, 12u);
+  EXPECT_FALSE(reopened.were_settings_updated()) << "the same value written twice still reached flash";
+}
