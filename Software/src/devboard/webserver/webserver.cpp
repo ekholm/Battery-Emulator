@@ -682,8 +682,7 @@ void init_webserver() {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
-      BatteryEmulatorSettingsStore settings;
-      setting_save<Sid::BYDAUTOCALEN>(settings, enabled);
+      setting_save<Sid::BYDAUTOCALEN>(enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -694,8 +693,7 @@ void init_webserver() {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
         datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
-        BatteryEmulatorSettingsStore settings;
-        setting_save<Sid::BYDAUTOCALDRIFT>(settings, static_cast<uint32_t>(value));
+        setting_save<Sid::BYDAUTOCALDRIFT>(static_cast<uint32_t>(value));
       }
     }
     request->send(200, "text/plain", "OK");
@@ -722,8 +720,7 @@ void init_webserver() {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3.keep_iso_disabled = enabled;
       datalayer_extended.bydAtto3_2.keep_iso_disabled = enabled;
-      BatteryEmulatorSettingsStore settings;
-      setting_save<Sid::BYDKEEPISOOFF>(settings, enabled);
+      setting_save<Sid::BYDKEEPISOOFF>(enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -741,8 +738,7 @@ void init_webserver() {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3_2.auto_calibrate_soc_enabled = enabled;
-      BatteryEmulatorSettingsStore settings;
-      setting_save<Sid::BYDAUTOCALEN2>(settings, enabled);
+      setting_save<Sid::BYDAUTOCALEN2>(enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -752,8 +748,7 @@ void init_webserver() {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
         datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent = (uint8_t)value;
-        BatteryEmulatorSettingsStore settings;
-        setting_save<Sid::BYDAUTOCALDRFT2>(settings, static_cast<uint32_t>(value));
+        setting_save<Sid::BYDAUTOCALDRFT2>(static_cast<uint32_t>(value));
       }
     }
     request->send(200, "text/plain", "OK");
