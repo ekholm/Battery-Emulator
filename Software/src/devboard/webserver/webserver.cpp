@@ -490,66 +490,66 @@ void init_webserver() {
                 auto p = request->getParam(i);
                 if (p->name() == "inverter") {
                   auto type = static_cast<InverterProtocolType>(atoi(p->value().c_str()));
-                  settings.saveUInt("INVTYPE", (int)type);
+                  setting_save<Sid::INVTYPE>(settings, (int)type);
                 } else if (p->name() == "INVCOMM") {
                   auto type = static_cast<comm_interface>(atoi(p->value().c_str()));
-                  settings.saveUInt("INVCOMM", (int)type);
+                  setting_save<Sid::INVCOMM>(settings, (int)type);
                 } else if (p->name() == "battery") {
                   auto type = static_cast<BatteryType>(atoi(p->value().c_str()));
-                  settings.saveUInt("BATTTYPE", (int)type);
+                  setting_save<Sid::BATTTYPE>(settings, (int)type);
                 } else if (p->name() == "BATTCHEM") {
                   auto type = static_cast<battery_chemistry_enum>(atoi(p->value().c_str()));
-                  settings.saveUInt("BATTCHEM", (int)type);
+                  setting_save<Sid::BATTCHEM>(settings, (int)type);
                 } else if (p->name() == "BATTCOMM") {
                   auto type = static_cast<comm_interface>(atoi(p->value().c_str()));
-                  settings.saveUInt("BATTCOMM", (int)type);
+                  setting_save<Sid::BATTCOMM>(settings, (int)type);
                 } else if (p->name() == "BATTPVMAX") {
                   auto type = p->value().toFloat() * 10.0f;
-                  settings.saveUInt("BATTPVMAX", (int)type);
+                  setting_save<Sid::BATTPVMAX>(settings, (int)type);
                 } else if (p->name() == "BATTPVMIN") {
                   auto type = p->value().toFloat() * 10.0f;
-                  settings.saveUInt("BATTPVMIN", (int)type);
+                  setting_save<Sid::BATTPVMIN>(settings, (int)type);
                 } else if (p->name() == "charger") {
                   auto type = static_cast<ChargerType>(atoi(p->value().c_str()));
-                  settings.saveUInt("CHGTYPE", (int)type);
+                  setting_save<Sid::CHGTYPE>(settings, (int)type);
                 } else if (p->name() == "CHGCOMM") {
                   auto type = static_cast<comm_interface>(atoi(p->value().c_str()));
-                  settings.saveUInt("CHGCOMM", (int)type);
+                  setting_save<Sid::CHGCOMM>(settings, (int)type);
                 } else if (p->name() == "EQSTOP") {
                   auto type = static_cast<STOP_BUTTON_BEHAVIOR>(atoi(p->value().c_str()));
-                  settings.saveUInt("EQSTOP", (int)type);
+                  setting_save<Sid::EQSTOP>(settings, (int)type);
                 } else if (p->name() == "BATT2COMM") {
                   auto type = static_cast<comm_interface>(atoi(p->value().c_str()));
-                  settings.saveUInt("BATT2COMM", (int)type);
+                  setting_save<Sid::BATT2COMM>(settings, (int)type);
                 } else if (p->name() == "BATT3COMM") {
                   auto type = static_cast<comm_interface>(atoi(p->value().c_str()));
-                  settings.saveUInt("BATT3COMM", (int)type);
+                  setting_save<Sid::BATT3COMM>(settings, (int)type);
                 } else if (p->name() == "shunttype") {
                   auto type = static_cast<ShuntType>(atoi(p->value().c_str()));
-                  settings.saveUInt("SHUNTTYPE", (int)type);
+                  setting_save<Sid::SHUNTTYPE>(settings, (int)type);
                 } else if (p->name() == "SHUNTCOMM") {
                   auto type = static_cast<comm_interface>(atoi(p->value().c_str()));
-                  settings.saveUInt("SHUNTCOMM", (int)type);
+                  setting_save<Sid::SHUNTCOMM>(settings, (int)type);
                 } else if (p->name() == "CTOFFSET") {
                   // allow negative offsets so save as string
-                  settings.saveString("CTOFFSET", p->value().c_str());
+                  setting_save<Sid::CTOFFSET>(settings, p->value().c_str());
                 } else if (p->name() == "CTATTEN") {
                   auto type = static_cast<adc_attenuation_t>(atoi(p->value().c_str()));
-                  settings.saveUInt("CTATTEN", (int)type);
+                  setting_save<Sid::CTATTEN>(settings, (int)type);
                 } else if (p->name() == "CPUTEMPOFFSET") {
                   // allow negative offsets so save as number
-                  settings.saveInt("CPUTEMPOFFSET", atoi(p->value().c_str()));
+                  setting_save<Sid::CPUTEMPOFFSET>(settings, atoi(p->value().c_str()));
                 } else if (p->name() == "SSID") {
-                  settings.saveString("SSID", p->value().c_str());
+                  setting_save<Sid::SSID>(settings, p->value().c_str());
                   ssid = setting_get<Sid::SSID>(settings).c_str();
                 } else if (p->name() == "PASSWORD") {
                   if (!p->value().isEmpty()) {  // blank = keep existing (field is rendered empty)
-                    settings.saveString("PASSWORD", p->value().c_str());
+                    setting_save<Sid::PASSWORD>(settings, p->value().c_str());
                   }
                   password = setting_get<Sid::PASSWORD>(settings).c_str();
                 } else if (p->name() == "MQTTPUBLISHMS") {
                   auto interval = atoi(p->value().c_str()) * 1000;  // Convert seconds to milliseconds
-                  settings.saveUInt("MQTTPUBLISHMS", interval);
+                  setting_save<Sid::MQTTPUBLISHMS>(settings, interval);
                 }
 
                 for (auto& uintSetting : uintSettingNames) {
@@ -598,10 +598,10 @@ void init_webserver() {
               // value can't survive a switch to such an integration.
               auto selectedBatteryType = static_cast<BatteryType>(setting_get<Sid::BATTTYPE>(settings));
               if (!battery_supports_double(selectedBatteryType) && setting_get<Sid::DBLBTR>(settings)) {
-                settings.saveBool("DBLBTR", false);
+                setting_save<Sid::DBLBTR>(settings, false);
               }
-              if (!battery_supports_triple(selectedBatteryType) && settings.getBool("TRIBTR", false)) {
-                settings.saveBool("TRIBTR", false);
+              if (!battery_supports_triple(selectedBatteryType) && setting_get<Sid::TRIBTR>(settings)) {
+                setting_save<Sid::TRIBTR>(settings, false);
               }
 
               settingsUpdated = settings.were_settings_updated();

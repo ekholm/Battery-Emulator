@@ -31,7 +31,10 @@ namespace fs = std::filesystem;
 // Files that may still address settings by key, and how many times. SHRINK-ONLY.
 const std::map<std::string, size_t> DIRECT_ACCESS = {
     {"settings_html.cpp", 127},
-    {"webserver.cpp", 38},  // the six literal-key reads migrated; the rest are the generic loops
+    // 5 in the generic save loops, whose key is a runtime variable and which cannot
+    // use a compile-time id until the loop itself is table-driven; 5 raw Preferences
+    // handles in the BYD routes and the 5 calls on them, which bypass the store entirely.
+    {"webserver.cpp", 15},
 };
 
 // The key-addressed API itself, and the loader that is built on it.
