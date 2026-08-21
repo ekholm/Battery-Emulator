@@ -1,15 +1,23 @@
 {
-  "meta_version": 1,
-  "cores": {
-    "0x2edaf801": {
-      "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/manifest-0x2edaf801.json",
-      "updated": "2026-08-20"
-    }
+ "meta_version": 1,
+ "cores": {
+  "0x2edaf801": {
+   "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/manifest-0x2edaf801.json",
+   "updated": "2026-08-20"
   },
-  "strings": {
-    "e4f50a5de007395f": {
-      "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/i18n-manifest-e4f50a5de007395f.json",
-      "updated": "2026-08-20"
-    }
+  "0x3894faf5": {
+   "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/manifest-0x3894faf5.json",
+   "updated": "2026-08-21"
   }
+ },
+ "strings": {
+  "e4f50a5de007395f": {
+   "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/i18n-manifest-e4f50a5de007395f.json",
+   "updated": "2026-08-20"
+  },
+  "cd26613d1d39ca2f": {
+   "manifest": "https://raw.githubusercontent.com/ekholm/Battery-Emulator/published/manifests/i18n-manifest-cd26613d1d39ca2f.json",
+   "updated": "2026-08-21"
+  }
+ }
 }
