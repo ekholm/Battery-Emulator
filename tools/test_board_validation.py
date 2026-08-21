@@ -410,6 +410,39 @@ def main():
             failures.append(f'{declaration.name} is declared but no platformio env defines '
                             f'{macro.group(1)} - nothing builds it, so nothing checks it')
 
+    # ...and an env in platformio.ini is not a build either. CI compiles what
+    # its matrix lists, so a board whose env never reaches the workflow passes
+    # the check above while nothing ever compiles it. The 3LB's matrix row was
+    # hand-added in the same commit as its env (item 31), which is precisely
+    # the coupling nothing was checking - the next board gets it right only if
+    # whoever adds it remembers two files.
+    #
+    # The matrix is read with a regex rather than a yaml parse, in the style of
+    # the rest of this file - and the empty case is a failure, not a pass: a
+    # workflow that moved or renamed the key would otherwise clear every board
+    # here while compiling none of them.
+    workflow = ROOT / '.github' / 'workflows' / 'compile-common-image.yml'
+    matrix_envs = set()
+    if not workflow.exists():
+        failures.append(f'{workflow.name} is missing - CI coverage cannot be checked')
+    else:
+        matrix_envs = set(re.findall(r'^\s*pio_env:\s*["\']?([A-Za-z0-9_]+)',
+                                     workflow.read_text(encoding='utf-8'), re.M))
+        if not matrix_envs:
+            failures.append(f'{workflow.name} lists no pio_env - the CI coverage check would '
+                            'pass every board without compiling any of them')
+
+    if matrix_envs:
+        for declaration in sorted(BOARDS.glob('*.yaml')):
+            macro = re.search(r'^macro:\s*(\S+)', declaration.read_text(encoding='utf-8'), re.M)
+            if macro is None:
+                continue  # already reported above
+            envs = {block.split(']')[0] for block in re.split(r'^\[env:', ini, flags=re.M)[1:]
+                    if re.search(r'-D\s+%s\b' % re.escape(macro.group(1)), block.split('\n[', 1)[0])}
+            if envs and not envs & matrix_envs:
+                failures.append(f'{declaration.name} is built by {sorted(envs)} but none of those '
+                                f'envs is in {workflow.name} - CI never compiles this board')
+
     if failures:
         print(f'board validation: {len(failures)} FAILED')
         for f in failures:
