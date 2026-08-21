@@ -2,6 +2,7 @@
 #define BE_DEVBOARD_SETTINGS_SETTINGS_ACCESSORS_H
 
 #include <WString.h>
+#include "../../communication/nvm/comm_nvm.h"
 #include "settings_table.h"
 
 // Typed access to one setting, generated from its row.
@@ -19,9 +20,11 @@
 // U32, int32_t for I32, String for Str. A call site cannot ask for a setting
 // under the wrong type, because it never names a type at all - only the id.
 //
-// The store is a template parameter rather than BatteryEmulatorSettingsStore
-// spelled out, purely to keep this header a leaf like settings_table.h; the
-// get/save vocabulary is that class's. Loader-only semantics stay in the
+// The store-taking templates keep the store as a template parameter - host
+// tests inject the Preferences emulation through it, and multi-access blocks
+// batch one session. The argument-less overloads below are why this header
+// includes the store: a call site with ONE read or ONE save names neither a
+// key nor a store, which is the whole convenience the layer promises. Loader-only semantics stay in the
 // loader: SF_SKIP_IF_ZERO rows read back their stored value like any other -
 // "0 means leave the destination alone" is the applier's business, not the
 // key's.
@@ -84,6 +87,24 @@ void setting_save(Store& store, const setting_value_t<S>& value) {
   } else {
     store.saveString(row.nvs_key, value.c_str());
   }
+}
+
+// A single read: opens the store READ-ONLY for the one call. Handlers used to
+// open a read-write session just to read a value; a read has no business
+// holding a writable NVS handle.
+template <Sid S>
+setting_value_t<S> setting_get() {
+  BatteryEmulatorSettingsStore store(true);
+  return setting_get<S>(store);
+}
+
+// A single save: one read-write session for the one value. A block that
+// touches several settings should open a store once and use the two-argument
+// forms - one session per access there would be wrong.
+template <Sid S>
+void setting_save(const setting_value_t<S>& value) {
+  BatteryEmulatorSettingsStore store;
+  setting_save<S>(store, value);
 }
 
 #endif  // BE_DEVBOARD_SETTINGS_SETTINGS_ACCESSORS_H

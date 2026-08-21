@@ -162,6 +162,28 @@ TEST_F(SettingsAccessorTest, AccessorSavesLandUnderTheRowsLiteralKey) {
   EXPECT_EQ(store.getUInt("MQTTPORT", 0), 2883u) << "the loader would not find what the accessor saved";
 }
 
+// --- The argument-less forms (item 49) --------------------------------------
+
+// One save, one read, no store named at the call site - the layer opens its
+// own session per call. The store-form read proves the light save landed in
+// the same place, not in some parallel state.
+TEST_F(SettingsAccessorTest, LightFormsRoundTripWithoutACallerStore) {
+  setting_save<Sid::MQTTPORT>(2999u);
+  EXPECT_EQ(setting_get<Sid::MQTTPORT>(), 2999u);
+
+  BatteryEmulatorSettingsStore store;
+  EXPECT_EQ(setting_get<Sid::MQTTPORT>(store), 2999u) << "the light save must land where the store form reads";
+}
+
+// The light read opens its store READ-ONLY. On a clean device it must hand
+// back the row default and leave the namespace exactly as empty as it found
+// it - a read that persists defaults would make first-boot state depend on
+// which page happened to render first.
+TEST_F(SettingsAccessorTest, ALightReadReturnsTheDefaultAndWritesNothing) {
+  EXPECT_TRUE(setting_get<Sid::WIFIAPENABLED>());
+  EXPECT_EQ(emul_nvs_key_count("batterySettings"), 0u) << "a read-only read created keys";
+}
+
 // --- Save goes through the store's skip-identical logic ---------------------
 
 // The accessor delegates to the same saveX calls the rest of the firmware
