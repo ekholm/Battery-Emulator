@@ -205,6 +205,7 @@ target_link_libraries(tests
 target_compile_definitions(tests PRIVATE 
     TEST_CAN_LOG_DIR="${CMAKE_SOURCE_DIR}/can_log_based/can_logs"
     TEST_SETTINGS_LOADER_SOURCE="${CMAKE_SOURCE_DIR}/../Software/src/communication/nvm/comm_nvm.cpp"
+    TEST_FIRMWARE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/../Software/src"
 )
 
 gtest_discover_tests(tests)

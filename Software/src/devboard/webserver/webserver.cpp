@@ -17,6 +17,7 @@
 #include "../network/hostname.h"
 #include "../network/network_status.h"
 #include "../sdcard/sdcard.h"
+#include "../settings/settings_accessors.h"
 #include "../utils/events.h"
 #include "../utils/led_handler.h"
 #include "../utils/millis64.h"
@@ -463,10 +464,10 @@ void init_webserver() {
 
               bool requestedWebAuth = webAuthParam != nullptr && webAuthParam->value() == "on";
               String requestedHttpUser =
-                  httpUserParam != nullptr ? httpUserParam->value() : settings.getString("HTTPUSER", "admin");
+                  httpUserParam != nullptr ? httpUserParam->value() : setting_get<Sid::HTTPUSER>(settings);
               String requestedHttpPass = (httpPassParam != nullptr && !httpPassParam->value().isEmpty())
                                              ? httpPassParam->value()
-                                             : settings.getString("HTTPPASS");
+                                             : setting_get<Sid::HTTPPASS>(settings);
 
               String requestedHttpPassConfirm =
                   (httpPassConfirmParam != nullptr && !httpPassConfirmParam->value().isEmpty())
@@ -540,12 +541,12 @@ void init_webserver() {
                   settings.saveInt("CPUTEMPOFFSET", atoi(p->value().c_str()));
                 } else if (p->name() == "SSID") {
                   settings.saveString("SSID", p->value().c_str());
-                  ssid = settings.getString("SSID", "").c_str();
+                  ssid = setting_get<Sid::SSID>(settings).c_str();
                 } else if (p->name() == "PASSWORD") {
                   if (!p->value().isEmpty()) {  // blank = keep existing (field is rendered empty)
                     settings.saveString("PASSWORD", p->value().c_str());
                   }
-                  password = settings.getString("PASSWORD", "").c_str();
+                  password = setting_get<Sid::PASSWORD>(settings).c_str();
                 } else if (p->name() == "MQTTPUBLISHMS") {
                   auto interval = atoi(p->value().c_str()) * 1000;  // Convert seconds to milliseconds
                   settings.saveUInt("MQTTPUBLISHMS", interval);
@@ -595,8 +596,8 @@ void init_webserver() {
               // The double/triple battery checkboxes are hidden in the UI for integrations
               // that don't implement parallel batteries. Make sure a previously stored
               // value can't survive a switch to such an integration.
-              auto selectedBatteryType = static_cast<BatteryType>(settings.getUInt("BATTTYPE", (int)BatteryType::None));
-              if (!battery_supports_double(selectedBatteryType) && settings.getBool("DBLBTR", false)) {
+              auto selectedBatteryType = static_cast<BatteryType>(setting_get<Sid::BATTTYPE>(settings));
+              if (!battery_supports_double(selectedBatteryType) && setting_get<Sid::DBLBTR>(settings)) {
                 settings.saveBool("DBLBTR", false);
               }
               if (!battery_supports_triple(selectedBatteryType) && settings.getBool("TRIBTR", false)) {
