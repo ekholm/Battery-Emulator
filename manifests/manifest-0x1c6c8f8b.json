@@ -2,13 +2,13 @@
   "manifest_version": 1,
   "origin": {
     "repo": "https://github.com/ekholm/Battery-Emulator",
-    "commit": "971870af92b77615af37d8ad85962f8692cf0564",
-    "ref": "deploy/stark-20260819-3029e9c5-3-g971870af"
+    "commit": "d2cd36b4d5d944be67ed6fcf66ac7ec6a1f027e6",
+    "ref": "deploy/stark-20260821-9cef7760-6-gd2cd36b4"
   },
   "core": {
-    "core_build_id": "0x3894faf5",
+    "core_build_id": "0x1c6c8f8b",
     "env": "one_image_lx6_core",
-    "fw_version": "deploy/stark-20260819-3029e9c5-3-g971870af"
+    "fw_version": "deploy/stark-20260821-9cef7760-6-gd2cd36b4"
   },
   "blobs": [
     {
@@ -16,7 +16,7 @@
       "type_id": 22,
       "name": "Pylon /Dyness compatible battery",
       "file": "pylon.bemod",
-      "sha256": "1a114a44a4e2cdce967d70dadb32b7d7d75c8804d2e910226f9724ccad2c6e21",
+      "sha256": "00fd9c75953aa5198176e17342f1548f9564d04393b09fd0414802e7a980c768",
       "size": 3424,
       "irom": 2924,
       "drom": 436
@@ -26,7 +26,7 @@
       "type_id": 2,
       "name": "BMW i3",
       "file": "bmw-i3.bemod",
-      "sha256": "ecc1dcefa00b44d109b7a3be171cfcd894a7aa3bc9c2e2ebdb7607293a891c37",
+      "sha256": "232380b318724c8e03d57f1f2a3a2c45650df38b388679dfb4d0243ee18b49f5",
       "size": 10808,
       "irom": 8276,
       "drom": 2468
@@ -36,17 +36,17 @@
       "type_id": 19,
       "name": "VW Group MEB platform via CAN-FD",
       "file": "meb.bemod",
-      "sha256": "d903fe2240d63225daba71c5b6e4992e3dc9cab4a29f55ddd3176662a04ce36f",
-      "size": 22592,
-      "irom": 16264,
-      "drom": 6264
+      "sha256": "44e0a4b1269e4a973205eaedef76bd49e1b36858a03ca1921e8af5859570f007",
+      "size": 22948,
+      "irom": 15124,
+      "drom": 7760
     },
     {
       "kind": "battery",
       "type_id": 32,
       "name": "Tesla Model 3/Y",
       "file": "tesla-3y.bemod",
-      "sha256": "63045c2b2953f26ff7fc08b45ffd6d615144cb5bf90447f86a3c77ae28fd3f6c",
+      "sha256": "c6c211b492355b5f7f4ea0d4ba1085305406db8ceda19cffaf9dbffa8907d1c9",
       "size": 38420,
       "irom": 28964,
       "drom": 9392
@@ -56,7 +56,7 @@
       "type_id": 21,
       "name": "Sungrow SBRXXX emulation over CAN bus",
       "file": "sungrow-inv.bemod",
-      "sha256": "d93fc345be6b94506a9ce0545f51414348e05a7bbef8d2f0d3d379eb0e1d35dd",
+      "sha256": "115c37447418688b00510ab07e3a3e1355e88a81f5bd31a858fbe09c29f16f37",
       "size": 7912,
       "irom": 7404,
       "drom": 444
@@ -66,7 +66,7 @@
       "type_id": 10,
       "name": "Pylontech HV battery over CAN bus",
       "file": "pylon-inv.bemod",
-      "sha256": "c2437f8b44cf6a9ab291f3d751f374bc2185830803f5d5022c1c67d0b3e3d251",
+      "sha256": "508ccee7731624de4eb04a2b61a6ed41417eb41fcb05ed3284610d7fecae7e1c",
       "size": 2744,
       "irom": 2352,
       "drom": 328
