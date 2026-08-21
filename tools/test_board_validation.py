@@ -176,6 +176,16 @@ def main():
     expect_reject('ethernet pin colliding with the SD chip select',
                   dfrobot.replace('mdc: 4', 'mdc: 5'),
                   'dfrobot_edge101', 'GPIO 5', 'ethernet.mdc', 'sd_spi.cs', board='dfrobot_edge101')
+    # The alternative-fitment carve-out exempts DIFFERENT drivers of
+    # one feature sharing a header - one driver claiming a GPIO through two of
+    # its own roles is still a declaration mistake, and this is the one shape
+    # of the rule no committed board anchors (the LilyGo anchors the exemption,
+    # not its boundary).
+    expect_reject('one driver claiming a pin with two roles',
+                  lilygo.replace('driver: mcp2515, bus: SPI1, cs: 18, int: 35',
+                                 'driver: mcp2515, bus: SPI1, cs: 18, int: 18'),
+                  'lilygo', 'GPIO 18', 'can.cs', 'can.int', board='lilygo')
+
     rc, output, _, generated = run('dfrobot_edge101', dfrobot)
     if rc != 0:
         failures.append(f'ethernet emission: the generator failed\n    {output.strip()}')
