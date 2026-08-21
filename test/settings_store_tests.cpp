@@ -46,6 +46,21 @@ TEST_F(SettingsStoreTest, StoresAndReadsBackEachType) {
   EXPECT_EQ(settings.getString("STRKEY", ""), String("hello"));
 }
 
+// Real NVS tags every entry and a typed getter on a mismatched key returns the
+// caller's default, never the stored bits reinterpreted. The emulation models
+// that (review R44: it briefly did not, and no test noticed); nonzero defaults
+// keep "tag honored" distinguishable from "wrong field, which is zero".
+TEST_F(SettingsStoreTest, TypedGettersRefuseAMismatchedTag) {
+  BatteryEmulatorSettingsStore settings;
+
+  settings.saveUInt("TAGGED", 5);
+
+  EXPECT_EQ(settings.getInt("TAGGED", 42), 42);
+  EXPECT_TRUE(settings.getBool("TAGGED", true));
+  EXPECT_EQ(settings.getString("TAGGED", "fallback"), String("fallback"));
+  EXPECT_EQ(settings.getUInt("TAGGED", 0), 5u) << "the matching getter must still see the value";
+}
+
 // Settings have to survive a power cycle, which is a fresh store object over
 // the same storage.
 TEST_F(SettingsStoreTest, ValuesSurviveReopeningTheStore) {

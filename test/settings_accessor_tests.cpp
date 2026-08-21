@@ -133,6 +133,35 @@ TEST_F(SettingsAccessorTest, WrongTaggedEntryReadsAsTheDefault) {
       << "the audit's mismatch condition should be visible on this key";
 }
 
+// review R44: reverting the emulation's tag guards (065a50fd) passed the whole
+// suite - the bool probe above cannot tell "tag honored, default returned"
+// from "tag ignored, zero field returned" because WEBAUTH's default IS false.
+// These rows' defaults are NOT the cross-typed zero, so a tag regression in
+// either the emulation or the accessor's store-call choice fails here.
+TEST_F(SettingsAccessorTest, MistaggedEntriesDefaultRatherThanBleedZerosAcross) {
+  BatteryEmulatorSettingsStore store;
+
+  store.saveInt(row(Sid::MQTTPORT).nvs_key, 999);        // row kind is U32
+  store.saveUInt(row(Sid::WIFIAPENABLED).nvs_key, 1);    // row kind is BoolU8
+  store.saveUInt(row(Sid::HTTPUSER).nvs_key, 7);         // row kind is Str
+
+  EXPECT_EQ(setting_get<Sid::MQTTPORT>(store), 1883u) << "a mistagged read must return the row default, not 0";
+  EXPECT_TRUE(setting_get<Sid::WIFIAPENABLED>(store)) << "a mistagged read must return the row default, not false";
+  EXPECT_EQ(setting_get<Sid::HTTPUSER>(store), String("admin"))
+      << "a mistagged read must return the row default, not an empty string";
+}
+
+// The accessor writes where the firmware reads: after a save through the
+// accessor, the raw typed getter finds the value under the row's literal key.
+// The round-trip test above is accessor-in, accessor-out - self-consistent
+// even if the row lookup were skewed - so this one leaves the abstraction.
+TEST_F(SettingsAccessorTest, AccessorSavesLandUnderTheRowsLiteralKey) {
+  BatteryEmulatorSettingsStore store;
+
+  setting_save<Sid::MQTTPORT>(store, 2883u);
+  EXPECT_EQ(store.getUInt("MQTTPORT", 0), 2883u) << "the loader would not find what the accessor saved";
+}
+
 // --- Save goes through the store's skip-identical logic ---------------------
 
 // The accessor delegates to the same saveX calls the rest of the firmware
