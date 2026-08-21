@@ -11,9 +11,16 @@ float (*get_measured_voltage_ptr)();
 //This function maps all the values fetched via CAN to the correct parameters used for the inverter
 void ChademoBattery::update_values() {
 
-  datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
-  //On this integration, we don't care if no CAN messages flow (normal before user plugs in)
-  //Always write the CAN as alive!
+  // Keep the liveness watchdog quiet while nothing is plugged in - an idle
+  // EVSE is the normal state, not a missing battery. Once the state machine
+  // leaves IDLE the vehicle's own frames maintain the counter (see
+  // handle_incoming_can_frame), so a mid-session CAN loss raises the alarm
+  // again. The unconditional kick that used to be here defeated both that
+  // alarm and the battery_detected contactor guard: the flag went true within
+  // a second of boot with no vehicle present.
+  if (CHADEMO_Status == CHADEMO_IDLE) {
+    datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
+  }
 
   //Check if user is requesting an action, if so, have statemachine jump there
   if (datalayer_extended.chademo.UserRequestStop) {
@@ -273,6 +280,19 @@ void ChademoBattery::process_vehicle_vendor_ID(CAN_frame rx_frame) {
 
 void ChademoBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
+  // The CAN-based ISA shunt shares this interface, and its frames carry the
+  // voltage and current the whole state machine regulates against. They must
+  // be handled before the CHADEMO ID filter below: 2fe64690 moved the call
+  // behind it, after which no shunt frame ever arrived and both measurements
+  // sat at zero - the POWERFLOW stop condition was permanently true and the
+  // A.7.2.9 current-drop wait ended instantly.
+  if (rx_frame.ID >= 0x510 && rx_frame.ID <= 0x528) {
+    if (user_selected_shunt_type != ShuntType::CustomClamp) {
+      ISA_handleFrame(&rx_frame);
+    }
+    return;
+  }
+
   // CHADEMO coexists with a CAN-based shunt. Only process CHADEMO-specific IDs
   // 202 is unknown
   if (!((rx_frame.ID >= 0x100 && rx_frame.ID <= 0x202) || rx_frame.ID == 0x700)) {
@@ -281,6 +301,8 @@ void ChademoBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
 
   // used for testing vehicle sanity
   vehicle_can_received = true;
+  // A real vehicle frame is what liveness means here - see update_values().
+  datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
   /*  CHADEMO_INIT state is a transient, used to indicate when CAN
    *  has not yet been receied from a vehicle 
    */
@@ -326,10 +348,6 @@ void ChademoBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
   }
 
   handle_chademo_sequence();
-
-  if (user_selected_shunt_type != ShuntType::CustomClamp) {
-    ISA_handleFrame(&rx_frame);
-  }
 }
 
 /* (re)initialize evse structures to pre-charge/discharge states */
