@@ -61,12 +61,48 @@ def main():
           not pp.unsafe_against({'driven': [5, 12, 18]}, ['dfrobot_edge101'],
                                 {'dfrobot_edge101': dfr_roles}, {'dfrobot_edge101': dfr_unplaced}))
 
+    # --- the classes must refuse ALONE, and driven sets must be
+    # complete ---------------------------------------------------------------
+    # Every refusal in today's report happens to list an ACTUATING or UNPLACED
+    # reason beside any GUARDED_INPUT one, so a regression that stopped
+    # refusing on guarded inputs alone would change no verdict and fail no
+    # case. Devkit's GPIO 12 is only its equipment stop: a probe driving just
+    # that pin must be refused for exactly that reason.
+    devkit_roles, devkit_unplaced = pp.pin_roles(load('devkit'))
+    check('a guarded input alone refuses a probe',
+          any(k == 'GUARDED_INPUT' for _, _, _, k in
+              pp.unsafe_against({'driven': [12]}, ['devkit'], {'devkit': devkit_roles},
+                                {'devkit': devkit_unplaced})),
+          'driving an equipment-stop input was certified safe')
+
+    # A probe asserts its own chip select, so a `variant` cs means the driven
+    # set cannot be stated - the probe must not be emitted at all rather than
+    # emitted with a pad missing.
+    threelb = load('3lb')
+    with_late_cs = dict(threelb)
+    with_late_cs['can'] = [dict(i) for i in threelb['can']]
+    for inst in with_late_cs['can']:
+        if inst.get('driver') == 'mcp2515':
+            inst['cs'] = 'variant'
+    before = {p['what'] for p in pp.probes_for('3lb', threelb)}
+    after = {p['what'] for p in pp.probes_for('3lb', with_late_cs)}
+    check('a late-bound chip select suppresses the probe',
+          'mcp2515 on bus SPI1' in before and 'mcp2515 on bus SPI1' not in after,
+          f'probes before={before} after={after}')
+
+    # The Edge101's PHY answers MDIO only while its power switch is asserted,
+    # so the probe drives three pins, not two - an undercounted driven set is
+    # how an unsafe probe gets certified.
+    eth_probes = pp.probes_for('dfrobot_edge101', load('dfrobot_edge101'))
+    check('the MDIO probe counts the PHY power pin as driven',
+          any(p['kind'] == 'mdio' and p['driven'] == [2, 4, 13] for p in eth_probes),
+          f'got {eth_probes}')
+
     # --- the headline finding, stated as a requirement ----------------------
     # Probing for the Stark's CAN-FD controller drives pins that carry current
     # on other boards. If this ever comes back safe, either a declaration
     # changed or the checker stopped working; both are worth a failed build.
     stark = load('stark')
-    devkit_roles, devkit_unplaced = pp.pin_roles(load('devkit'))
     probes = pp.probes_for('stark', stark)
     check('stark has an SPI probe to test at all', probes, 'no SPI CAN probe derived from stark')
     for probe in probes:

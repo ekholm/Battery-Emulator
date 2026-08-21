@@ -207,14 +207,19 @@ def probes_for(board, data):
             bus_name, bus = bg.bus_of(data, inst, feature)
             if not bus:
                 continue
+            # A probe cannot be certified if its own select pad is unknown:
+            # asserting chip select IS driving a pin, and a `variant` cs could
+            # be any pad. No probe is better than a probe whose driven set is
+            # missing an entry.
+            if not str(inst.get('cs')).isdigit():
+                continue
             driven, read = [], []
             for role in ('clk', 'mosi'):
                 if str(bus.get(role)).isdigit():
                     driven.append(int(bus[role]))
             if str(bus.get('miso')).isdigit():
                 read.append(int(bus['miso']))
-            if str(inst.get('cs')).isdigit():
-                driven.append(int(inst['cs']))
+            driven.append(int(inst['cs']))
             if len(driven) < 2:
                 continue
             out.append({'kind': 'spi', 'what': f'{driver or feature} on bus {bus_name}',
@@ -233,8 +238,10 @@ def probes_for(board, data):
         pass
     try:
         for spec, index, inst, driver in bg.instances_of(data, 'ethernet'):
-            driven = [int(inst[r]) for r in ('mdc', 'mdio') if str(inst.get(r)).isdigit()]
-            if len(driven) == 2:
+            # The PHY answers MDIO only while its power switch is asserted, so
+            # a probe drives that pin too - it belongs in the driven set.
+            driven = [int(inst[r]) for r in ('mdc', 'mdio', 'power') if str(inst.get(r)).isdigit()]
+            if len(driven) >= 2:
                 out.append({'kind': 'mdio', 'what': f'{driver} PHY over MDIO',
                             'family': f'mdio:{driver}', 'driven': sorted(driven), 'read': []})
     except bg.DeclError:
