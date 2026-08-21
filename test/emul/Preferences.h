@@ -23,9 +23,13 @@ namespace emul_nvs {
 
 struct Value {
   enum Type { INT, UINT, BOOL, STRING } type;
-  int32_t i32;
-  uint32_t u32;
-  bool b;
+  /* Zero-initialized so the fields a putX did NOT set hold a known value.
+   * Nothing should ever read them - the typed getters refuse a mismatched
+   * tag - but a regression there should fail a test deterministically, not
+   * return whatever the stack held. */
+  int32_t i32 = 0;
+  uint32_t u32 = 0;
+  bool b = false;
   String s;
 };
 
