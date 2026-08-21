@@ -260,6 +260,22 @@ def main():
                                  '  - {driver: mcp2515, cs: 18, int: 35, addon: mcp2515}'),
                   'lilygo', 'needs a spi bus', board='lilygo')
 
+    # The isolated dual-FD card is the add-on this mechanism was built for, and
+    # until here no test ever BOUND it - it only had to parse. A four-instance
+    # Stark naming it on the two add-on channels must validate cleanly, and its
+    # chip select is a signal the card receives, so the direction check has to
+    # know the template by name when the pin cannot be driven.
+    dual_fd = four_fd.replace(
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 13, int: 15}\n"
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 19, int: 16}",
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 13, int: 15, addon: dual_isolated_canfd}\n"
+        "  - {driver: mcp2518fd, bus: SPI1, cs: 19, int: 16, addon: dual_isolated_canfd}")
+    expect_accept('the isolated dual-FD card on instances three and four', dual_fd)
+    expect_reject('the dual-FD card with a chip select it cannot drive',
+                  dual_fd.replace('cs: 13, int: 15, addon: dual_isolated_canfd',
+                                  'cs: 36, int: 15, addon: dual_isolated_canfd'),
+                  'stark', 'dual_isolated_canfd', 'input-only on the esp32')
+
     # Optional signals are optional. The MCP2515's reset can be tied high on
     # the module, and three of the four boards carrying one do exactly that -
     # if this ever becomes an error the templates have drifted from the tree.
