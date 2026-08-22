@@ -92,7 +92,12 @@ def pin_roles(data):
     as simply absent is what a safety check must not do: it would let a board
     whose contactor pin is user-selectable read as having no contactor pin at
     all, and certify a probe as safe across it. They are recorded as unplaced
-    instead, and an unplaced ACTUATING role makes the board uncertifiable."""
+    instead, and an unplaced ACTUATING role makes the board uncertifiable.
+
+    Each unplaced role also carries HOW it is bound, because the two kinds are
+    not equally unknowable. A `setting` role is resolved from stored config; a
+    `variant` role is resolved from the hardware itself. Only the first can be
+    genuinely absent - see virgin_vacuous()."""
     out = {}
     unplaced = []
 
@@ -100,7 +105,7 @@ def pin_roles(data):
         if str(gpio).isdigit():
             out.setdefault(int(gpio), []).append((feature, label))
         elif str(gpio) in bg.LATE_BOUND:
-            unplaced.append((feature, label))
+            unplaced.append((feature, label, str(gpio)))
 
     for feature in bg.FEATURE_ORDER:
         try:
@@ -249,8 +254,28 @@ def probes_for(board, data):
     return out
 
 
-def unsafe_against(probe, candidates, roles, unplaced):
-    """Why this probe must not be run while `candidates` are still possible."""
+def virgin_vacuous(binding):
+    """Is this late-bound role genuinely absent on a device with virgin config?
+
+    `setting` roles get their pad from stored configuration. Before anything is
+    stored - factory state, first boot, the exact moment a cascade would run -
+    there is no assignment, so the role occupies no pad at all and cannot be
+    driven by accident. It is vacuous, not unknown.
+
+    `variant` roles are NOT vacuous: the pad is decided by which hardware
+    variant this is, which no amount of virgin NVS changes. Treating the two
+    alike would be the unsafe direction of this whole idea - it would certify a
+    probe against a contactor pin that is really there, just undeclared.
+    """
+    return binding == 'setting'
+
+
+def unsafe_against(probe, candidates, roles, unplaced, virgin=False):
+    """Why this probe must not be run while `candidates` are still possible.
+
+    With `virgin`, config-bound roles are skipped per virgin_vacuous(); every
+    PLACED role is judged exactly as before, because a declared pad is a pad
+    whatever the configuration says."""
     reasons = []
     for other in candidates:
         for gpio in probe['driven']:
@@ -258,7 +283,9 @@ def unsafe_against(probe, candidates, roles, unplaced):
                 klass = role_class(feature, label)
                 if klass != 'BENIGN':
                     reasons.append((other, gpio, label, klass))
-        for feature, label in unplaced[other]:
+        for feature, label, binding in unplaced[other]:
+            if virgin and virgin_vacuous(binding):
+                continue
             if role_class(feature, label) != 'BENIGN':
                 reasons.append((other, None, label, 'UNPLACED'))
     return reasons
@@ -293,7 +320,7 @@ def split_free(candidates, facts):
     return groups
 
 
-def resolve(group, probes, roles, unplaced, log):
+def resolve(group, probes, roles, unplaced, log, virgin=False):
     """Narrow `group` using only probes that are safe against it.
 
     Safety is judged against THE GROUP, not against every board that exists:
@@ -305,7 +332,7 @@ def resolve(group, probes, roles, unplaced, log):
     for board in sorted(group):
         for probe in probes[board]:
             others = [b for b in group if b != board]
-            reasons = unsafe_against(probe, others, roles, unplaced)
+            reasons = unsafe_against(probe, others, roles, unplaced, virgin)
             if reasons:
                 log.append(('rejected', board, probe, reasons))
                 continue
@@ -314,7 +341,7 @@ def resolve(group, probes, roles, unplaced, log):
                 log.append(('indistinct', board, probe, same))
                 continue
             log.append(('safe', board, probe, []))
-            rest = resolve(others, probes, roles, unplaced, log)
+            rest = resolve(others, probes, roles, unplaced, log, virgin)
             return [[board]] + rest
     log.append(('stuck', None, None, sorted(group)))
     return [sorted(group)]
@@ -416,6 +443,30 @@ def render(boards, facts, macros, roles, unplaced, probes):
             stuck = [p for p in result if len(p) > 1]
             add(f'**Result: INCOMPLETE.** {"; ".join("`" + "` vs `".join(p) + "`" for p in stuck)} '
                 'cannot be told apart safely.')
+            # Second pass, virgin config only: a `setting` role has no pad before
+            # anything is stored, which is exactly the state a first-boot cascade
+            # runs in. If that unsticks the group, the probe is worth having as a
+            # COMMISSIONING-TIME step - it is not licence to probe a configured
+            # device, where those pads are real again.
+            vlog = []
+            vresult = resolve(sorted(members), probes, roles, unplaced, vlog, virgin=True)
+            if not any(len(part) > 1 for part in vresult):
+                add('')
+                add('**Certifies under VIRGIN CONFIG.** Every refusal above is an unplaced role bound')
+                add('by `setting`, which takes its pad from stored configuration. On a device with')
+                add('nothing stored yet those roles occupy no pad at all, so the probe below drives')
+                add('nothing that exists:')
+                add('')
+                for kind, board, probe, detail in vlog:
+                    if kind == 'safe':
+                        add(f'- **SAFE (virgin only)** — probe `{board}` for {probe["what"]}: drives GPIO '
+                            f'{", ".join(str(p) for p in probe["driven"])}'
+                            + (f', reads {probe["read"][0]}' if probe['read'] else '') + '.')
+                add('')
+                add('Emit this as a COMMISSIONING-TIME probe: valid on first boot before any pin')
+                add('assignment is stored, and invalid the moment one is. A device that has been')
+                add('configured must fall back to the group ruling above. `variant`-bound roles are')
+                add('NOT excused here - their pad is decided by the hardware, not by configuration.')
         else:
             add('**Result: COMPLETE.** Every board in this group is reachable by safe probes alone.')
         add('')
@@ -439,7 +490,8 @@ def render(boards, facts, macros, roles, unplaced, probes):
 
     # The UNPLACED verdicts are the ones worth acting on: they are a gap in the
     # declarations rather than a fact about the hardware.
-    gaps = {b: [lbl for feat, lbl in u if role_class(feat, lbl) != 'BENIGN']
+    gaps = {b: [f'{lbl} (`{bind}`)' for feat, lbl, bind in u
+                if role_class(feat, lbl) != 'BENIGN']
             for b, u in unplaced.items()}
     gaps = {b: v for b, v in gaps.items() if v}
     if gaps:

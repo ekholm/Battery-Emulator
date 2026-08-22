@@ -111,6 +111,18 @@ input on our side, so reading it is free whatever the other board calls that pad
 
 **Result: INCOMPLETE.** `lilygo2can` vs `waveshare` cannot be told apart safely.
 
+**Certifies under VIRGIN CONFIG.** Every refusal above is an unplaced role bound
+by `setting`, which takes its pad from stored configuration. On a device with
+nothing stored yet those roles occupy no pad at all, so the probe below drives
+nothing that exists:
+
+- **SAFE (virgin only)** — probe `waveshare` for mcp2518fd on bus SPI1: drives GPIO 10, 11, 13, reads 12.
+
+Emit this as a COMMISSIONING-TIME probe: valid on first boot before any pin
+assignment is stored, and invalid the moment one is. A device that has been
+configured must fall back to the group ruling above. `variant`-bound roles are
+NOT excused here - their pad is decided by the hardware, not by configuration.
+
 ## What would have to change first
 
 Some probes were refused not because a pin is dangerous but because the declaration
@@ -118,9 +130,9 @@ does not say WHERE a dangerous role lands. A `setting` or `variant` pin is chose
 runtime, so it could be any pad, and a safety check cannot certify around it. These
 are gaps in the declarations, not facts about the boards:
 
-- **`lilygo`** — `contactors.bms_power`, `sma.enable`
-- **`lilygo2can`** — `battery_wakeup.wup1`, `battery_wakeup.wup2`, `contactors.bms_power`, `equipment_stop.pin`
-- **`stark`** — `contactors.bms_power`, `contactors.precharge`
+- **`lilygo`** — `contactors.bms_power (`setting`)`, `sma.enable (`setting`)`
+- **`lilygo2can`** — `battery_wakeup.wup1 (`setting`)`, `battery_wakeup.wup2 (`setting`)`, `contactors.bms_power (`setting`)`, `equipment_stop.pin (`setting`)`
+- **`stark`** — `contactors.bms_power (`setting`)`, `contactors.precharge (`setting`)`
 
 Placing these - even as "one of these two pads" - would let the checker reason about
 them instead of refusing outright. It would not make every group decidable; the

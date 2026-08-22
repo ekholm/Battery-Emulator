@@ -47,12 +47,45 @@ def main():
     # user setting, so the declaration cannot name its pad. If that registered
     # as "no such role" the checker would happily certify a probe across it.
     roles, unplaced = pp.pin_roles(load('lilygo'))
-    labels = [label for _, label in unplaced]
+    labels = [label for _, label, _ in unplaced]
     check('a `setting` pin is recorded as unplaced, not dropped',
           'contactors.bms_power' in labels, f'unplaced roles seen: {labels}')
     check('an unplaced actuating role blocks every probe',
           pp.unsafe_against({'driven': [1, 2, 3]}, ['lilygo'], {'lilygo': roles}, {'lilygo': unplaced}),
           'a probe on pins lilygo never mentions was certified safe anyway')
+
+    # --- virgin-config mode -------------------------------------------------
+    # The mode's whole claim is that a `setting` role has no pad before anything
+    # is stored. Its danger is obvious: excuse one role too many and the checker
+    # certifies a probe against a live contactor. So each case below pins one
+    # side of the line, and the two that matter are the refusals.
+    check('a setting-bound role is vacuous under virgin config', pp.virgin_vacuous('setting'))
+    check('a variant-bound role is NOT vacuous under virgin config',
+          not pp.virgin_vacuous('variant'),
+          'a variant pad is decided by the hardware; virgin NVS does not move it')
+
+    # lilygo's blockers are all `setting`, so virgin config should clear them...
+    check('virgin config clears lilygo\'s setting-bound unplaced roles',
+          not pp.unsafe_against({'driven': [1, 2, 3]}, ['lilygo'], {'lilygo': roles},
+                                {'lilygo': unplaced}, virgin=True))
+
+    # ...but a PLACED actuating pin is a pin whatever the configuration says.
+    # This is the mutation the item names: virgin mode must not touch it.
+    placed_actuating = [g for g, rs in roles.items()
+                        if any(pp.role_class(f, l) == 'ACTUATING' for f, l in rs)]
+    check('lilygo has a placed actuating pin to test against', placed_actuating)
+    check('virgin config does NOT excuse a PLACED actuating conflict',
+          pp.unsafe_against({'driven': placed_actuating[:1]}, ['lilygo'], {'lilygo': roles},
+                            {'lilygo': unplaced}, virgin=True),
+          f'driving GPIO {placed_actuating[:1]} must still refuse under virgin config')
+
+    # And the unsafe direction of the mode itself: a variant-bound actuating
+    # role must keep blocking, or the mode would certify a probe against a
+    # contactor whose pad the declaration simply never stated.
+    variant_actuating = {'x': [('contactors', 'contactors.positive', 'variant')]}
+    check('virgin config does NOT excuse a variant-bound actuating role',
+          pp.unsafe_against({'driven': [99]}, ['x'], {'x': {}}, variant_actuating, virgin=True),
+          'a variant pad is real hardware; only stored config can be absent')
 
     # A board with nothing unplaced and nothing dangerous on the pins in
     # question must still come back clean, or the check above proves nothing.
