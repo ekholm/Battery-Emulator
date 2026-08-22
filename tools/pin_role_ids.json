@@ -1,0 +1,17 @@
+{
+ "roles": {
+  "battery_wakeup.wup1": 0,
+  "battery_wakeup.wup2": 1,
+  "contactors.bms_power": 2,
+  "contactors.precharge": 3,
+  "display_i2c.scl": 4,
+  "display_i2c.sda": 5,
+  "equipment_stop.pin": 6,
+  "rgb_led.pin": 7,
+  "sd_mmc.clk": 8,
+  "sd_mmc.cs": 9,
+  "sd_mmc.miso": 10,
+  "sd_mmc.mosi": 11,
+  "sma.enable": 12
+ }
+}

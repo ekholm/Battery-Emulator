@@ -14,6 +14,7 @@ as present; a pin declared NC does not.
 
 Usage: python3 tools/test_board_validation.py
 """
+import json
 import re
 import shutil
 import subprocess
@@ -320,6 +321,54 @@ def main():
     expect_reject('a candidate pad only the other chip has',
                   lilygo.replace('bms_power: [18, 25]', 'bms_power: [18, 44]'),
                   'lilygo', '44', 'esp32s3', board='lilygo')
+
+    # The PIN-row generation is checked, not trusted, and this is the pinned
+    # list. Keys are addresses - <= 15 chars by construction, unique because
+    # ids are; ids append-only against the committed sidecar; every movable
+    # role exactly one key; the committed .inc not drifted from the YAMLs; and
+    # the two candidate-list defaults equal to the hand-written getters'
+    # first-candidate defaults (cited: hw_lilygo.h BMS_POWER 18, SMA enable 5).
+    sidecar_path = ROOT / 'tools' / 'pin_role_ids.json'
+    committed_sidecar = json.loads(sidecar_path.read_text(encoding='utf-8'))
+    with tempfile.TemporaryDirectory() as td:
+        scratch_sidecar = Path(td) / 'pin_role_ids.json'
+        shutil.copy(sidecar_path, scratch_sidecar)
+        decl = []
+        for path in sorted(BOARDS.glob('*.yaml')):
+            data = board_gen.parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
+            decl.append((data['board'], data))
+        regenerated = board_gen.pin_rows(decl, scratch_sidecar)
+        regen_sidecar = json.loads(scratch_sidecar.read_text(encoding='utf-8'))
+
+    committed_inc = (ROOT / 'Software' / 'src' / 'devboard' / 'settings' / 'pin_settings_rows.inc')
+    if not committed_inc.exists() or committed_inc.read_text(encoding='utf-8') != regenerated:
+        failures.append('pin_settings_rows.inc has drifted - run: python3 tools/board_gen.py '
+                        '--pin-rows Software/src/devboard/settings/pin_settings_rows.inc')
+    # In-checkout comparison is CONSISTENCY only: a branch that renumbers ids
+    # and regenerates consistently passes it (the i18n generator documents the
+    # same trap). True append-only is judged against the merge base - CI (or a
+    # reviewer) exports PIN_IDS_BASE pointing at the base branch's sidecar,
+    # exactly as i18n's --check-append-only-against works.
+    import os
+    base_env = os.environ.get('PIN_IDS_BASE')
+    baseline = json.loads(Path(base_env).read_text(encoding='utf-8')) if base_env else committed_sidecar
+    for name, rid in baseline['roles'].items():
+        if regen_sidecar['roles'].get(name) != rid:
+            failures.append(f'pin role id sidecar is not append-only: {name} changed or vanished')
+    ids = list(regen_sidecar['roles'].values())
+    if len(ids) != len(set(ids)):
+        failures.append('pin role ids collide in the sidecar')
+    keys = re.findall(r'"(PIN\d+)"', regenerated)
+    for k in keys:
+        if len(k) > 15:
+            failures.append(f'pin key {k} exceeds the 15-char NVS limit')
+    live_roles = re.findall(r'/\* ([a-z0-9_]+\.[a-z0-9_]+) \*/', regenerated)
+    if len(set(keys)) < len(live_roles):
+        failures.append('fewer distinct pin keys than emitted roles - a role lost its key')
+    for role, want in (('contactors.bms_power', 18), ('sma.enable', 5)):
+        rid = regen_sidecar['roles'][role]
+        if f'{{"lilygo", {rid}, {want}}},' not in regenerated:
+            failures.append(f'{role}: lilygo default must be {want} (the getter\'s first candidate)')
 
     # Two product labels cannot name the same physical output.
     expect_reject('two outputs on one GPIO',
