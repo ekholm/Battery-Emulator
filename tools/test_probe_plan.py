@@ -52,7 +52,7 @@ def main():
     check('a `setting` pin is recorded as unplaced, not dropped',
           'contactors.bms_power' in labels, f'unplaced roles seen: {labels}')
     check('an unplaced actuating role blocks every probe',
-          pp.unsafe_against({'driven': [1, 2, 3]}, ['stark'], {'stark': roles}, {'stark': unplaced}),
+          pp.unsafe_against({'driven': [1, 3]}, ['stark'], {'stark': roles}, {'stark': unplaced}),
           'a probe on pins stark never mentions was certified safe anyway')
 
     # lilygo places the same role on a candidate SET ([18, 25]): the role must
@@ -80,19 +80,21 @@ def main():
           not pp.virgin_vacuous('variant'),
           'a variant pad is decided by the hardware; virgin NVS does not move it')
 
-    # lilygo's blockers are all `setting`, so virgin config should clear them...
-    check('virgin config clears lilygo\'s setting-bound unplaced roles',
-          not pp.unsafe_against({'driven': [1, 2, 3]}, ['lilygo'], {'lilygo': roles},
-                                {'lilygo': unplaced}, virgin=True))
+    # stark's unplaced blockers are all `setting`, so virgin config clears
+    # them (pins 1 and 3 carry no PLACED role on stark; lilygo no longer has
+    # setting-bound unplaced roles at all - its candidates are placed pads).
+    check('virgin config clears stark\'s setting-bound unplaced roles',
+          not pp.unsafe_against({'driven': [1, 3]}, ['stark'], {'stark': roles},
+                                {'stark': unplaced}, virgin=True))
 
     # ...but a PLACED actuating pin is a pin whatever the configuration says.
     # This is the mutation the item names: virgin mode must not touch it.
     placed_actuating = [g for g, rs in roles.items()
                         if any(pp.role_class(f, l) == 'ACTUATING' for f, l in rs)]
-    check('lilygo has a placed actuating pin to test against', placed_actuating)
+    check('stark has a placed actuating pin to test against', placed_actuating)
     check('virgin config does NOT excuse a PLACED actuating conflict',
-          pp.unsafe_against({'driven': placed_actuating[:1]}, ['lilygo'], {'lilygo': roles},
-                            {'lilygo': unplaced}, virgin=True),
+          pp.unsafe_against({'driven': placed_actuating[:1]}, ['stark'], {'stark': roles},
+                            {'stark': unplaced}, virgin=True),
           f'driving GPIO {placed_actuating[:1]} must still refuse under virgin config')
 
     # And the unsafe direction of the mode itself: a variant-bound actuating
