@@ -458,6 +458,82 @@ def main():
                 failures.append(f'{declaration.name} is built by {sorted(envs)} but none of those '
                                 f'envs is in {workflow.name} - CI never compiles this board')
 
+    # Pre-existing, deliberately not a build failure until the desk rules on it.
+    # SHRINK-ONLY: an entry that stops applying must be deleted, which the rot
+    # check below enforces, so this cannot quietly become permanent.
+    #
+    # lilygo's GPIOOPT2 offers BMS power on 18 or 25. reset_hold_pins() returns
+    # {GPIO_NUM_25} alone, and 18 is not in the RTC domain, so it CANNOT be held
+    # across a reset by any code - picking 18 silently drops the hold that the
+    # role exists to provide. Found by this check; a real asymmetry between the
+    # two candidates, not a table error.
+    RTC_HOLD_EXCEPTIONS = {('lilygo', 'contactors.bms_power', 18)}
+    rtc_exceptions_hit = set()
+
+    # --- runtime tables -----------------------------------------------------
+    import board_probe_plan as pp
+    inc = board_gen.runtime_tables([])
+    import re as _re
+    emitted = {(m.group(1), m.group(2)): (int(m.group(3)), int(m.group(4)), int(m.group(5)))
+               for m in _re.finditer(r'\{"([^"]+)", "([^"]+)", (\d+), (\d+), (\d+)\}', inc)}
+
+    # Every role the feature table declares must reach the emission. A role that
+    # is silently absent is a role the on-device validator will never check.
+    declared_roles = set()
+    for feature, spec in board_gen.FEATURES.items():
+        variants = spec['by_driver'].values() if 'by_driver' in spec else [spec]
+        for variant in variants:
+            for inst in variant.get('instances', []):
+                declared_roles |= {(feature, r) for r in inst}
+            for bus in variant.get('bus', []):
+                declared_roles |= {(feature, 'bus.' + r) for r in bus}
+    if not declared_roles <= set(emitted):
+        failures.append('roles declared in FEATURES never reach the runtime tables: '
+                        f'{sorted(declared_roles - set(emitted))} - the on-device validator '
+                        'would never check them')
+
+    # The class column must agree with the probe plan's classifier, per (feature,
+    # role) - including the label-level entries, which a per-feature column loses.
+    names = {0: 'BENIGN', 1: 'GUARDED_INPUT', 2: 'ACTUATING'}
+    drift = [(f, r) for (f, r), (_, _, k) in emitted.items()
+             if names[k] != pp.role_class(f, f'{f}.{r}')]
+    if drift:
+        failures.append(f'emitted safety class drifts from the probe plan classifier: {drift}')
+    if emitted.get(('chademo', 'lock'), (0, 0, 0))[2] != 2:
+        failures.append('chademo.lock lost its ACTUATING class - a per-feature column would do '
+                        'exactly this, which is why the column is per (feature, role)')
+
+    # --- the tables checked AGAINST the declarations ------------------------
+    # A host-driven role sitting on an input-only pad never asserts, and nothing
+    # reports it. This is the check the direction column exists to make possible.
+    for path in sorted(BOARDS.glob('*.yaml')):
+        data = board_gen.parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
+        chip = data.get('chip', 'esp32')
+        roles, _ = pp.pin_roles(data)
+        for gpio, entries in roles.items():
+            for feature, label in entries:
+                role = label.split('.', 1)[1] if '.' in label else label
+                direction = board_gen.role_direction(feature, role)
+                if direction == board_gen.DIR_DRIVES and gpio in board_gen.INPUT_ONLY.get(chip, ()):
+                    failures.append(f'{data["board"]}: {label} is host-driven but sits on '
+                                    f'input-only pad {gpio} - it can never assert')
+                if gpio in board_gen.RESERVED_PINS.get(chip, ()):
+                    failures.append(f'{data["board"]}: {label} sits on pad {gpio}, which is '
+                                    f'wired to flash on {chip}')
+                if (feature, role) in board_gen.ROLE_NEEDS_ADC and gpio not in board_gen.ADC_CAPABLE.get(chip, ()):
+                    failures.append(f'{data["board"]}: {label} is read with an ADC but pad {gpio} '
+                                    f'has none')
+                if (feature, role) in board_gen.ROLE_NEEDS_RTC_HOLD and gpio not in board_gen.RTC_CAPABLE.get(chip, ()):
+                    if (data['board'], label, gpio) in RTC_HOLD_EXCEPTIONS:
+                        rtc_exceptions_hit.add((data['board'], label, gpio))
+                    else:
+                        failures.append(f'{data["board"]}: {label} must hold across reset but pad '
+                                        f'{gpio} is not in the RTC domain')
+
+    for stale in sorted(RTC_HOLD_EXCEPTIONS - rtc_exceptions_hit):
+        failures.append(f'RTC_HOLD_EXCEPTIONS still lists {stale}, which no longer applies - '
+                        'delete the entry; this list only ever shrinks')
+
     if failures:
         print(f'board validation: {len(failures)} FAILED')
         for f in failures:

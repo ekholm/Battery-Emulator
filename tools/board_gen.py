@@ -233,6 +233,109 @@ INPUT_ONLY = {
 }
 
 
+# --- Pad properties, per chip ----------------------------------------------
+# What the wizard's validator needs to know about a PAD, as opposed to a role.
+# Datasheet facts, kept here beside INPUT_ONLY/CHIP_ONLY_PINS so there is one
+# place to check them, and emitted into the runtime tables (spec 1) so the
+# on-device validator and the static checkers cannot hold different beliefs.
+
+# Pads the ROM samples at reset. Legal to use, but a pull the wrong way stops
+# the board booting, so the wizard warns and asks for explicit confirmation.
+STRAPPING_PINS = {
+    'esp32': (0, 2, 4, 5, 12, 15),
+    'esp32s3': (0, 3, 45, 46),
+}
+
+# Pads wired to the flash (and, on modules that have it, PSRAM) die inside the
+# package. Not "avoid": using one stops the chip fetching instructions.
+RESERVED_PINS = {
+    'esp32': (6, 7, 8, 9, 10, 11),
+    'esp32s3': (26, 27, 28, 29, 30, 31, 32),
+}
+
+# Pads in the RTC domain, which is what lets a level survive reset. A role that
+# must hold across a reset (BMS power) can only live here - the constraint that
+# reset_hold_pins() encodes by hand today.
+RTC_CAPABLE = {
+    'esp32': (0, 2, 4, 12, 13, 14, 15, 25, 26, 27, 32, 33, 34, 35, 36, 37, 38, 39),
+    'esp32s3': tuple(range(0, 22)),
+}
+
+# Pads an ADC can read. Only one role needs it today (chademo.ct, which calls
+# analogReadMilliVolts), but a role that needs an ADC placed on a pad without
+# one fails silently, which is the class of bug these tables exist to catch.
+ADC_CAPABLE = {
+    'esp32': (0, 2, 4, 12, 13, 14, 15, 25, 26, 27, 32, 33, 34, 35, 36, 37, 38, 39),
+    'esp32s3': tuple(range(1, 21)),
+}
+
+# --- Role constraints, per (feature, role) ---------------------------------
+# Per (feature, role), NOT per feature: chademo.lock is a solenoid inside an
+# otherwise externally-driven feature, and a per-feature column would demote it
+# (spec 4, desk review point 6).
+#
+# `dir` is the safety-relevant column - it is what makes "host-driven role on an
+# INPUT_ONLY pad" refusable - so every entry below is taken from how the
+# firmware actually configures the pin, not from the role's name:
+#   READS  equipment_stop.pin      comm_equipmentstopbutton.cpp pinMode(pin, INPUT)
+#          ap_button.pin           debounce_button.cpp          pinMode(pin, INPUT)
+#          chademo.ct              CHADEMO-CT.cpp               pinMode(ct_pin, INPUT) + analogReadMilliVolts
+#          chademo.pin4/pin7       CHADEMO-BATTERY.cpp:907-908  pinMode(..., INPUT)
+#          can.int/int0/int1       mcp2515_lite.cpp:144         pinMode(_int_pin, INPUT_PULLUP)
+#   DRIVES chademo.pin2/pin10/lock CHADEMO-BATTERY.cpp          pinMode(..., OUTPUT)
+#          contactors.*            contactor control            pinMode(pos/neg/prec/..., OUTPUT)
+#          precharge_auto.hia4v1   precharge_control.cpp        pinMode(hia4v1_pin, OUTPUT)
+#          battery_wakeup.wup*     CMP-SMART-CAR-BATTERY.cpp    pinMode(WUP_PIN1(), OUTPUT)
+#          rs485.de/se/power_5v_en rs485 setup                  pinMode(..., OUTPUT)
+#          can.rst/se              mcp2515 setup                pinMode(rst_pin, OUTPUT)
+# Bus roles follow the bus: clk/mosi/tx are driven, miso/rx are read, and i2c
+# plus RMII mdio are open-drain/bidirectional and constrain to neither.
+DIR_DRIVES, DIR_READS, DIR_BOTH = 'drives', 'reads', 'both'
+
+ROLE_DIRECTION = {
+    # Named "enable" and it is an INPUT: the inverter tells US whether closing
+    # is allowed (SmaInverterBase::setup does pinMode(pin, INPUT), and
+    # allows_contactor_closing() digitalReads it). Taking the name at face value
+    # produced two false "can never assert" reports against 3lb pad 36 and
+    # lilygo2can pad 46 - both correct declarations, both input-only pads.
+    ('sma', 'enable'): DIR_READS,
+    ('ap_button', 'pin'): DIR_READS,
+    ('equipment_stop', 'pin'): DIR_READS,
+    ('chademo', 'ct'): DIR_READS,
+    ('chademo', 'pin4'): DIR_READS,
+    ('chademo', 'pin7'): DIR_READS,
+    ('chademo', 'pin2'): DIR_DRIVES,
+    ('chademo', 'pin10'): DIR_DRIVES,
+    ('chademo', 'lock'): DIR_DRIVES,
+    ('can', 'rx'): DIR_READS,
+    ('can', 'int'): DIR_READS,
+    ('can', 'int0'): DIR_READS,
+    ('can', 'int1'): DIR_READS,
+    ('can', 'bus.miso'): DIR_READS,
+    ('rs485', 'rx'): DIR_READS,
+    ('sd_mmc', 'miso'): DIR_READS,
+    ('sd_spi', 'miso'): DIR_READS,
+    ('display_i2c', 'sda'): DIR_BOTH,
+    ('display_i2c', 'scl'): DIR_BOTH,
+    ('ethernet', 'mdio'): DIR_BOTH,
+}
+
+# Roles that need a pad property beyond direction.
+ROLE_NEEDS_ADC = {('chademo', 'ct')}
+ROLE_NEEDS_INTERRUPT = {('can', 'int'), ('can', 'int0'), ('can', 'int1')}
+# A role whose level must survive a reset: only RTC pads can hold one.
+ROLE_NEEDS_RTC_HOLD = {('contactors', 'bms_power')}
+
+
+def role_direction(feature, role):
+    """Everything not listed as read-or-both is driven by us.
+
+    The default is the SAFE one: treating a driven role as readable would let
+    the validator put it on an input-only pad, where it silently never asserts.
+    """
+    return ROLE_DIRECTION.get((feature, role), DIR_DRIVES)
+
+
 def cap_name(feature):
     """The enumerator a feature key contributes. Overridable per feature; the
     default is the key in CamelCase."""
@@ -825,9 +928,106 @@ def splice(header_text, new_block):
     return BLOCK_RE.sub(lambda _: new_block, header_text, count=1)
 
 
+def runtime_tables(declared):
+    """Emit spec 1's runtime tables: pad inventory, role defaults, role constraints.
+
+    One generated TU compiled into the union image, so the on-device validator
+    reads the SAME facts the static checkers do. Pad properties are per chip and
+    role constraints are per (feature, role); only the defaults are per profile.
+
+    The safety class column is taken from board_probe_plan.role_class() rather
+    than restated here - one source, and the drift test pins that they agree.
+    """
+    sys.path.insert(0, str(Path(__file__).parent))
+    import board_probe_plan as pp
+
+    L = ['// GENERATED by tools/board_gen.py --runtime-tables - do not edit',
+         '#ifndef BE_DEVBOARD_HAL_BOARD_PIN_TABLES_INC',
+         '#define BE_DEVBOARD_HAL_BOARD_PIN_TABLES_INC', '',
+         '#include <stdint.h>', '',
+         '// Pad flags. INPUT_ONLY and RESERVED are refusals; STRAPPING is a warning',
+         '// with explicit confirm; ADC/RTC are capabilities a role can require.',
+         'enum : uint8_t {',
+         '  PAD_INPUT_ONLY = 1u << 0,',
+         '  PAD_STRAPPING  = 1u << 1,',
+         '  PAD_RESERVED   = 1u << 2,',
+         '  PAD_ADC        = 1u << 3,',
+         '  PAD_RTC        = 1u << 4,',
+         '};', '',
+         '// Role direction, and what a role requires of the pad it lands on.',
+         'enum : uint8_t { ROLE_DRIVES = 0, ROLE_READS = 1, ROLE_BOTH = 2 };',
+         'enum : uint8_t {',
+         '  ROLE_REQ_ADC       = 1u << 0,',
+         '  ROLE_REQ_INTERRUPT = 1u << 1,',
+         '  ROLE_REQ_RTC_HOLD  = 1u << 2,',
+         '};', '',
+         '// Safety class, from board_probe_plan.role_class() - the probe plan and',
+         '// this table are checked against each other by test_board_validation.py.',
+         'enum : uint8_t { ROLE_BENIGN = 0, ROLE_GUARDED_INPUT = 1, ROLE_ACTUATING = 2 };', '',
+         'struct PadInfo {', '  uint8_t pad;', '  uint8_t flags;', '};', '',
+         'struct RoleInfo {', '  const char* feature;', '  const char* role;',
+         '  uint8_t direction;', '  uint8_t requires_mask;', '  uint8_t safety_class;', '};', '']
+
+    for chip in sorted(set(RTC_CAPABLE) | set(ADC_CAPABLE)):
+        pads = []
+        highest = max(list(RTC_CAPABLE.get(chip, (0,))) + list(ADC_CAPABLE.get(chip, (0,)))
+                      + list(RESERVED_PINS.get(chip, (0,))) + list(STRAPPING_PINS.get(chip, (0,)))
+                      + list(INPUT_ONLY.get(chip, (0,))))
+        for pad in range(highest + 1):
+            if pad in CHIP_ONLY_PINS.get('esp32' if chip == 'esp32s3' else 'esp32s3', ()):
+                continue  # a pad this part does not have at all
+            flags = 0
+            flags |= 1 if pad in INPUT_ONLY.get(chip, ()) else 0
+            flags |= 2 if pad in STRAPPING_PINS.get(chip, ()) else 0
+            flags |= 4 if pad in RESERVED_PINS.get(chip, ()) else 0
+            flags |= 8 if pad in ADC_CAPABLE.get(chip, ()) else 0
+            flags |= 16 if pad in RTC_CAPABLE.get(chip, ()) else 0
+            pads.append((pad, flags))
+        name = chip.upper()
+        L.append(f'inline constexpr PadInfo PADS_{name}[] = {{')
+        for pad, flags in pads:
+            L.append(f'    {{{pad}, {flags}}},')
+        L += ['};', f'inline constexpr uint16_t PADS_{name}_COUNT = {len(pads)};', '']
+
+    L.append('inline constexpr RoleInfo ROLES[] = {')
+    seen = set()
+    for feature in FEATURE_ORDER:
+        spec = FEATURES.get(feature, {})
+        variants = spec.get('by_driver', {}).values() if 'by_driver' in spec else [spec]
+        for variant in variants:
+            roles = []
+            for inst in variant.get('instances', []):
+                roles += list(inst)
+            for bus in variant.get('bus', []):
+                roles += ['bus.' + r for r in bus]
+            for role in roles:
+                if (feature, role) in seen:
+                    continue
+                seen.add((feature, role))
+                klass = {'BENIGN': 0, 'GUARDED_INPUT': 1, 'ACTUATING': 2}[
+                    pp.role_class(feature, f'{feature}.{role}')]
+                direction = {'drives': 0, 'reads': 1, 'both': 2}[role_direction(feature, role)]
+                mask = ((1 if (feature, role) in ROLE_NEEDS_ADC else 0)
+                        | (2 if (feature, role) in ROLE_NEEDS_INTERRUPT else 0)
+                        | (4 if (feature, role) in ROLE_NEEDS_RTC_HOLD else 0))
+                L.append(f'    {{"{feature}", "{role}", {direction}, {mask}, {klass}}},')
+    L += ['};', f'inline constexpr uint16_t ROLES_COUNT = {len(seen)};', '', '#endif', '']
+    return '\n'.join(L)
+
+
 def main():
     argv = sys.argv[1:]
     check = '--check' in argv
+    if '--runtime-tables' in argv:
+        out = Path(argv[argv.index('--runtime-tables') + 1])
+        boards_dir = Path(argv[argv.index('--boards') + 1]) if '--boards' in argv else BOARDS
+        decl = []
+        for path in sorted(boards_dir.glob('*.yaml')):
+            data = parse_yaml_subset(path.read_text(encoding='utf-8'), path.name)
+            decl.append((data['board'], data))
+        out.write_text(runtime_tables(decl), encoding='utf-8', newline='\n')
+        print(f'runtime tables: {out}')
+        return
     boards = Path(argv[argv.index('--boards') + 1]) if '--boards' in argv else BOARDS
     headers = Path(argv[argv.index('--headers') + 1]) if '--headers' in argv else HEADERS
 
