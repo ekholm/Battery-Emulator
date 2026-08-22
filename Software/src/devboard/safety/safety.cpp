@@ -107,19 +107,18 @@ void update_remote_limit_expiry(uint32_t currentMillis) {
 }
 
 // ---- Per-battery machinery protection --------------------------------------
-// One helper runs the full protection suite for one instance. Shared events
-// cannot be set/cleared per instance (a clean battery would mask another's
-// active fault - the documented CAN-corrupted/helper-can-alive pattern), so
-// the helper only records verdicts; raise_machinery_protection_events()
-// aggregates them. Power-limit zeroing and hysteresis latches stay per
-// instance.
+// One helper runs the full protection suite for one instance. Events that are
+// still SHARED cannot be set/cleared per instance (a clean battery would mask
+// another's active fault - the documented CAN-corrupted/helper-can-alive
+// pattern), so the helper only records verdicts;
+// raise_machinery_protection_events() aggregates them. Power-limit zeroing and
+// hysteresis latches stay per instance.
+//
+// The three temperature events are NOT here: upstream gave each pack its own
+// triplet (#2799/#2850) and check_battery_temperatures() above raises them
+// per pack, so aggregating them again would fight that path - the clean pack's
+// clear_event(..., 1) would erase the worst offender the aggregate just set.
 struct MachineryProtectionVerdicts {
-  bool overheat = false;
-  int16_t overheat_dC = 0;
-  bool frozen = false;
-  int16_t frozen_dC = 0;
-  bool temp_deviation = false;
-  int32_t temp_deviation_dC = 0;
   bool overvoltage = false;
   uint16_t overvoltage_dV = 0;
   bool undervoltage = false;
@@ -153,29 +152,7 @@ static void check_battery_machinery_protection(int instance, MachineryProtection
     bat.status.max_charge_power_W = 0;
   }
 
-  // Battery is overheated!
-  if (bat.status.temperature_max_dC > BATTERY_MAXTEMPERATURE) {
-    if (!v.overheat || bat.status.temperature_max_dC > v.overheat_dC) {
-      v.overheat_dC = bat.status.temperature_max_dC;
-    }
-    v.overheat = true;
-  }
-
-  // Battery is frozen!
-  if (bat.status.temperature_min_dC < BATTERY_MINTEMPERATURE) {
-    if (!v.frozen || bat.status.temperature_min_dC < v.frozen_dC) {
-      v.frozen_dC = bat.status.temperature_min_dC;
-    }
-    v.frozen = true;
-  }
-
-  int32_t temp_delta = labs(bat.status.temperature_max_dC - bat.status.temperature_min_dC);
-  if (temp_delta > BATTERY_MAX_TEMPERATURE_DEVIATION) {
-    if (!v.temp_deviation || temp_delta > v.temp_deviation_dC) {
-      v.temp_deviation_dC = temp_delta;
-    }
-    v.temp_deviation = true;
-  }
+  // Temperature events are raised per pack in check_battery_temperatures().
 
   // Battery voltage is over designed max voltage!
   if (bat.status.voltage_dV > bat.info.max_design_voltage_dV) {
@@ -355,21 +332,6 @@ static void check_battery_machinery_protection(int instance, MachineryProtection
 }
 
 static void raise_machinery_protection_events(const MachineryProtectionVerdicts& v) {
-  if (v.overheat) {
-    set_event(EVENT_BATTERY_OVERHEAT, v.overheat_dC);
-  } else {
-    clear_event(EVENT_BATTERY_OVERHEAT);
-  }
-  if (v.frozen) {
-    set_event(EVENT_BATTERY_FROZEN, v.frozen_dC);
-  } else {
-    clear_event(EVENT_BATTERY_FROZEN);
-  }
-  if (v.temp_deviation) {
-    set_event_latched(EVENT_BATTERY_TEMP_DEVIATION_HIGH, v.temp_deviation_dC);
-  } else {
-    clear_event(EVENT_BATTERY_TEMP_DEVIATION_HIGH);
-  }
   if (v.overvoltage) {
     set_event(EVENT_BATTERY_OVERVOLTAGE, v.overvoltage_dV);
   } else {
