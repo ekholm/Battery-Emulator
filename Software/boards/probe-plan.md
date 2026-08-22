@@ -51,19 +51,16 @@ input on our side, so reading it is free whatever the other board calls that pad
   - on `devkit`, GPIO 5 is `precharge_auto.inverter_disconnect` — **ACTUATING**
   - on `devkit`, GPIO 12 is `equipment_stop.pin` — **GUARDED_INPUT**
   - on `lilygo`, GPIO 5 is `chademo.pin10` — **GUARDED_INPUT**
+  - on `lilygo`, GPIO 5 is `sma.enable` — **ACTUATING**
   - on `lilygo`, GPIO 12 is `chademo.pin2` — **GUARDED_INPUT**
   - on `lilygo`, GPIO 18 is `chademo.lock` — **ACTUATING**
-  - on `lilygo`, the declaration does not say which pad `contactors.bms_power` lands on — **UNPLACED**, so no pin can be certified
-  - on `lilygo`, the declaration does not say which pad `sma.enable` lands on — **UNPLACED**, so no pin can be certified
+  - on `lilygo`, GPIO 18 is `contactors.bms_power` — **ACTUATING**
 - **REFUSED** — probe `3lb` for mcp2518fd on bus SPI2 would drive GPIO 17, 21, 23:
   - on `devkit`, GPIO 17 is `contactors.precharge` — **ACTUATING**
-  - on `lilygo`, the declaration does not say which pad `contactors.bms_power` lands on — **UNPLACED**, so no pin can be certified
-  - on `lilygo`, the declaration does not say which pad `sma.enable` lands on — **UNPLACED**, so no pin can be certified
 - **REFUSED** — probe `devkit` for mcp2515 on bus SPI1 would drive GPIO 18, 21, 22:
   - on `3lb`, GPIO 18 is `chademo.lock` — **ACTUATING**
   - on `lilygo`, GPIO 18 is `chademo.lock` — **ACTUATING**
-  - on `lilygo`, the declaration does not say which pad `contactors.bms_power` lands on — **UNPLACED**, so no pin can be certified
-  - on `lilygo`, the declaration does not say which pad `sma.enable` lands on — **UNPLACED**, so no pin can be certified
+  - on `lilygo`, GPIO 18 is `contactors.bms_power` — **ACTUATING**
 - **REFUSED** — probe `devkit` for mcp2518fd on bus SPI2 would drive GPIO 25, 32, 33:
   - on `3lb`, GPIO 25 is `chademo.ct` — **GUARDED_INPUT**
   - on `3lb`, GPIO 25 is `contactors.precharge` — **ACTUATING**
@@ -74,14 +71,14 @@ input on our side, so reading it is free whatever the other board calls that pad
   - on `3lb`, GPIO 32 is `battery_wakeup.wup2` — **ACTUATING**
   - on `3lb`, GPIO 33 is `contactors.negative` — **ACTUATING**
   - on `lilygo`, GPIO 25 is `contactors.precharge` — **ACTUATING**
+  - on `lilygo`, GPIO 25 is `contactors.bms_power` — **ACTUATING**
   - on `lilygo`, GPIO 25 is `precharge_auto.hia4v1` — **ACTUATING**
   - on `lilygo`, GPIO 25 is `battery_wakeup.wup1` — **ACTUATING**
   - on `lilygo`, GPIO 32 is `contactors.positive` — **ACTUATING**
   - on `lilygo`, GPIO 32 is `precharge_auto.inverter_disconnect` — **ACTUATING**
   - on `lilygo`, GPIO 32 is `battery_wakeup.wup2` — **ACTUATING**
   - on `lilygo`, GPIO 33 is `contactors.negative` — **ACTUATING**
-  - on `lilygo`, the declaration does not say which pad `contactors.bms_power` lands on — **UNPLACED**, so no pin can be certified
-  - on `lilygo`, the declaration does not say which pad `sma.enable` lands on — **UNPLACED**, so no pin can be certified
+  - on `lilygo`, GPIO 33 is `sma.enable` — **ACTUATING**
 - **REFUSED** — probe `lilygo` for mcp2515 on bus SPI1 would drive GPIO 5, 12, 18:
   - on `3lb`, GPIO 5 is `chademo.pin10` — **GUARDED_INPUT**
   - on `3lb`, GPIO 12 is `chademo.pin2` — **GUARDED_INPUT**
@@ -130,7 +127,6 @@ does not say WHERE a dangerous role lands. A `setting` or `variant` pin is chose
 runtime, so it could be any pad, and a safety check cannot certify around it. These
 are gaps in the declarations, not facts about the boards:
 
-- **`lilygo`** — `contactors.bms_power (`setting`)`, `sma.enable (`setting`)`
 - **`lilygo2can`** — `battery_wakeup.wup1 (`setting`)`, `battery_wakeup.wup2 (`setting`)`, `contactors.bms_power (`setting`)`, `equipment_stop.pin (`setting`)`
 - **`stark`** — `contactors.bms_power (`setting`)`, `contactors.precharge (`setting`)`
 

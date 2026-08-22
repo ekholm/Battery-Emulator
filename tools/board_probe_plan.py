@@ -102,8 +102,15 @@ def pin_roles(data):
     unplaced = []
 
     def claim(gpio, feature, label):
+        pads = bg.candidate_pads(gpio)
         if str(gpio).isdigit():
             out.setdefault(int(gpio), []).append((feature, label))
+        elif pads:
+            # Placed on a finite candidate set: the role could be on any of
+            # them, so it counts at EVERY candidate - a probe touching any
+            # candidate pad must reason about the role - and is NOT unplaced.
+            for pad in pads:
+                out.setdefault(pad, []).append((feature, label))
         elif str(gpio) in bg.LATE_BOUND:
             unplaced.append((feature, label, str(gpio)))
 

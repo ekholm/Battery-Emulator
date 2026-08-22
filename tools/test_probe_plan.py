@@ -46,13 +46,29 @@ def main():
     # This is the failure that would matter: lilygo's BMS_POWER is chosen by a
     # user setting, so the declaration cannot name its pad. If that registered
     # as "no such role" the checker would happily certify a probe across it.
-    roles, unplaced = pp.pin_roles(load('lilygo'))
+    # stark still declares bms_power as a bare `setting` - the unplaced case.
+    roles, unplaced = pp.pin_roles(load('stark'))
     labels = [label for _, label, _ in unplaced]
     check('a `setting` pin is recorded as unplaced, not dropped',
           'contactors.bms_power' in labels, f'unplaced roles seen: {labels}')
     check('an unplaced actuating role blocks every probe',
-          pp.unsafe_against({'driven': [1, 2, 3]}, ['lilygo'], {'lilygo': roles}, {'lilygo': unplaced}),
-          'a probe on pins lilygo never mentions was certified safe anyway')
+          pp.unsafe_against({'driven': [1, 2, 3]}, ['stark'], {'stark': roles}, {'stark': unplaced}),
+          'a probe on pins stark never mentions was certified safe anyway')
+
+    # lilygo places the same role on a candidate SET ([18, 25]): the role must
+    # count at EVERY candidate pad, and must no longer be unplaced - that is
+    # the whole point of placing it.
+    lg_roles, lg_unplaced = pp.pin_roles(load('lilygo'))
+    lg_labels = [label for _, label, _ in lg_unplaced]
+    check('a candidate-set role is not unplaced',
+          'contactors.bms_power' not in lg_labels, f'unplaced roles seen: {lg_labels}')
+    for pad in (18, 25):
+        check(f'a candidate-set role counts at pad {pad}',
+              any(label == 'contactors.bms_power' for _, label in lg_roles.get(pad, [])),
+              f'roles at {pad}: {lg_roles.get(pad, [])}')
+    check('a probe driving a candidate pad is refused',
+          pp.unsafe_against({'driven': [18]}, ['lilygo'], {'lilygo': lg_roles}, {'lilygo': lg_unplaced}),
+          'driving GPIO 18 was certified although bms_power may land there')
 
     # --- virgin-config mode -------------------------------------------------
     # The mode's whole claim is that a `setting` role has no pad before anything

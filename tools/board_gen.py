@@ -252,6 +252,9 @@ def declared_pins(data):
     def take(value):
         if str(value).isdigit():
             found.add(int(value))
+        else:
+            for pad in candidate_pads(value) or ():
+                found.add(pad)
 
     for feature in FEATURE_ORDER:
         try:
@@ -496,6 +499,18 @@ def resolved(value):
     return value is not None and str(value) != 'NC'
 
 
+def candidate_pads(value):
+    """A role placed on a finite candidate set (`role: [18, 25]`).
+
+    Runtime-chosen like `setting` - the getter stays hand-written - but the
+    declaration states exactly which pads it can land on, so the chip check
+    and the probe-plan safety reasoning get real pads instead of "anywhere".
+    Returns the pads, or None when the value is not a candidate list."""
+    if isinstance(value, list) and len(value) >= 2 and all(str(v).strip().isdigit() for v in value):
+        return [int(v) for v in value]
+    return None
+
+
 def present(value):
     """Is the role declared at all (a number, or late-bound)?"""
     return value is not None and str(value) not in ('NC',)
@@ -556,6 +571,11 @@ def validate(board, data, addons=None):
                 spec.get('scalars', [{}] * (index + 1))[index] if index < len(spec.get('scalars', [])) else {})
             if unknown:
                 errors.append(f'{where} has unknown field(s) {sorted(unknown)}')
+            for role in spec['instances'][index]:
+                value = inst.get(role)
+                if isinstance(value, list) and candidate_pads(value) is None:
+                    errors.append(f'{where}.{role}: a candidate list must be two or more GPIO '
+                                  f'numbers, got {value}')
 
     # The build macro feeds the #if chain in the generated capabilities.h, so a
     # missing or misspelled one silently leaves a board with no capability set
@@ -660,8 +680,9 @@ def validate(board, data, addons=None):
 # --------------------------------------------------------------------------
 
 def _pin_line(getter, value, comments):
-    if value is None or str(value) in LATE_BOUND:
-        # Not declared at all, or chosen at runtime: hand-written, not here.
+    if value is None or str(value) in LATE_BOUND or candidate_pads(value):
+        # Not declared, chosen at runtime, or placed on a candidate set the
+        # runtime picks from: the getter is hand-written, not generated.
         return None
     num = 'NC' if str(value) == 'NC' else str(value)
     line = f'  virtual gpio_num_t {getter}() {{ return GPIO_NUM_{num}; }}'
