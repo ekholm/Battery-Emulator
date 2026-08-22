@@ -222,7 +222,17 @@ VALID_CHIPS = ('esp32', 'esp32s3')
 # classic ESP32 stops at 39, so a declaration using one of these could not be
 # describing the other part - which makes a wrong `chip:` catchable rather than
 # a thing to be careful about.
-CHIP_ONLY_PINS = {'esp32': (22, 23, 24, 25), 'esp32s3': tuple(range(40, 49))}
+CHIP_ONLY_PINS = {'esp32': (22, 23, 25), 'esp32s3': tuple(range(40, 49))}
+
+# Pads the chip simply does not have. 24 exists on NEITHER part, and it sat
+# in CHIP_ONLY_PINS['esp32'], so an esp32 board declaring pad 24 validated
+# and the runtime tables offered 20/24/28-31 as free pads. GPIO 20
+# exists only on the ESP32-PICO-V3 package, which no declared board uses - if
+# one ever does, it carves an exception here rather than deleting the entry.
+ABSENT_PINS = {
+    'esp32': (20, 24, 28, 29, 30, 31),
+    'esp32s3': (22, 23, 24, 25),
+}
 
 # GPIOs that can only be read. A signal an add-on RECEIVES has to be driven by
 # the MCU, so binding one of these to it cannot work - and the failure is
@@ -242,7 +252,9 @@ INPUT_ONLY = {
 # Pads the ROM samples at reset. Legal to use, but a pull the wrong way stops
 # the board booting, so the wizard warns and asks for explicit confirmation.
 STRAPPING_PINS = {
-    'esp32': (0, 2, 4, 5, 12, 15),
+    # 0 and 2 select boot mode, 5 SDIO timing, 12 (MTDI) flash voltage,
+    # 15 (MTDO) debug output. 4 is not sampled at reset.
+    'esp32': (0, 2, 5, 12, 15),
     'esp32s3': (0, 3, 45, 46),
 }
 
@@ -267,6 +279,16 @@ RTC_CAPABLE = {
 ADC_CAPABLE = {
     'esp32': (0, 2, 4, 12, 13, 14, 15, 25, 26, 27, 32, 33, 34, 35, 36, 37, 38, 39),
     'esp32s3': tuple(range(1, 21)),
+}
+
+# The half of ADC_CAPABLE a role can actually count on: ADC2 is shared with the
+# WiFi radio and reads fail while it is active, and this firmware always runs
+# WiFi. A role that needs an ADC needs ADC1 - the two esp32
+# CHAdeMO boards that pre-date this constraint sit on a shrink-only exception
+# list in test_board_validation.py.
+ADC1_CAPABLE = {
+    'esp32': (32, 33, 34, 35, 36, 37, 38, 39),
+    'esp32s3': tuple(range(1, 11)),
 }
 
 # --- Role constraints, per (feature, role) ---------------------------------
@@ -694,6 +716,10 @@ def validate(board, data, addons=None):
             if used:
                 errors.append(f'{board}: declares chip "{chip}" but uses GPIO '
                               f'{", ".join(map(str, used))}, which only the {other} has')
+        used = sorted({p for p in declared_pins(data) if p in ABSENT_PINS.get(chip, ())})
+        if used:
+            errors.append(f'{board}: uses GPIO {", ".join(map(str, used))}, '
+                          f'which the {chip} does not have')
     flash_mb = data.get('flash_mb')
     try:
         if int(str(flash_mb)) <= 0:
@@ -1069,6 +1095,9 @@ def runtime_tables(declared):
          '  PAD_RESERVED   = 1u << 2,',
          '  PAD_ADC        = 1u << 3,',
          '  PAD_RTC        = 1u << 4,',
+         '  // The half of PAD_ADC a role can count on: ADC2 fails while WiFi is',
+         '  // active, and this firmware always runs WiFi. ROLE_REQ_ADC means ADC1.',
+         '  PAD_ADC1       = 1u << 5,',
          '};', '',
          '// Role direction, and what a role requires of the pad it lands on.',
          'enum : uint8_t { ROLE_DRIVES = 0, ROLE_READS = 1, ROLE_BOTH = 2 };',
@@ -1092,12 +1121,15 @@ def runtime_tables(declared):
         for pad in range(highest + 1):
             if pad in CHIP_ONLY_PINS.get('esp32' if chip == 'esp32s3' else 'esp32s3', ()):
                 continue  # a pad this part does not have at all
+            if pad in ABSENT_PINS.get(chip, ()):
+                continue  # a pad NO part of this chip has
             flags = 0
             flags |= 1 if pad in INPUT_ONLY.get(chip, ()) else 0
             flags |= 2 if pad in STRAPPING_PINS.get(chip, ()) else 0
             flags |= 4 if pad in RESERVED_PINS.get(chip, ()) else 0
             flags |= 8 if pad in ADC_CAPABLE.get(chip, ()) else 0
             flags |= 16 if pad in RTC_CAPABLE.get(chip, ()) else 0
+            flags |= 32 if pad in ADC1_CAPABLE.get(chip, ()) else 0
             pads.append((pad, flags))
         name = chip.upper()
         L.append(f'inline constexpr PadInfo PADS_{name}[] = {{')

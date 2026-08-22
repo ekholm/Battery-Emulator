@@ -442,6 +442,10 @@ def main():
                   stark.replace('chip: esp32', 'chip: esp32s3'),
                   'stark', 'only the esp32 has')
     expect_reject('no chip at all', drop(stark, r'chip: esp32\n'), 'stark', 'chip must be one of')
+    # GPIO 24 exists on NEITHER part, and it used to sit in
+    # CHIP_ONLY_PINS['esp32'] - so an esp32 board declaring it validated.
+    expect_reject('a pad no chip has', stark.replace('positive: 32', 'positive: 24'),
+                  'stark', 'does not have')
     expect_reject('a nonsense flash size',
                   stark.replace('flash_mb: 8', 'flash_mb: none'), 'stark', 'flash_mb')
 
@@ -519,6 +523,13 @@ def main():
     RTC_HOLD_EXCEPTIONS = {('lilygo', 'contactors.bms_power', 18)}
     rtc_exceptions_hit = set()
 
+    # Same contract: chademo.ct calls analogReadMilliVolts, ADC2
+    # fails while WiFi is active, and this firmware always runs WiFi - yet both
+    # esp32 CHAdeMO boards wire CT to an ADC2 pad. Pre-existing wiring, not a
+    # table error; the desk rules on what (if anything) changes on the boards.
+    ADC1_EXCEPTIONS = {('lilygo', 'chademo.ct', 15), ('3lb', 'chademo.ct', 25)}
+    adc1_exceptions_hit = set()
+
     # --- runtime tables -----------------------------------------------------
     import board_probe_plan as pp
     inc = board_gen.runtime_tables([])
@@ -569,9 +580,12 @@ def main():
                 if gpio in board_gen.RESERVED_PINS.get(chip, ()):
                     failures.append(f'{data["board"]}: {label} sits on pad {gpio}, which is '
                                     f'wired to flash on {chip}')
-                if (feature, role) in board_gen.ROLE_NEEDS_ADC and gpio not in board_gen.ADC_CAPABLE.get(chip, ()):
-                    failures.append(f'{data["board"]}: {label} is read with an ADC but pad {gpio} '
-                                    f'has none')
+                if (feature, role) in board_gen.ROLE_NEEDS_ADC and gpio not in board_gen.ADC1_CAPABLE.get(chip, ()):
+                    if (data['board'], label, gpio) in ADC1_EXCEPTIONS:
+                        adc1_exceptions_hit.add((data['board'], label, gpio))
+                    else:
+                        failures.append(f'{data["board"]}: {label} needs an ADC read that works '
+                                        f'while WiFi is up, but pad {gpio} is not on ADC1')
                 if (feature, role) in board_gen.ROLE_NEEDS_RTC_HOLD and gpio not in board_gen.RTC_CAPABLE.get(chip, ()):
                     if (data['board'], label, gpio) in RTC_HOLD_EXCEPTIONS:
                         rtc_exceptions_hit.add((data['board'], label, gpio))
@@ -582,6 +596,40 @@ def main():
     for stale in sorted(RTC_HOLD_EXCEPTIONS - rtc_exceptions_hit):
         failures.append(f'RTC_HOLD_EXCEPTIONS still lists {stale}, which no longer applies - '
                         'delete the entry; this list only ever shrinks')
+    for stale in sorted(ADC1_EXCEPTIONS - adc1_exceptions_hit):
+        failures.append(f'ADC1_EXCEPTIONS still lists {stale}, which no longer applies - '
+                        'delete the entry; this list only ever shrinks')
+
+    # The pad inventory must not offer pads the chip does not have
+    # (24 exists on neither part and was emitted as a free pad), and the
+    # strapping facts must match the datasheet (4 was listed and is not sampled
+    # at reset). Pinned against the emission, where the validator will read them.
+    pad_rows = {}
+    cur = None
+    for line in inc.split('\n'):
+        m = _re.match(r'inline constexpr PadInfo PADS_(\w+)\[\]', line)
+        if m:
+            cur = m.group(1).lower()
+            pad_rows[cur] = {}
+        m = _re.match(r'    \{(\d+), (\d+)\},', line)
+        if m and cur is not None:
+            pad_rows[cur][int(m.group(1))] = int(m.group(2))
+    # Literal sets, NOT board_gen.ABSENT_PINS: reading the table back would
+    # mutate the expectation together with the fact and the check could never
+    # fail (the first draft of this check did exactly that).
+    for chip, absent in {'esp32': (20, 24, 28, 29, 30, 31), 'esp32s3': (22, 23, 24, 25)}.items():
+        offered = sorted(p for p in absent if p in pad_rows.get(chip, {}))
+        if offered:
+            failures.append(f'{chip}: the pad inventory offers {offered}, which the chip '
+                            'does not have')
+    if pad_rows.get('esp32', {}).get(4, 0) & 2:
+        failures.append('esp32 pad 4 is flagged STRAPPING - it is not sampled at reset')
+    if not pad_rows.get('esp32', {}).get(0, 0) & 2:
+        failures.append('esp32 pad 0 lost its STRAPPING flag')
+    if not pad_rows.get('esp32', {}).get(32, 0) & 32:
+        failures.append('esp32 pad 32 lost its ADC1 flag')
+    if pad_rows.get('esp32', {}).get(25, 0) & 32:
+        failures.append('esp32 pad 25 gained an ADC1 flag - 25 is ADC2, which WiFi owns')
 
     if failures:
         print(f'board validation: {len(failures)} FAILED')
