@@ -306,6 +306,21 @@ def main():
     if 'dual_isolated_canfd' not in addons:
         failures.append('the dual isolated CAN-FD add-on has no template')
 
+    # The candidate-pad mechanism's two rejection edges had no
+    # tests - a candidate list with fewer than two pads (the getter picks
+    # BETWEEN pads; one candidate is a placed pin misspelled), and a candidate
+    # pad that is not a legal pin for the chip (the chip check must cover
+    # every candidate, not just fixed pads).
+    expect_reject('a one-element candidate list',
+                  lilygo.replace('bms_power: [18, 25]', 'bms_power: [18]'),
+                  'lilygo', 'candidate list', board='lilygo')
+    # Note: there is no general per-chip pin upper bound (a fixed GPIO 99
+    # passes too, pre-existing) - the chip check is the CROSS-chip
+    # disambiguation, and candidates must feed it like fixed pins do.
+    expect_reject('a candidate pad only the other chip has',
+                  lilygo.replace('bms_power: [18, 25]', 'bms_power: [18, 44]'),
+                  'lilygo', '44', 'esp32s3', board='lilygo')
+
     # Two product labels cannot name the same physical output.
     expect_reject('two outputs on one GPIO',
                   stark.replace('{label: "Output 3", gpio: 32', '{label: "Output 3", gpio: 33'),
