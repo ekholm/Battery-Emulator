@@ -1,0 +1,75 @@
+{
+  "manifest_version": 1,
+  "origin": {
+    "repo": "https://github.com/ekholm/Battery-Emulator",
+    "commit": "b6c1c3c3174badf46e6e1cc41e457cb0e4e9dde2",
+    "ref": "deploy/tcan485-20260823-dff0263a-1-gb6c1c3c3"
+  },
+  "core": {
+    "core_build_id": "0x4470f704",
+    "env": "one_image_lx6_core",
+    "fw_version": "deploy/tcan485-20260823-dff0263a-1-gb6c1c3c3"
+  },
+  "blobs": [
+    {
+      "kind": "battery",
+      "type_id": 22,
+      "name": "Pylon /Dyness compatible battery",
+      "file": "pylon-4470f704.bemod",
+      "sha256": "144c64fdf455a694fa355aab8e4a60622287f61034baaa8fbfd7cf8ea4b409f9",
+      "size": 3432,
+      "irom": 2928,
+      "drom": 440
+    },
+    {
+      "kind": "battery",
+      "type_id": 2,
+      "name": "BMW i3",
+      "file": "bmw-i3-4470f704.bemod",
+      "sha256": "2e8a2f4e64a59a13ef6945031f9d87b7987727b12cd29ec3c61cc9dd28db9184",
+      "size": 10812,
+      "irom": 8272,
+      "drom": 2476
+    },
+    {
+      "kind": "battery",
+      "type_id": 19,
+      "name": "VW Group MEB platform via CAN-FD",
+      "file": "meb-4470f704.bemod",
+      "sha256": "d4ea9b9b451e9f2db5dbdd2ba071b1dc47ecd30fdd792e3b33f7cf21505ddc77",
+      "size": 22632,
+      "irom": 16304,
+      "drom": 6264
+    },
+    {
+      "kind": "battery",
+      "type_id": 32,
+      "name": "Tesla Model 3/Y",
+      "file": "tesla-3y-4470f704.bemod",
+      "sha256": "9f2c6b065b56b4c3e2690a87b1baad399bd7bd3c83235736d0cabce98cb40cc6",
+      "size": 38668,
+      "irom": 29116,
+      "drom": 9488
+    },
+    {
+      "kind": "inverter",
+      "type_id": 21,
+      "name": "Sungrow SBRXXX emulation over CAN bus",
+      "file": "sungrow-inv-4470f704.bemod",
+      "sha256": "2576dd330efb8e8f2683b9922f60c392705cf1b4b2021d04b55469d788d8372a",
+      "size": 7912,
+      "irom": 7404,
+      "drom": 444
+    },
+    {
+      "kind": "inverter",
+      "type_id": 10,
+      "name": "Pylontech HV battery over CAN bus",
+      "file": "pylon-inv-4470f704.bemod",
+      "sha256": "750aeedfa4277df7cdf20b3fc79205435d6fc915ce06711ec3d7c2315c2955fe",
+      "size": 2744,
+      "irom": 2352,
+      "drom": 328
+    }
+  ]
+}

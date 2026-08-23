@@ -1,0 +1,54 @@
+{
+  "i18n_manifest_version": 1,
+  "strings_id": "2055ab9afebb1275",
+  "languages": [
+    {
+      "code": "de",
+      "file": "de-2055ab9a.blp",
+      "sha256": "c633b743b1949536af453e0b83e60af4126f2ca6cdec28f1f02f6a5d8004db4f",
+      "size": 57977
+    },
+    {
+      "code": "en",
+      "file": "en-2055ab9a.blp",
+      "sha256": "3464cfaeb99bbb658ec2d6cdbacf6da0d1b1107d6a0bd4120ff68949b98b034b",
+      "size": 52407
+    },
+    {
+      "code": "fi",
+      "file": "fi-2055ab9a.blp",
+      "sha256": "98d33a572e3dd66ecb9747fd5b5efb305bcac80c3f2a5bf276743841e84b04a5",
+      "size": 57107
+    },
+    {
+      "code": "fr",
+      "file": "fr-2055ab9a.blp",
+      "sha256": "dacd7f5cc05aad56c9d33468ae6b48f83c5a70b063122925b86d92bc20c7d4a4",
+      "size": 62518
+    },
+    {
+      "code": "hu",
+      "file": "hu-2055ab9a.blp",
+      "sha256": "c300d451e676f20d7779b48b8c72217f8473cc8c1142b0a05373fd2a91cebaf6",
+      "size": 64828
+    },
+    {
+      "code": "nl",
+      "file": "nl-2055ab9a.blp",
+      "sha256": "0f1a1a7c9628c87ed3436329dcf369ee7a6658a2b888cdf3d84862ae57d6e62e",
+      "size": 56143
+    },
+    {
+      "code": "sv",
+      "file": "sv-2055ab9a.blp",
+      "sha256": "1332e6229bbb0b88259485135bca3bdb242e60ea6ea2e50a6b7eedc7581f3e16",
+      "size": 56087
+    },
+    {
+      "code": "uk",
+      "file": "uk-2055ab9a.blp",
+      "sha256": "b4de2424361972e92036825d206a6da4a7ab9acdd62dde73c0b2092ef0a20ad7",
+      "size": 95989
+    }
+  ]
+}
