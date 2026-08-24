@@ -62,11 +62,18 @@ void UdsCanBattery::transmit_uds_can(unsigned long currentMillis) {
       // Don't start the sequence until the pause expires.
       return;
     }
-    // A new sequence was requested, start it now.
-    uint16_t state = pending_seq_state;
-    pending_seq_state = UDS_STATE_IDLE;
-    handle_sequence(state, 0, nullptr, 0);
-    return;
+    if (pending_pid != 0) {
+      // A PID transaction is still in flight (possibly mid-retry): starting
+      // the sequence now would be refused by send_sequence_message and the
+      // queued request silently lost. Hold it; the PID resolves within its
+      // retry budget. Fall through so the retry itself still goes out.
+    } else {
+      // A new sequence was requested, start it now.
+      uint16_t state = pending_seq_state;
+      pending_seq_state = UDS_STATE_IDLE;
+      handle_sequence(state, 0, nullptr, 0);
+      return;
+    }
   }
 
   if (transmit_uds_pid_scan()) {
