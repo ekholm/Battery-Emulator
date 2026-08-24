@@ -1,30 +1,39 @@
 #ifndef FORD_MACH_E_BATTERY_H
 #define FORD_MACH_E_BATTERY_H
 #include "../datalayer/datalayer.h"
-#include "CanBattery.h"
 #include "FORD-MACH-E-BATTERY-HTML.h"
+#include "UdsCanBattery.h"
 
-class FordMachEBattery : public CanBattery {
+class FordMachEBattery : public UdsCanBattery {
  public:
+  FordMachEBattery() { dtc = &datalayer.battery.dtc; }
+
   virtual void setup(void);
   virtual void handle_incoming_can_frame(CAN_frame rx_frame);
   virtual void update_values();
   virtual void transmit_can(unsigned long currentMillis);
   static constexpr const char* Name = "Ford Mustang Mach-E battery";
-  BatteryHtmlRenderer& get_status_renderer() { return renderer; }
+  // The Ford page keeps its own renderer: the DTC table uses Ford's 5-char
+  // short codes ("B11D5-2F") as the ford_machE_dtc.json match key, which the
+  // generic UDS DTC section cannot produce.
+  BatteryHtmlRenderer& get_status_renderer() override { return renderer; }
 
-  bool supports_reset_DTC() { return true; }
-  void reset_DTC() { UserRequestDTCreset = true; }
-  bool supports_read_DTC() { return true; }
-  void read_DTC() { UserRequestDTCreadout = true; }
+ protected:
+  // The BECM reports a useful set only under the wide mask (matches the
+  // pre-superclass readout: 19 02 8F).
+  uint8_t dtc_status_mask() override { return 0x8F; }
+  // ClearDiagnosticInformation was acknowledged: only now are the stored
+  // codes known to be gone, so the page goes back to "not read yet". An
+  // unconfirmed erase (timeout) leaves the previously read list untouched.
+  void on_dtc_cleared() override {
+    datalayer.battery.dtc.dtc_count = 0;
+    datalayer.battery.dtc.dtc_read_failed = false;
+    datalayer.battery.dtc.dtc_last_read_millis = 0;
+  }
+  uint16_t handle_pid(uint16_t pid, uint32_t value, const uint8_t* data, uint16_t length) override;
 
  private:
   FordMachEHtmlRenderer renderer;
-  bool UserRequestDTCreset = false;
-  bool UserRequestDTCreadout = false;
-  // Parses a fully reassembled UDS ReadDTCInformation reply out of dtc_buffer into
-  // datalayer_battery->dtc.
-  void parseDTCResponse();
   //90S NMC
   static const int MAX_PACK_VOLTAGE_90S_DV = 3902;
   static const int MIN_PACK_VOLTAGE_90S_DV = 2490;
@@ -56,7 +65,6 @@ class FordMachEBattery : public CanBattery {
   unsigned long previousMillis30 = 0;    // will store last time a 10ms CAN Message was send
   unsigned long previousMillis50 = 0;    // will store last time a 100ms CAN Message was send
   unsigned long previousMillis100 = 0;   // will store last time a 100ms CAN Message was send
-  unsigned long previousMillis250 = 0;   // will store last time a 100ms CAN Message was send
   unsigned long previousMillis1000 = 0;  // will store last time a 1s CAN Message was send
   unsigned long previousMillis10s = 0;   // will store last time a 10s CAN Message was send
 
@@ -155,8 +163,7 @@ static const uint16_t PID_UNKNOWN_36 = 0xF40D;
 static const uint16_t PID_UNKNOWN_37 = 0xF449;
 */
 
-  uint16_t currentpoll = PID_HVB_TEMP;
-  uint8_t poll_index = 0;
+  // Scanned in order by the UDS superclass (one PID per 100 ms tick).
   const uint16_t poll_commands[36] = {PID_HVB_TEMP,
                                       PID_HVB_SOC,
                                       PID_HVB_CONTACTOR_STATUS,
@@ -230,55 +237,6 @@ static const uint16_t PID_UNKNOWN_37 = 0xF449;
   uint16_t pid_hvb_calendar_age_months = NOT_SAMPLED_YET;
   uint16_t pid_battery_capacity_ah = NOT_SAMPLED_YET;
   uint8_t pid_maintenance_rebalance_status = NOT_SAMPLED_YET;
-
-  uint16_t poll_state = PID_HVB_TEMP;
-  uint16_t incoming_poll = 0;
-
-  CAN_frame FORD_PID_REQUEST_7DF = {.FD = false,
-                                    .ext_ID = false,
-                                    .DLC = 8,
-                                    .ID = 0x7DF,
-                                    .data = {0x02, 0x01, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00}};
-  CAN_frame FORD_PID_REQUEST_7E4 = {.FD = false,
-                                    .ext_ID = false,
-                                    .DLC = 8,
-                                    .ID = 0x7E4,
-                                    .data = {0x03, 0x22, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00}};
-  CAN_frame FORD_ACK_FRAME = {.FD = false,
-                              .ext_ID = false,
-                              .DLC = 8,
-                              .ID = 0x7E4,
-                              .data = {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
-  CAN_frame FORD_DTC_RESET = {.FD = false,
-                              .ext_ID = false,
-                              .DLC = 8,
-                              .ID = 0x7E4,
-                              .data = {0x04, 0x14, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00}};
-  // UDS ReadDTCInformation (0x19) / reportDTCByStatusMask (0x02) with status mask 0x8F.
-  // The BMS answers on 0x7EC with 59 02 <availabilityMask> followed by 4 bytes per DTC
-  // (3-byte code + 1 status byte), multi-frame when more than one code is stored.
-  //(21.90) RX0 7E4 [8] 03 19 02 8F 00 00 00 00
-  //(21.92) RX0 7EC [8] 10 2F 59 02 FF C1 9B 00
-  //(21.92) RX0 7E4 [8] 30 00 00 00 00 00 00 00
-  //(21.92) RX0 7EC [8] 21 AF C1 00 00 2F C2 93
-  //(21.93) RX0 7EC [8] 22 00 AF C2 98 00 AF 1A
-  CAN_frame FORD_READ_DTC = {.FD = false,
-                             .ext_ID = false,
-                             .DLC = 8,
-                             .ID = 0x7E4,
-                             .data = {0x03, 0x19, 0x02, 0x8F, 0x00, 0x00, 0x00, 0x00}};
-  // DTC readout reassembly state. The reply shares the 0x7EC response ID with the periodic
-  // group polling, so it is intercepted separately while a readout is in flight.
-  static const uint16_t DTC_BUFFER_SIZE = 3 + 4 * DATALAYER_BATTERY_DTC_TYPE::MAX_DTC_COUNT;
-  static const unsigned long DTC_TIMEOUT_MS = 2000;
-  uint8_t dtc_buffer[DTC_BUFFER_SIZE];
-  uint16_t dtc_rx_expected = 0;  // Total payload length announced by the ISO-TP first frame
-  uint16_t dtc_rx_len = 0;       // Bytes reassembled so far
-  bool dtc_rx_active = false;    // A multi-frame reply is currently being reassembled
-  bool dtc_read_in_progress = false;
-  unsigned long dtc_request_millis = 0;
-  bool dtc_clear_in_progress = false;
-  unsigned long dtc_clear_millis = 0;
 
   //Message needed for contactor closing
   CAN_frame FORD_25B = {.FD = false,
