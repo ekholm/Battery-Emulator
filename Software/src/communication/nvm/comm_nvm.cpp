@@ -119,7 +119,10 @@ void init_stored_settings() {
   // ---- Boot-only derived state, from the settings loaded above ----
 
   // WiFi: authentication additionally requires a non-empty user+password.
-  webserver_auth = settings.getBool("WEBAUTH", false) && !http_username.empty() && !http_password.empty();
+  // WEBAUTH itself was loaded by the table loop above; derive the composite
+  // from that value instead of reading the key a second time (a second read
+  // needs its own default expression, and nothing keeps the two in sync).
+  webserver_auth = webserver_auth && !http_username.empty() && !http_password.empty();
 
   // Settings added on main after the settings rejig; not yet in the tables, so
   // load them explicitly (like the BYD settings below).
@@ -133,7 +136,6 @@ void init_stored_settings() {
     ha_autodiscovery_enabled = true;
   }
 
-  migrate_static_ip_settings(settings);
   wifi_static_IP_enabled = settings.getBool("STATICIP", false);
   wifi_static_local_IP = settings.getIP("LOCALIP");
   wifi_static_gateway = settings.getIP("GATEWAY");
@@ -177,14 +179,16 @@ void init_stored_settings() {
   // The ESP-NOW peer MAC list is not web-editable.
   espnow_peer_macs = settings.getString("ESPNOWMACS").c_str();
 
-  // BYD-specific settings that are stored at runtime but not web-editable.
+  // The BYD auto-calibration keys are loaded by the table loop above
+  // (INSTANT_UINTS / INSTANT_BOOLS rows); only the defensive clamp on values
+  // stored by older firmware remains here. The defaults live in the
+  // datalayer_extended initializers, which the loop uses as its fallback.
   datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent =
-      constrain(settings.getUInt("BYDAUTOCALDRIFT", 5), 1u, 20u);
-  datalayer_extended.bydAtto3.auto_calibrate_soc_enabled = settings.getBool("BYDAUTOCALEN", true);
+      constrain(datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent, 1u, 20u);
   datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent =
-      constrain(settings.getUInt("BYDAUTOCALDRFT2", 5), 1u, 20u);
-  datalayer_extended.bydAtto3_2.auto_calibrate_soc_enabled = settings.getBool("BYDAUTOCALEN2", true);
-  // One isolation-monitor setting for both batteries
+      constrain(datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent, 1u, 20u);
+  // One isolation-monitor setting for both batteries; persisted here because
+  // its table row is VOLATILE (the web API applies it to both packs at once).
   datalayer_extended.bydAtto3.keep_iso_disabled = settings.getBool("BYDKEEPISOOFF", true);
   datalayer_extended.bydAtto3_2.keep_iso_disabled = datalayer_extended.bydAtto3.keep_iso_disabled;
 }
