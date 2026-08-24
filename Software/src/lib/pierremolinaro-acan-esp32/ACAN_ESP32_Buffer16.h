@@ -5,6 +5,7 @@
 //----------------------------------------------------------------------------------------
 
 #include "ACAN_ESP32_CANMessage.h"
+#include <esp_attr.h>  // IRAM_ATTR - append/remove run from the IRAM ISR chain
 
 //----------------------------------------------------------------------------------------
 
@@ -68,7 +69,7 @@ class ACAN_ESP32_Buffer16 {
   // append
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  public: bool append (const CANMessage & inMessage) {
+  public: bool IRAM_ATTR append (const CANMessage & inMessage) {
     const bool ok = mCount < mSize ;
     if (ok) {
       uint16_t writeIndex = mReadIndex + mCount ;
@@ -90,7 +91,7 @@ class ACAN_ESP32_Buffer16 {
   // Remove
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  public: bool remove (CANMessage & outMessage) {
+  public: bool IRAM_ATTR remove (CANMessage & outMessage) {
     const bool ok = mCount > 0 ;
     if (ok) {
       outMessage = mBuffer [mReadIndex] ;
