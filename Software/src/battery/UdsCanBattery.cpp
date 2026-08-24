@@ -98,8 +98,14 @@ bool UdsCanBattery::transaction_tick() {
     }
     const uint16_t failed = seq_state;
     seq_state = UDS_STATE_IDLE;
-    // Notify the subclass that it failed
-    on_uds_sequence_timeout(failed);
+    if (failed & UDS_STATE_INTERNAL) {
+      // Superclass-internal sequences resolve their own timeouts - a DTC read
+      // against a silent ECU must not leave the page pending forever.
+      handle_internal_sequence_timeout(failed);
+    } else {
+      // Notify the subclass that it failed
+      on_uds_sequence_timeout(failed);
+    }
   } else if (pending_pid != 0) {
     // Our PID scan must have timed out
     on_uds_pid_scan_timeout();
@@ -401,11 +407,13 @@ void UdsCanBattery::handle_sequence(uint16_t state, uint8_t sid, const uint8_t* 
 void UdsCanBattery::handle_internal_sequence(uint16_t state, uint8_t sid, const uint8_t* data, uint16_t len) {
   // Handle internal sequence responses.
   switch (state) {
-    case UDS_STATE_READ_DTC_START:
-      // Start a DTC readout sequence
-      send_sequence_message(UDS_STATE_READ_DTC, SID::ReadDTCInformation, (const uint8_t*)"\x02\x09", 2,
-                            UDS_TIMEOUT_READ_DTC, 2);
+    case UDS_STATE_READ_DTC_START: {
+      // Start a DTC readout sequence: reportDTCByStatusMask with the
+      // (possibly subclass-widened) status mask.
+      const uint8_t read_dtc_payload[2] = {0x02, dtc_status_mask()};
+      send_sequence_message(UDS_STATE_READ_DTC, SID::ReadDTCInformation, read_dtc_payload, 2, UDS_TIMEOUT_READ_DTC, 2);
       break;
+    }
     case UDS_STATE_READ_DTC:
       if (sid == UDS_RESPONSE_SID_OF(SID::ReadDTCInformation)) {
         handle_dtc_response(data, len);
@@ -422,7 +430,30 @@ void UdsCanBattery::handle_internal_sequence(uint16_t state, uint8_t sid, const 
                             UDS_TIMEOUT_CLEAR_DTC, 2);
       break;
     case UDS_STATE_CLEAR_DTC:
-      // Positive response (0x54): nothing to do, the sequence has ended.
+      // Positive response (0x54): the sequence has ended. The stored list is
+      // left as-is by default; subclasses may reset it via the hook.
+      if (sid == UDS_RESPONSE_SID_OF(SID::ClearDiagnosticInformation)) {
+        on_dtc_cleared();
+      }
+      break;
+  }
+}
+
+void UdsCanBattery::handle_internal_sequence_timeout(uint16_t state) {
+  switch (state) {
+    case UDS_STATE_READ_DTC_START:
+    case UDS_STATE_READ_DTC:
+      // The readout never completed: resolve the page's pending state as a
+      // failed read (mirrors the negative-response path above).
+      if (dtc != nullptr) {
+        dtc->dtc_read_failed = true;
+        dtc->dtc_last_read_millis = millis();
+      }
+      break;
+    case UDS_STATE_CLEAR_DTC_START:
+    case UDS_STATE_CLEAR_DTC:
+      // An unconfirmed erase says nothing about the stored codes: leave the
+      // previously read list untouched.
       break;
   }
 }
