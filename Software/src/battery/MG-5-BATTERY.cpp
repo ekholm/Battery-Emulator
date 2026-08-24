@@ -109,98 +109,6 @@ void Mg5Battery::update_soc(uint16_t soc_times_ten) {
   //#endif
 }
 
-void Mg5Battery::print_formatted_dtc(uint32_t dtc24, uint8_t status) {
-  // DTC bytes: A B C (24 bits). SAE letter from top 2 bits of A.
-  uint8_t A = (dtc24 >> 16) & 0xFF;
-  uint8_t B = (dtc24 >> 8) & 0xFF;
-  // uint8_t C =  dtc24        & 0xFF; // often a failure-type byte; keep if you need it
-
-  const char sysMap[4] = {'P', 'C', 'B', 'U'};
-  char sys = sysMap[(A & 0xC0) >> 6];
-
-  // Four digits: D1 D2 D3 D4 from the remaining nibbles of A and B
-  uint8_t d1 = (A & 0x30) >> 4;
-  uint8_t d2 = (A & 0x0F);
-  uint8_t d3 = (B & 0xF0) >> 4;
-  uint8_t d4 = (B & 0x0F);
-
-  logging.print("DTC ");
-  logging.print(sys);
-  logging.print(d1);
-  logging.print(d2, HEX);
-  logging.print(d3, HEX);
-  logging.print(d4, HEX);
-
-  // print hex byte first
-  logging.print("  status=0x");
-  logging.print(status, HEX);
-  logging.print(" [");
-
-  bool first = true;
-  auto add = [&](const char* s) {
-    if (!first)
-      logging.print(", ");
-    logging.print(s);
-    first = false;
-  };
-
-  if (status & 0x08)
-    add("Confirmed");
-  if (status & 0x04)
-    add("Pending");
-  if (status & 0x20)
-    add("FailSinceClear");
-  if (status & 0x01)
-    add("Fail");
-  if (status & 0x10)
-    add("NotCompSinceClear");
-  if (status & 0x40)
-    add("NotCompThisCycle");
-  if (status & 0x80)
-    add("MIL");
-  if (status & 0x02)
-    add("FailThisCycle");
-
-  if (first)
-    logging.print("NoFlags");
-  logging.println("]");
-}
-
-void Mg5Battery::startUDSMultiFrameReception(uint16_t totalLength, uint8_t moduleID) {
-  gUDSContext.UDS_inProgress = true;
-  gUDSContext.UDS_expectedLength = totalLength;
-  gUDSContext.UDS_bytesReceived = 0;
-  gUDSContext.UDS_moduleID = moduleID;
-  gUDSContext.receivedInBatch = 0;
-  memset(gUDSContext.UDS_buffer, 0, sizeof(gUDSContext.UDS_buffer));
-  gUDSContext.UDS_lastFrameMillis = millis();  // if you want to track timeouts
-}
-
-bool Mg5Battery::storeUDSPayload(const uint8_t* payload, uint8_t length) {
-  if (gUDSContext.UDS_bytesReceived + length > sizeof(gUDSContext.UDS_buffer)) {
-    // Overflow => abort
-    gUDSContext.UDS_inProgress = false;
-#ifdef DEBUG_LOG
-    logging.println("UDS Payload Overflow");
-#endif  // DEBUG_LOG
-    return false;
-  }
-  memcpy(&gUDSContext.UDS_buffer[gUDSContext.UDS_bytesReceived], payload, length);
-  gUDSContext.UDS_bytesReceived += length;
-  gUDSContext.UDS_lastFrameMillis = millis();
-
-  // If we’ve reached or exceeded the expected length, mark complete
-  if (gUDSContext.UDS_bytesReceived >= gUDSContext.UDS_expectedLength) {
-    gUDSContext.UDS_inProgress = false;
-    logging.println("Recived all expected UDS bytes");
-  }
-  return true;
-}
-
-bool Mg5Battery::isUDSMessageComplete() {
-  return (!gUDSContext.UDS_inProgress && gUDSContext.UDS_bytesReceived > 0);
-}
-
 void Mg5Battery::
     update_values() {  //This function maps all the values fetched via CAN to the correct parameters used for modbus
 
@@ -210,17 +118,37 @@ void Mg5Battery::
   if (cellVoltageValidTime > 0) {
     cellVoltageValidTime--;
   }
+
+  // The BMS only answers diagnostics inside the extended session. When the
+  // diag side has been quiet for a while, (re-)enter it - the pre-superclass
+  // code sent 10 03 on every transaction timeout, this is the same reflex on
+  // the superclass's scan. start_sequence only queues; it runs once the
+  // in-flight request resolves, and refuses (false) if a sequence is already
+  // queued - then we simply try again next second.
+  if ((millis() - last_uds_activity_ms) > SESSION_RETRY_MS) {
+    if (start_sequence(MG5_STATE_SESSION_START)) {
+      last_uds_activity_ms = millis();
+    }
+  }
+
+  // Contactor closing wants the stored DTCs erased (DTC 293 blocks closing);
+  // run the superclass erase as soon as the diag side is free to take it.
+  if (dtc_clear_wanted && !uds_is_busy()) {
+    dtc_clear_wanted = false;
+    reset_DTC();
+  }
 }
 
 void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
   // We start polling with UDS ID 0x7DF, the generic broadcast one. Our first
-  // reply will indicate what the BMS-specific one is, which we switch to.
+  // reply will indicate what the BMS-specific one is, which we switch to (the
+  // superclass then also pins the response address).
   if (uds_address == 0x7DF && rx_frame.ID == 0x789) {
-    uds_address = 0x781;
     logging.println("MG5: Detected UDS address 0x781");
+    setup_uds(0x781, 0x789);
   } else if (uds_address == 0x7DF && rx_frame.ID == 0x7ED) {
-    uds_address = 0x7E5;
     logging.println("MG5: Detected UDS address 0x7E5");
+    setup_uds(0x7E5, 0x7ED);
   }
 
   uint32_t v, i;
@@ -365,292 +293,52 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
     case 0x620:
       break;
     case 0x7ED:
-    case 0x789: {  // response from UDS diagnostic service (ISO-TP)
-
-      uint8_t pciByte = rx_frame.data.u8[0];  // 0x10/0x21/etc.
-      uint8_t pciType = pciByte >> 4;         // 0=SF,1=FF,2=CF,3=FC
-      uint8_t pciLower = pciByte & 0x0F;      // length nibble or sequence
-
-      switch (pciType) {
-        case 0x0: {  // Single Frame (SF)
-          uint8_t sfLength = pciLower;
-          (void)sfLength;  // if unused, silence warning
-
-          uint8_t sid = rx_frame.data.u8[1];
-
-          // Positive response to Diagnostic Session Control (0x10 -> 0x50)
-          if (sid == 0x50) {
-            uint8_t sub = rx_frame.data.u8[2];  // 0x01=Default, 0x03=Extended, etc.
-
-            if (sub == 0x03 || sub == 0x01) {
-              logging.print("entered ");
-              logging.println(sub == 0x03 ? "extended diagnostic session" : "default session");
-
-              // mark this UDS transaction done
-              uds_tx_in_flight = false;
-            }
-            break;
-          }
-
-          // Positive response to clear DTC request
-          if (sid == 0x54) {
-            //  [0] PCI
-            //  [1] SID (0x54)
-            //  [2] DTC high byte  (0x02)
-            //  [3] DTC mid byte   (0x93)
-            //  [4] DTC low byte   (0x00)
-            uint8_t b2 = rx_frame.data.u8[2];
-            uint8_t b3 = rx_frame.data.u8[3];
-            uint8_t b4 = rx_frame.data.u8[4];
-
-            bool allDtcCleared = ((b2 == 0xFF && b3 == 0xFF && b4 == 0xFF) || (b2 == 0xAA && b3 == 0xAA && b4 == 0xAA));
-
-            if (allDtcCleared) {
-              logging.println("UDS: positive response, ALL DTCs cleared");
-              userRequestClearDTC = false;  // reset the request
-            } else {
-              logging.print("UDS: positive ClearDTC response, group/DTC = ");
-              logging.print(b2, HEX);
-              logging.print(' ');
-              logging.print(b3, HEX);
-              logging.print(' ');
-              logging.print(b4, HEX);
-              logging.println();
-            }
-
-            uds_tx_in_flight = false;
-            break;
-          }
-
-          // Negative response
-          if (sid == 0x7F) {
-            uint8_t origSid = rx_frame.data.u8[2];
-            uint8_t nrc = rx_frame.data.u8[3];
-
-            logging.print("UDS negative response to 0x");
-            logging.print(origSid, HEX);
-            logging.print(": NRC=0x");
-            logging.print(nrc, HEX);
-            logging.println();
-
-            if (nrc != 0x78) {  // 0x78 = Response Pending; otherwise we’re done with this tx
-              uds_tx_in_flight = false;
-            }
-            break;
-          }
-
-          if (sid == 0x62) {  // ReadDataByIdentifier response
-            uint16_t did = (rx_frame.data.u8[2] << 8) | rx_frame.data.u8[3];
-
-            // signal that UDS transaction is complete
-            uds_tx_in_flight = false;
-
-            switch (did) {
-              case 0xB041: {
-                float v = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]);
-                (void)v;
-                //logging.print("single frame UDS ReadDataByIdentifier bus voltage: ");
-                //logging.println(v); //scaling to be checked
-
-                break;
-              }
-              case 0xB042: {
-                float v = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]) * 0.25f;
-                (void)v;
-                //logging.print("single frame UDS ReadDataByIdentifier battery voltage: ");
-                //logging.println(v);
-                break;
-              }
-              case 0xB043: {
-                float i = (((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5])) * 1;
-                (void)i;
-                //logging.print("single frame UDS ReadDataByIdentifier battery current: ");
-                //logging.println(i); //scaling to be checked
-                break;
-              }
-              case 0xB045: {
-                float r = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]) * 1;
-                (void)r;
-                //logging.print("single frame UDS ReadDataByIdentifier battery resistance: ");
-                //logging.println(r); //scaling to be checked
-                break;
-              }
-              case 0xB046: {
-                float soc = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]) * 0.1f;
-                (void)soc;
-                //logging.print("single frame UDS ReadDataByIdentifier battery state of charge: ");
-                //logging.println(soc);
-                break;
-              }
-              case 0xB047: {
-                uint8_t e = rx_frame.data.u8[4];
-                (void)e;
-                //logging.print("single frame UDS ReadDataByIdentifier error: ");
-                //logging.println(e);
-                break;
-              }
-              case 0xB048: {
-                uint8_t s = rx_frame.data.u8[4];
-                (void)s;
-                //logging.print("single frame UDS ReadDataByIdentifier status: ");
-                //logging.println (getBMStatus(s));
-                break;
-              }
-              case 0xB049: {
-                uint8_t rB = rx_frame.data.u8[4];
-                (void)rB;
-                //logging.print("single frame UDS ReadDataByIdentifier relay B: ");
-                //logging.println (rB); //normally 1, seems to go to 0 during change of contactor state
-                break;
-              }
-              case 0xB04A: {
-                uint8_t rG = rx_frame.data.u8[4];
-                (void)rG;
-                //logging.print("single frame UDS ReadDataByIdentifier relay G: ");
-                //logging.println (rG); //normally 1, seems to go to 0 during change of contactor state
-                break;
-              }
-              case 0xB052: {
-                uint8_t rP = rx_frame.data.u8[4];
-                (void)rP;
-                //logging.print("single frame UDS ReadDataByIdentifier relay P: ");
-                //logging.println (rP); //normally 1, seems to go to 0 during change of contactor state
-                break;
-              }
-              case 0xB056: {
-                float t = rx_frame.data.u8[4] - 100;
-                (void)t;
-                //logging.print("single frame UDS ReadDataByIdentifier BATTERY TEMP: ");
-                //logging.println (t);
-                break;
-              }
-              case 0xB058: {
-                float mv = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]) * 0.001f;
-                (void)mv;
-                //logging.print("single frame UDS ReadDataByIdentifier max cell voltage: ");
-                //logging.println (mv);
-                break;
-              }
-              case 0xB059: {
-                float nv = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]) * 0.001f;
-                (void)nv;
-                //logging.print("single frame UDS ReadDataByIdentifier min cell voltage: ");
-                //logging.println (nv);
-                break;
-              }
-              case 0xB05C: {
-                float c = rx_frame.data.u8[4] - 100;
-                (void)c;
-                //logging.print("single frame UDS ReadDataByIdentifier coolant temperature: ");
-                //logging.println (c);
-                break;
-              }
-              case 0xB061: {
-                float soh = ((rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5]);
-                (void)soh;
-                //logging.print("single frame UDS ReadDataByIdentifier state of health: ");
-                //logging.println (soh*0.01f);
-                datalayer.battery.status.soh_pptt = soh;
-                break;
-              }
-              case 0xB06D: {
-                uint32_t t = (uint32_t(rx_frame.data.u8[4]) << 24) | (uint32_t(rx_frame.data.u8[5]) << 16) |
-                             (uint32_t(rx_frame.data.u8[6]) << 8) | uint32_t(rx_frame.data.u8[7]);
-                (void)t;
-                //logging.print("single frame UDS ReadDataByIdentifier BMS time: ");
-                //logging.println (t); //scaling to be checked
-
-                break;
-              } break;
-            }
-          }
-          break;
-        }
-
-        case 0x1: {  // First Frame (FF)
-          uint16_t totalLength = (uint16_t(pciLower) << 8) | rx_frame.data.u8[1];
-
-          // DTC ReadDTCInformation response (0x59 0x02) at bytes [2..3]
-          if (rx_frame.DLC >= 4 && rx_frame.data.u8[2] == 0x59 && rx_frame.data.u8[3] == 0x02) {
-            startUDSMultiFrameReception(totalLength, 0x59);
-            // FF payload for normal addressing starts at data[2]
-            uint8_t avail = (rx_frame.DLC > 2) ? (rx_frame.DLC - 2) : 0;
-            uint16_t remain = gUDSContext.UDS_expectedLength - gUDSContext.UDS_bytesReceived;
-            uint8_t toStore = uint8_t(remain < avail ? remain : avail);
-            if (toStore)
-              storeUDSPayload(&rx_frame.data.u8[2], toStore);
-
-            MG5_781_RQ_CONTINUE_MULTIFRAME.ID = uds_address;
-            transmit_can_frame(&MG5_781_RQ_CONTINUE_MULTIFRAME);
-            uds_timeout_ms = UDS_TIMEOUT_AFTER_FF_MS;  // extend while MF running
-          }
-          break;
-        }
-
-        case 0x2: {  // Consecutive Frame (CF)
-          if (!gUDSContext.UDS_inProgress)
-            break;
-          uint8_t avail = (rx_frame.DLC > 1) ? (rx_frame.DLC - 1) : 0;  // CF payload at data[1]
-          uint16_t remain = gUDSContext.UDS_expectedLength - gUDSContext.UDS_bytesReceived;
-          uint8_t toStore = uint8_t(remain < avail ? remain : avail);
-          if (toStore)
-            storeUDSPayload(&rx_frame.data.u8[1], toStore);
-
-          gUDSContext.receivedInBatch++;
-          if (gUDSContext.receivedInBatch == 3) {
-            MG5_781_RQ_CONTINUE_MULTIFRAME.ID = uds_address;
-            transmit_can_frame(&MG5_781_RQ_CONTINUE_MULTIFRAME);
-            gUDSContext.receivedInBatch = 0;
-          }
-
-          if (isUDSMessageComplete()) {
-            if (gUDSContext.UDS_moduleID == 0x59) {
-              const uint8_t* p = gUDSContext.UDS_buffer;
-              uint16_t len = gUDSContext.UDS_bytesReceived;
-
-              // 0: SID(0x59), 1: subfunc(0x02), 2: status availability mask
-              if (len >= 3 && p[0] == 0x59 && p[1] == 0x02) {
-                uint16_t off = 3;
-
-                logging.print("UDS DTC list (");
-                logging.print(len - off);
-                logging.println(" bytes of data)");
-
-                // entries are 3-byte DTC + 1-byte status
-                while (off + 4 <= len) {
-                  uint32_t dtc = (uint32_t(p[off]) << 16) | (uint32_t(p[off + 1]) << 8) | p[off + 2];
-                  uint8_t status = p[off + 3];
-
-                  print_formatted_dtc(dtc, status);
-                  off += 4;
-                }
-              }
-            }
-
-            // signal that UDS transaction is complete
-            uds_tx_in_flight = false;
-            userRequestReadDTC = false;
-
-            // ready for the next transaction
-            gUDSContext.UDS_inProgress = false;
-            gUDSContext.UDS_expectedLength = 0;
-            gUDSContext.UDS_bytesReceived = 0;
-          }
-          break;
-        }
-        case 0x3: {  // Flow Control from ECU (rare)
-          // optional: parse / ignore
-          break;
-        }
-      }
-    }
+    case 0x789:  // response from UDS diagnostic service (ISO-TP)
+      // Single/multi-frame reassembly, flow control, the PID scan match, the
+      // DTC readout (which now lands on the web page instead of only in the
+      // log) and the erase ack all live in the UDS superclass.
+      last_uds_activity_ms = millis();
+      handle_incoming_uds_can_frame(rx_frame);
+      break;
 
     default:
       break;
   }
 }
 
+uint16_t Mg5Battery::handle_pid(uint16_t pid, uint32_t value, const uint8_t* data, uint16_t length) {
+  // `data` points at the raw value bytes after the echoed DID. Of the 15
+  // scanned DIDs only SoH was ever stored; the rest of the pre-superclass
+  // switch was commented-out logging and is gone with it.
+  last_uds_activity_ms = millis();
+  switch (pid) {
+    case 0xB061:  // State of health, 0.01 % units (original: (u8[4] << 8) | u8[5])
+      datalayer.battery.status.soh_pptt = (uint16_t)value;
+      break;
+    default:
+      break;
+  }
+  return 0;  // Continue the scan list in order.
+}
+
+void Mg5Battery::on_uds_sequence_step(uint16_t state, uint8_t sid, const uint8_t* data, uint16_t len) {
+  switch (state) {
+    case MG5_STATE_SESSION_START:
+      // Enter the extended diagnostic session (10 03), like the hand-rolled
+      // timeout path did.
+      send_sequence_message(MG5_STATE_SESSION_DONE, SID::DiagnosticSessionControl, (const uint8_t*)"\x03", 1, 10, 2);
+      break;
+    case MG5_STATE_SESSION_DONE:
+      last_uds_activity_ms = millis();
+      break;
+  }
+}
+
 void Mg5Battery::transmit_can(unsigned long currentMillis) {
+  // UDS transmit path: the 15-DID scan, session/DTC sequences and ISO-TP
+  // pacing (the hand-rolled phase-2 block below is gone).
+  transmit_uds_can(currentMillis);
+
   static int8_t send_phase = -1;
   if (++send_phase > 3) {
     send_phase = 0;
@@ -678,7 +366,7 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
       if (contactorClosed == false) {
         // Just changed to closed
         contactorClosed = true;
-        userRequestClearDTC = true;  //clear DTCs to clear DTC 293, otherwise contactors won't close
+        dtc_clear_wanted = true;  //clear DTCs to clear DTC 293, otherwise contactors won't close
         //datalayer.battery.status.max_charge_power_W = MaxChargePower; //set the power limits, as they are set to zero when contactors are open
         //datalayer.battery.status.max_discharge_power_W = MaxDischargePower;
       }
@@ -715,51 +403,6 @@ void Mg5Battery::transmit_can(unsigned long currentMillis) {
   if (currentMillis - previousMillis2000 >= INTERVAL_2_S) {
     previousMillis2000 = currentMillis;
   }
-
-  if (send_phase == 2) {
-    if (uds_tx_in_flight == false) {     // No UDS transaction is in progress
-      if (userRequestReadDTC == true) {  // DTC requested by user
-        MG5_781_RQ_DTCs.ID = uds_address;
-        transmit_can_frame(&MG5_781_RQ_DTCs);
-        uds_tx_in_flight = true;                    //singal that a UDS transaction is in progress
-        uds_req_started_ms = currentMillis;         //timestamp when request was sent for timeout tracking
-        uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;  //increase timeout for multi-frame response
-        logging.println("UDS DTC RQ sent");
-
-      } else {
-        if (userRequestClearDTC == true) {  // Clear DTC requested by user
-          MG5_781_CLEAR_DTCs.ID = uds_address;
-          transmit_can_frame(&MG5_781_CLEAR_DTCs);
-          uds_tx_in_flight = true;                    //singal that a UDS transaction is in progress
-          uds_req_started_ms = currentMillis;         //timestamp when request was sent for timeout tracking
-          uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;  //increase timeout for multi-frame response
-          logging.println("UDS Clear DTC RQ sent");
-        } else {
-          // Time to send next PID request, DTC has priority since it is slower
-          if (currentMillis - previousMillisPID >= UDS_PID_REFRESH_MS) {
-            previousMillisPID = currentMillis;
-            // normal single-frame poll round-robin
-            uds_slow_req_id_counter = increment_uds_req_id_counter(uds_slow_req_id_counter, numSlowUDSreqs);
-            UDS_REQUESTS_SLOW[uds_slow_req_id_counter]->ID = uds_address;
-            transmit_can_frame(UDS_REQUESTS_SLOW[uds_slow_req_id_counter]);
-            uds_tx_in_flight = true;
-            uds_req_started_ms = currentMillis;
-            uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;
-          }
-        }
-      }
-    } else {  // UDS transaction in progress
-      // Timeout / retry Session Control ------------------------------------
-      if ((currentMillis - uds_req_started_ms) > uds_timeout_ms) {
-        // re-enter Extended Session
-        MG5_781_ses_ctrl.ID = uds_address;
-        transmit_can_frame(&MG5_781_ses_ctrl);
-        uds_tx_in_flight = true;
-        uds_req_started_ms = currentMillis;
-        uds_timeout_ms = UDS_TIMEOUT_BEFORE_FF_MS;
-      }
-    }
-  }
 }
 
 void Mg5Battery::setup(void) {  // Performs one time setup at startup
@@ -772,9 +415,14 @@ void Mg5Battery::setup(void) {  // Performs one time setup at startup
   datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
   datalayer.battery.info.total_capacity_Wh = TOTAL_BATTERY_CAPACITY_WH;
   datalayer.battery.info.number_of_cells = 96;
-  uds_tx_in_flight = true;                  // Make sure UDS doesn't start right away
-  uds_req_started_ms = millis();            // prevent immediate timeout
-  uds_timeout_ms = UDS_TIMEOUT_AFTER_BOOT;  // initial delay to restart UDS after boot-up
+
+  // BMS diagnostics: start on the generic broadcast address; the first reply
+  // pins the real request/response pair (see handle_incoming_can_frame).
+  setup_uds(0x7DF, 0);
+  set_pid_scan_list(MG5_PID_SCAN, 15);
+  // Same 2 s boot grace the hand-rolled code gave the BMS before diagnostics.
+  pause_uds(20);
+  last_uds_activity_ms = millis();
 }
 
 #endif
