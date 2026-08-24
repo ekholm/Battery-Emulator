@@ -672,6 +672,62 @@ TEST_F(UdsCanBatteryTest, InFlightStepGivesUpWhenPausedRetryWouldBeBlocked) {
 // External diagnostic tool detection
 // ---------------------------------------------------------------------------
 
+// The default DTC readout must keep requesting testFailed | confirmedDTC
+// (19 02 09): dtc_status_mask() is a subclass knob, and every already-converted
+// driver relies on the default staying put.
+TEST_F(UdsCanBatteryTest, DtcReadUsesTheDefaultStatusMask) {
+  battery->dtc = &datalayer.battery.dtc;
+  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+
+  battery->read_DTC();
+  tick(1000);
+
+  ASSERT_EQ(get_transmitted_frames().size(), 1u);
+  const CAN_frame& req = last_frame(get_transmitted_frames());
+  EXPECT_EQ(req.data.u8[1], 0x19);
+  EXPECT_EQ(req.data.u8[2], 0x02);
+  EXPECT_EQ(req.data.u8[3], 0x09);
+}
+
+// A DTC readout against a silent ECU must resolve as a failed read once the
+// retries run out - not leave the page pending forever. (The internal-sequence
+// timeout previously fell through to the subclass hook and resolved nothing.)
+TEST_F(UdsCanBatteryTest, DtcReadTimeoutMarksTheReadFailed) {
+  battery->dtc = &datalayer.battery.dtc;
+  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+
+  battery->read_DTC();
+  for (int k = 1; k <= 100; k++) {  // Run the request, its retries and their timeouts out.
+    tick(1000 + 100 * k);
+  }
+
+  EXPECT_TRUE(datalayer.battery.dtc.dtc_read_failed);
+  EXPECT_NE(datalayer.battery.dtc.dtc_last_read_millis, 0u);
+  EXPECT_FALSE(battery->uds_is_busy());
+  // And the internal state never leaked into the subclass timeout hook.
+  EXPECT_TRUE(battery->seq_timeouts.empty());
+}
+
+// A confirmed DTC erase fires the on_dtc_cleared() hook; the default leaves the
+// stored list untouched (only subclasses opt into resetting the page).
+TEST_F(UdsCanBatteryTest, DtcClearAckLeavesTheStoredListByDefault) {
+  battery->dtc = &datalayer.battery.dtc;
+  datalayer.battery.dtc = DATALAYER_BATTERY_DTC_TYPE{};
+  datalayer.battery.dtc.dtc_count = 3;
+  datalayer.battery.dtc.dtc_last_read_millis = 77;
+
+  battery->reset_DTC();
+  tick(1000);
+  ASSERT_EQ(get_transmitted_frames().size(), 1u);
+  EXPECT_EQ(last_frame(get_transmitted_frames()).data.u8[1], 0x14);
+
+  feed_response({0x54});
+
+  EXPECT_EQ(datalayer.battery.dtc.dtc_count, 3);
+  EXPECT_EQ(datalayer.battery.dtc.dtc_last_read_millis, 77u);
+  EXPECT_FALSE(battery->uds_is_busy());
+}
+
 // A sequence queued while a pause is active must not be silently dropped: it is
 // held and starts once the pause expires (previously the first step send was
 // refused and the request was lost forever).

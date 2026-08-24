@@ -187,8 +187,19 @@ class UdsCanBattery : public CanBattery, public IsoTp {
 
   // Override this to be notified when a UDS sequence step has timed out and
   // exhausted its retry budget. The state that was passed with the request is
-  // handed back here.
+  // handed back here. Only subclass states arrive here; superclass-internal
+  // sequences (DTC read/clear) handle their own timeouts.
   virtual void on_uds_sequence_timeout(uint16_t state) {}
+
+  // Status mask sent with the DTC readout (0x19 0x02 <mask>). The default
+  // requests testFailed | confirmedDTC; ECUs that only report a useful set
+  // under a wider mask (e.g. Ford's BECM wants 0x8F) override this.
+  virtual uint8_t dtc_status_mask() { return 0x09; }
+
+  // Called when the ECU acknowledges a DTC clear (0x54). The stored DTC list
+  // is deliberately NOT touched by default; a subclass that wants the page to
+  // go back to "not read yet" after a confirmed erase overrides this.
+  virtual void on_dtc_cleared() {}
 
   // Override this to be passed successful PID query responses. A return value
   // of 0 causes the PID list to be scanned in order. Return a PID to read it
@@ -231,6 +242,9 @@ class UdsCanBattery : public CanBattery, public IsoTp {
   void handle_sequence(uint16_t state, uint8_t sid, const uint8_t* data, uint16_t len);
   // Dispatches responses for superclass-internal sequence states.
   void handle_internal_sequence(uint16_t state, uint8_t sid, const uint8_t* data, uint16_t len);
+  // Timeout handling for superclass-internal sequence states (a DTC read that
+  // never completes must still resolve the page's pending state).
+  void handle_internal_sequence_timeout(uint16_t state);
   // The request currently in flight as part of a sequence.
   struct {
     uint8_t sid;
