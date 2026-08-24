@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "settings_rows.h"
 #include "settings_handlers.h"
 #include "webserver_new.h"
 
@@ -56,345 +57,115 @@ static int32_t min_percentage_tenths, max_percentage_tenths;
 
 // Unsigned ints and enums, which are persisted to flash, and require a reboot
 // to take effect.
+#define BE_ROW_UintSetting(...) UintSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const PersistedUint PERSISTED_UINTS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - storage pointer
-  UintSetting("INVTYPE", 0, (uint32_t)InverterProtocolType::Highest - 1, &user_selected_inverter_protocol),
-  UintSetting("INVCOMM", 0, (uint32_t)comm_interface::Highest - 1, &user_selected_inv_comm),
-  UintSetting("BATTTYPE", 0, (uint32_t)BatteryType::Highest - 1, &user_selected_battery_type),
-  UintSetting("BATTCHEM", 0, (uint32_t)battery_chemistry_enum::Highest - 1, &user_selected_battery_chemistry),
-  UintSetting("BATTCOMM", 0, (uint32_t)comm_interface::Highest - 1, &user_selected_batt_comm),
-  UintSetting("BATTCVMAX", 0, 5000, &user_selected_max_cell_voltage_mV),
-  UintSetting("BATTCVMIN", 0, 5000, &user_selected_min_cell_voltage_mV),
-  UintSetting("CHGTYPE", 0, (uint32_t)ChargerType::Highest - 1, &user_selected_charger_type),
-  UintSetting("CHGCOMM", 0, (uint32_t)comm_interface::Highest - 1, &user_selected_chg_comm),
-  UintSetting("EQSTOP", 0, (uint32_t)STOP_BUTTON_BEHAVIOR::Highest - 1, &equipment_stop_behavior),
-  UintSetting("BATT2COMM", 0, (uint32_t)comm_interface::Highest - 1, &user_selected_batt2_comm),
-  UintSetting("BATT3COMM", 0, (uint32_t)comm_interface::Highest - 1, &user_selected_batt3_comm),
-  UintSetting("SHUNTTYPE", 0, (uint32_t)ShuntType::Highest - 1, &user_selected_shunt_type),
-  UintSetting("SHUNTCOMM", 0, (uint32_t)comm_interface::Highest - 1, &user_selected_shunt_comm),
-  UintSetting("MAXPRETIME", 0, 120000, &precharge_max_precharge_time_before_fault),
-  UintSetting("MAXPREFREQ", 0, 65535, &Precharge_max_PWM_Freq),
-  UintSetting("WIFICHANNEL", 0, 14, &wifi_channel),
-  UintSetting("DCHGPOWER", 0, 100000, &datalayer.battery.status.override_discharge_power_W),
-  UintSetting("CHGPOWER", 0, 100000, &datalayer.battery.status.override_charge_power_W),
-  UintSetting("MQTTPORT", 0, 65535, &mqtt_port),
-  UintSetting("MQTTTIMEOUT", 0, 30000, &mqtt_timeout_ms),
-  UintSetting("MQTTPUBLISHMS", 0, 3600000, &mqtt_publish_interval_ms),
-  UintSetting("SOFAR_ID", 0, 255, &datalayer.battery.settings.sofar_user_specified_battery_id),
-  UintSetting("INVCELLS", 0, 65535, &user_selected_inverter_cells),
-  UintSetting("INVMODULES", 0, 65535, &user_selected_inverter_modules),
-  UintSetting("INVCELLSPER", 0, 65535, &user_selected_inverter_cells_per_module),
-  UintSetting("INVVLEVEL", 0, 65535, &user_selected_inverter_voltage_level),
-  UintSetting("INVCAPACITY", 0, 65535, &user_selected_inverter_ah_capacity),
-  UintSetting("INVBTYPE", 0, 255, &user_selected_inverter_battery_type),
-  UintSetting("INVICNT", 0, 2, &user_selected_inverter_contactor_mode),
-  UintSetting("PRECHGMS", 0, 120000, &precharge_time_ms),
-  UintSetting("PWMFREQ", 0, 65535, &pwm_frequency),
-  UintSetting("PWMHOLD", 0, 1023, &pwm_hold_duty),
-  UintSetting("GTWCOUNTRY", 0, 65535, &user_selected_tesla_GTW_country),
-  UintSetting("GTWMAPREG", 0, 9, &user_selected_tesla_GTW_mapRegion),
-  UintSetting("GTWCHASSIS", 0, 9, &user_selected_tesla_GTW_chassisType),
-  UintSetting("GTWPACK", 0, 9, &user_selected_tesla_GTW_packEnergy),
-  UintSetting("LEDMODE", 0, 10, &datalayer.battery.status.led_mode),
-#ifdef HW_LILYGO2CAN
-  UintSetting("GPIOOPT1", 0, 255, &user_selected_gpioopt1),
-#endif
-  UintSetting("GPIOOPT2", 0, 255, &user_selected_gpioopt2),
-  UintSetting("GPIOOPT3", 0, 255, &user_selected_gpioopt3),
-  UintSetting("GPIOOPT4", 0, 255, &user_selected_gpioopt4),
-#ifdef HW_STARK
-  UintSetting("GPIOOPT5", 0, 255, &user_selected_gpioopt5),
-#endif
-#ifdef HW_WAVESHARE
-  UintSetting("GPIOOPT6", 0, 255, &user_selected_gpioopt6),
-#endif
-  UintSetting("INVSUNTYPE", 0, 255, &user_selected_inverter_sungrow_type),
-  UintSetting("CTVNOM", 0, 65535, &ct_clamp_nominal_voltage_dV),
-  UintSetting("CTANOM", 0, 65535, &ct_clamp_nominal_current_A),
-  UintSetting("CTATTEN", 0, (uint32_t)adc_attenuation_enum::Highest - 1, &ct_clamp_pin_atten),
-  UintSetting("PYLONBAUD", 0, 1000000, &user_selected_pylon_baudrate),
-  UintSetting("PYLONBRAND", 0, 255, &user_selected_inverter_pylon_type),
-  UintSetting("DALYPWRPCT", 0, 10000, &user_selected_daly_power_per_percent),
-  UintSetting("DALYPWRDV", 0, 10000, &user_selected_daly_power_per_dV),
-  UintSetting("DALYDVSTART", 0, 255, &user_selected_daly_power_per_dV_start),
-  UintSetting("DALYPWRDEG", 0, 10000, &user_selected_daly_power_per_degree_C),
-  UintSetting("DALYPWR0C", 0, 100000, &user_selected_daly_power_at_0_degree_C),
-  UintSetting("PYLONSEND", 0, 1, &user_selected_pylon_send),
-  UintSetting("CHGTAPERSTART", 0, 100, &charge_taper_start_soc),
-  UintSetting("CHGTAPERFLOOR", 0, 2000, &charge_taper_floor_W),
-  UintSetting("PERBMSRESETH", 24, 48, &periodic_bms_reset_interval_h),
-  UintSetting("FOXESSTYPE", 0, 255, &user_selected_inverter_foxess_type),
-  UintSetting("FOXESSSUBTYPE", 0, 255, &user_selected_inverter_foxess_subtype),
-  UintSetting("FOXESSMODULES", 0, 255, &user_selected_inverter_foxess_modules),
-  UintSetting("SYSLOGPORT", 0, 65535, &syslog_port),
-  UintSetting("SYSLOGFAC", 0, 23, &syslog_facility),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Signed numeric settings. These are persisted to flash, and require a reboot to take effect.
+#define BE_ROW_IntSetting(...) IntSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const PersistedInt PERSISTED_INTS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - storage pointer
-  IntSetting("CPUTEMPOFFSET", -100, 100, &datalayer.system.info.CPU_temperature_calibration_offset),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Boolean settings. These are persisted to flash, and require a reboot to take effect.
+#define BE_ROW_BoolSetting(...) BoolSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const PersistedBool PERSISTED_BOOLS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - storage pointer
-  BoolSetting("DBLBTR", &user_selected_second_battery),
-  BoolSetting("CNTCTRL", &contactor_control_enabled),
-  BoolSetting("CNTCTRLDBL", &contactor_control_enabled_double_battery),
-  BoolSetting("PWMCNTCTRL", &pwm_contactor_control),
-  BoolSetting("PERBMSRESET", &periodic_bms_reset),
-  BoolSetting("REMBMSRESET", &remote_bms_reset),
-  BoolSetting("EXTPRECHARGE", &precharge_control_enabled),
-  BoolSetting("NOINVDISC", &precharge_inverter_normally_open_contactor),
-  BoolSetting("WIFIAPENABLED", &wifiap_enabled),
-  BoolSetting("STATICIP", &wifi_static_IP_enabled),
-  BoolSetting("PERFPROFILE", &datalayer.system.info.performance_measurement_active),
-  BoolSetting("CANLOGUSB", &datalayer.system.info.CAN_usb_logging_active),
-  BoolSetting("USBENABLED", &datalayer.system.info.usb_logging_active),
-  BoolSetting("WEBENABLED", &datalayer.system.info.web_logging_active),
-#ifdef SDCARD
-  BoolSetting("CANLOGSD", &datalayer.system.info.CAN_SD_logging_active),
-  BoolSetting("SDLOGENABLED", &datalayer.system.info.SD_logging_active),
-#endif  // SDCARD
-  BoolSetting("MQTTENABLED", &mqtt_enabled),
-  BoolSetting("MQTTCELLV", &mqtt_transmit_all_cellvoltages),
-  BoolSetting("HADISC", &ha_autodiscovery_enabled),
-  BoolSetting("DEYEBYD", &user_selected_inverter_deye_workaround),
-  BoolSetting("INTERLOCKREQ", &user_selected_LEAF_interlock_mandatory),
-  BoolSetting("DIGITALHVIL", &user_selected_tesla_digital_HVIL),
-  BoolSetting("GTWRHD", &user_selected_tesla_GTW_rightHandDrive),
-  BoolSetting("SOCESTIMATED", &user_selected_use_estimated_SOC),
-  BoolSetting("PYLONOFFSET", &user_selected_pylon_30koffset),
-  BoolSetting("PYLONORDER", &user_selected_pylon_invert_byteorder),
-  BoolSetting("NCCONTACTOR", &contactor_control_inverted_logic),
-  BoolSetting("TRIBTR", &user_selected_triple_battery),
-  BoolSetting("CNTCTRLTRI", &contactor_control_enabled_triple_battery),
-  BoolSetting("ESPNOWENABLED", &espnow_enabled),
-  BoolSetting("PRIMOGEN24", &user_selected_primo_gen24),
-  BoolSetting("USEVOLTLIMITS", &datalayer.battery.settings.user_set_voltage_limits_active),
-  BoolSetting("LOWPASSFILTER", &inverter_low_pass_filter),
-  BoolSetting("CTINVERT", &ct_invert_current),
-  BoolSetting("WEBAUTH", &webserver_auth),
-  BoolSetting("CHGTAPERSOC", &charge_taper_soc),
-  BoolSetting("SLOWCANINV", &user_selected_inverter_long_CAN_timeout),
-  BoolSetting("INVOFFGRID", &user_selected_inverter_offgrid),
-  BoolSetting("PERBMSDEFSOC", &periodic_bms_reset_defer_low_soc),
-  BoolSetting("PERBMSSKIPBAL", &periodic_bms_reset_skip_balancing),
-  BoolSetting("MEASURECPUTEMP", &datalayer.system.info.CPU_measurement_enabled),
-  BoolSetting("SYSLOGEN", &datalayer.system.info.syslog_logging_active),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // String settings. These are persisted to flash, and require a reboot to take effect.
+#define BE_ROW_StringSetting(...) StringSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const PersistedString PERSISTED_STRINGS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - max length (excluding any null terminator)
-  //  - storage pointer
-  StringSetting("SSID", 32, &ssid),
-  StringSetting("PASSWORD", 64, &password, SETTING_SECRET),
-  StringSetting("APNAME", 64, &ssidAP),
-  StringSetting("APPASSWORD", 64, &passwordAP, SETTING_SECRET),
-  StringSetting("HOSTNAME", 64, &custom_hostname),
-  StringSetting("MQTTSERVER", 64, &mqtt_server),
-  StringSetting("MQTTUSER", 64, &mqtt_user),
-  StringSetting("MQTTPASSWORD", 64, &mqtt_password, SETTING_SECRET),
-  StringSetting("HTTPUSER", 32, &http_username),
-  StringSetting("HTTPPASS", 64, &http_password, SETTING_SECRET),
-  StringSetting("LOCALIP", 15, &edited_static_local_IP),
-  StringSetting("GATEWAY", 15, &edited_static_gateway),
-  StringSetting("SUBNET", 15, &edited_static_subnet),
-  StringSetting("DNS", 15, &edited_static_dns),
-  StringSetting("CTOFFSET", 16, &ct_clamp_offset_text),
-  StringSetting("HADISCTOPIC", 64, &ha_autodiscovery_topic),
-  StringSetting("SYSLOGIP", 15, &syslog_ip),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Scaled fixed-point settings. These are persisted to flash, and require a reboot to take effect.
 // Edited/validated as float, stored scaled (uint16_t).
+#define BE_ROW_ScaledSetting(...) ScaledSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const PersistedScaled PERSISTED_SCALEDS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - scale factor (float), multiplied before storage (and divided after retrieval)
-  //  - storage pointer
-  ScaledSetting("BATTPVMAX", 0.0f, 1000.0f, 10.0f, &user_selected_max_pack_voltage_dV),
-  ScaledSetting("BATTPVMIN", 0.0f, 1000.0f, 10.0f, &user_selected_min_pack_voltage_dV),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Instant unsigned integer settings. These are persisted to flash, but take
 // effect immediately without a reboot.
+#define BE_ROW_InstantUintSetting(...) InstantUintSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const InstantUint INSTANT_UINTS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - storage pointer
-  InstantUintSetting("BATTERY_WH_MAX", 1, 400000, &datalayer.battery.info.total_capacity_Wh),
-  InstantUintSetting("BMSRESETDUR", 0, 60000, &datalayer.battery.settings.user_set_bms_reset_duration_ms),
-  InstantUintSetting("BYDAUTOCALDRIFT", 1, 20, &datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent),
-  InstantUintSetting("BYDAUTOCALDRFT2", 1, 20, &datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
+#define BE_ROW_InstantIntSetting(...) InstantIntSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const InstantInt INSTANT_INTS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - storage pointer
-  InstantIntSetting("MINPERCENTAGE", -10, 50, &min_percentage_tenths),
-  InstantIntSetting("MAXPERCENTAGE", 0, 200, &max_percentage_tenths),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Instant fixed-point settings. These are persisted to flash, but take effect
 // immediately without a reboot. 
+#define BE_ROW_InstantScaledSetting(...) InstantScaledSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const InstantScaled INSTANT_SCALEDS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - scale factor (float), multiplied before storage (and divided after retrieval)
-  //  - storage pointer
-  InstantScaledSetting("MAXCHARGEAMP", 0.0f, 100.0f, 10.0f, &datalayer.battery.settings.max_user_set_charge_dA),
-  InstantScaledSetting("MAXDISCHARGEAMP", 0.0f, 100.0f, 10.0f,
-                        &datalayer.battery.settings.max_user_set_discharge_dA),
-  InstantScaledSetting("TARGETCHVOLT", 0.0f, 1000.0f, 10.0f,
-                        &datalayer.battery.settings.max_user_set_charge_voltage_dV),
-  InstantScaledSetting("TARGETDISCHVOLT", 0.0f, 1000.0f, 10.0f,
-                        &datalayer.battery.settings.max_user_set_discharge_voltage_dV),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Instant boolean settings. These are persisted to flash, but take effect
 // immediately without a reboot.
+#define BE_ROW_InstantBoolSetting(...) InstantBoolSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const InstantBool INSTANT_BOOLS[] = {
-  // Arguments:
-  //  - name (must be <= 15 chars for NVS)
-  //  - storage pointer
-  InstantBoolSetting("USE_SCALED_SOC", &datalayer.battery.settings.soc_scaling_active),
-  InstantBoolSetting("BYDAUTOCALEN", &datalayer_extended.bydAtto3.auto_calibrate_soc_enabled),
-  InstantBoolSetting("BYDAUTOCALEN2", &datalayer_extended.bydAtto3_2.auto_calibrate_soc_enabled),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Volatile unsigned integer settings. These are not persisted to flash, and
 // take effect immediately without a reboot.
+#define BE_ROW_VolatileUintSetting(...) VolatileUintSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const VolatileUint VOLATILE_UINTS[] = {
-  // Arguments:
-  //  - name
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - apply function (web -> runtime)
-  //  - read function (runtime -> web)
-  VolatileUintSetting("TMP_CALTARGETSOC", 0, 100,
-    [](uint32_t value) { datalayer_extended.bydAtto3.calibrationTargetSOC = (uint16_t)value; },
-    []() { return (uint32_t)datalayer_extended.bydAtto3.calibrationTargetSOC; }),
-  VolatileUintSetting("TMP_CALTARGETAH", 0, 1000,
-    [](uint32_t value) { datalayer_extended.bydAtto3.calibrationTargetAH = (uint16_t)value; },
-    []() { return (uint32_t)datalayer_extended.bydAtto3.calibrationTargetAH; }),
-  VolatileUintSetting("TMP_CALTARGETSOC2", 0, 100,
-    [](uint32_t value) { datalayer_extended.bydAtto3_2.calibrationTargetSOC = (uint16_t)value; },
-    []() { return (uint32_t)datalayer_extended.bydAtto3_2.calibrationTargetSOC; }),
-  VolatileUintSetting("TMP_CALTARGETAH2", 0, 1000,
-    [](uint32_t value) { datalayer_extended.bydAtto3_2.calibrationTargetAH = (uint16_t)value; },
-    []() { return (uint32_t)datalayer_extended.bydAtto3_2.calibrationTargetAH; }),
-  VolatileUintSetting("TMP_FAKEBATTERYV", 0, 1000,
-    [](uint32_t value) { if (battery != nullptr) battery->set_fake_voltage((float)value); },
-    []() { return battery ? (uint32_t)battery->get_voltage() : 0; }),
-  VolatileUintSetting("TMP_BALFLOATPOWER", 0, UINT32_MAX,
-    [](uint32_t value) { datalayer.battery.settings.balancing_float_power_W = (uint16_t)value; },
-    []() { return (uint32_t)datalayer.battery.settings.balancing_float_power_W; }),
-  VolatileUintSetting("TMP_BALMAXPACKV", 0, UINT32_MAX,
-    [](uint32_t value) { datalayer.battery.settings.balancing_max_pack_voltage_dV = (uint16_t)value; },
-    []() { return (uint32_t)datalayer.battery.settings.balancing_max_pack_voltage_dV; }),
-  VolatileUintSetting("TMP_BALMAXCELLV", 0, UINT32_MAX,
-    [](uint32_t value) { datalayer.battery.settings.balancing_max_cell_voltage_mV = (uint16_t)value; },
-    []() { return (uint32_t)datalayer.battery.settings.balancing_max_cell_voltage_mV; }),
-  VolatileUintSetting("TMP_BALMAXDEVCELLV", 0, UINT32_MAX,
-    [](uint32_t value) { datalayer.battery.settings.balancing_max_deviation_cell_voltage_mV = (uint16_t)value; },
-    []() { return (uint32_t)datalayer.battery.settings.balancing_max_deviation_cell_voltage_mV; }),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Volatile boolean settings. These are not persisted to flash, and take effect
 // immediately without a reboot.
+#define BE_ROW_VolatileBoolSetting(...) VolatileBoolSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const VolatileBool VOLATILE_BOOLS[] = {
-  // Arguments:
-  //  - name
-  //  - apply function (web -> runtime)
-  //  - read function (runtime -> web)
-  VolatileBoolSetting("TMP_RECOVERYMODE",
-    [](bool value) { datalayer.battery.settings.user_requests_forced_charging_recovery_mode = value; },
-    []() { return datalayer.battery.settings.user_requests_forced_charging_recovery_mode; }),
-  VolatileBoolSetting("TMP_BALANCE",
-    [](bool value) { datalayer.battery.settings.user_requests_balancing = value; },
-    []() { return datalayer.battery.settings.user_requests_balancing; }),
-  VolatileBoolSetting("TMP_CHARGERHVENABLED",
-    [](bool value) { datalayer.charger.charger_HV_enabled = value; },
-    []() { return datalayer.charger.charger_HV_enabled; }),
-  VolatileBoolSetting("TMP_CHARGERAUX12VENABLED",
-    [](bool value) { datalayer.charger.charger_aux12V_enabled = value; },
-    []() { return datalayer.charger.charger_aux12V_enabled; }),
-  // BYD Atto 3 isolation monitor: keep it disabled across BMS restarts. The
-  // value is persisted in comm_nvm.cpp (BYDKEEPISOOFF), this table entry only
-  // exposes it to the web API; it applies to both packs at once.
-  VolatileBoolSetting("BYDKEEPISOOFF",
-    [](bool value) {
-      datalayer_extended.bydAtto3.keep_iso_disabled = value;
-      datalayer_extended.bydAtto3_2.keep_iso_disabled = value;
-    },
-    []() { return datalayer_extended.bydAtto3.keep_iso_disabled; }),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Volatile float settings. These are not persisted to flash, and take effect
 // immediately without a reboot.
+#define BE_ROW_VolatileFloatSetting(...) VolatileFloatSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const VolatileFloat VOLATILE_FLOATS[] = {
-  // Arguments:
-  //  - name
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - apply function (web -> runtime)
-  //  - read function (runtime -> web)
-  VolatileFloatSetting("TMP_CHARGERSETPOINTV", 0.0f, 1000.0f,
-    [](float value) {
-        if (value >= CHARGER_MIN_HV && value <= CHARGER_MAX_HV)
-          datalayer.charger.charger_setpoint_HV_VDC = (float)value;
-      },
-    []() { return (float)datalayer.charger.charger_setpoint_HV_VDC; }),
-  VolatileFloatSetting("TMP_CHARGERSETPOINTA", 0.0f, 100.0f,
-    [](float value) {
-        if ((value <= CHARGER_MAX_A) && (value <= datalayer.battery.settings.max_user_set_charge_dA) &&
-            (value * datalayer.charger.charger_setpoint_HV_VDC <= CHARGER_MAX_POWER))
-          datalayer.charger.charger_setpoint_HV_IDC = (float)value;
-      },
-    []() { return (float)datalayer.charger.charger_setpoint_HV_IDC; }),
-  VolatileFloatSetting("TMP_CHARGERENDA", 0.0f, 100.0f,
-    [](float value) { datalayer.charger.charger_setpoint_HV_IDC_END = (float)value; },
-    []() { return (float)datalayer.charger.charger_setpoint_HV_IDC_END; }),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // Volatile scaled fixed-point settings. These are not persisted to flash, and
 // take effect immediately without a reboot.
+#define BE_ROW_VolatileScaledSetting(...) VolatileScaledSetting(__VA_ARGS__),
+#include "settings_rows_null.h"
 const VolatileScaled VOLATILE_SCALEDS[] = {
-  // Arguments:
-  //  - name
-  //  - min (inclusive)
-  //  - max (inclusive)
-  //  - scale factor (float), multiplied before storage (and divided after retrieval)
-  //  - apply function (web -> runtime)
-  //  - read function (runtime -> web)
-  VolatileScaledSetting("TMP_BALTIME", 0.0f, (float)UINT32_MAX / 60000.0f, 60000.0f,
-    [](float value) { datalayer.battery.settings.balancing_max_time_ms = (uint32_t)value; },
-    []() { return (float)datalayer.battery.settings.balancing_max_time_ms; }),
+  BE_SETTINGS_LIST
 };
+#include "settings_rows_undef.h"
 
 // clang-format on
 
@@ -517,3 +288,71 @@ void build_settings_json(JsonDocument& doc, BatteryEmulatorSettingsStore& settin
 
   doc["reboot_required"] = settingsUpdated;
 }
+
+// ---------------------------------------------------------------------------
+// Second consumer of BE_SETTINGS_LIST: the NVS-key rules, checked at compile
+// time. Persisted/instant rows become NVS keys, so each must be unique and at
+// most 15 characters (the NVS key-length limit the tables' comments cite).
+// Volatile rows never reach NVS and are exempt (their TMP_* names may be
+// longer). A violation fails the build here, before it can strand a value.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+#define BE_ROW_UintSetting(name, ...) name,
+#define BE_ROW_IntSetting(name, ...) name,
+#define BE_ROW_BoolSetting(name, ...) name,
+#define BE_ROW_StringSetting(name, ...) name,
+#define BE_ROW_ScaledSetting(name, ...) name,
+#define BE_ROW_InstantUintSetting(name, ...) name,
+#define BE_ROW_InstantIntSetting(name, ...) name,
+#define BE_ROW_InstantScaledSetting(name, ...) name,
+#define BE_ROW_InstantBoolSetting(name, ...) name,
+#include "settings_rows_null.h"
+constexpr const char* BE_PERSISTED_KEYS[] = {
+  BE_SETTINGS_LIST
+};
+#include "settings_rows_undef.h"
+
+constexpr size_t BE_PERSISTED_KEY_COUNT = sizeof(BE_PERSISTED_KEYS) / sizeof(BE_PERSISTED_KEYS[0]);
+
+constexpr size_t be_key_len(const char* s) {
+  size_t n = 0;
+  while (s[n] != 0) {
+    n++;
+  }
+  return n;
+}
+
+constexpr bool be_keys_equal(const char* a, const char* b) {
+  size_t i = 0;
+  while (a[i] != 0 && a[i] == b[i]) {
+    i++;
+  }
+  return a[i] == b[i];
+}
+
+constexpr bool be_keys_within_nvs_limit() {
+  for (size_t i = 0; i < BE_PERSISTED_KEY_COUNT; i++) {
+    if (be_key_len(BE_PERSISTED_KEYS[i]) > 15) {
+      return false;
+    }
+  }
+  return true;
+}
+
+constexpr bool be_keys_unique() {
+  for (size_t i = 0; i < BE_PERSISTED_KEY_COUNT; i++) {
+    for (size_t j = i + 1; j < BE_PERSISTED_KEY_COUNT; j++) {
+      if (be_keys_equal(BE_PERSISTED_KEYS[i], BE_PERSISTED_KEYS[j])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+static_assert(be_keys_within_nvs_limit(), "a persisted settings key exceeds the 15-char NVS limit");
+static_assert(be_keys_unique(), "two settings rows declare the same NVS key");
+
+}  // namespace
