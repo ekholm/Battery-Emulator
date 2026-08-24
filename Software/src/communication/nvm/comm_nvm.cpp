@@ -136,7 +136,8 @@ void init_stored_settings() {
     ha_autodiscovery_enabled = true;
   }
 
-  wifi_static_IP_enabled = settings.getBool("STATICIP", false);
+  // STATICIP itself was loaded by the table loop above; only the IPs need
+  // the string-to-IPAddress conversion here.
   wifi_static_local_IP = settings.getIP("LOCALIP");
   wifi_static_gateway = settings.getIP("GATEWAY");
   wifi_static_subnet = settings.getIP("SUBNET");
