@@ -269,7 +269,12 @@ uint32_t ACAN_ESP32::begin (const ACAN_ESP32_Settings & inSettings,
 //--------------------------------- Clear the Interrupt Registers
   const uint32_t unusedVariable __attribute__((unused)) = TWAI_INT_RAW_REG () ;
 //--------------------------------- Set Interrupt Service Routine
-  esp_intr_alloc (twaiInterruptSource, 0, isr, this, & mInterruptHandler) ;
+  //--- ESP_INTR_FLAG_IRAM: without it the handler is masked whenever the flash
+  //    cache is disabled (every NVS commit, every OTA write window). The 64-byte
+  //    RX FIFO overruns within ~1.3 ms on a saturated 500 kbit/s bus, so a non-
+  //    IRAM ISR guarantees overruns during flash operations. The whole handler
+  //    call chain below carries IRAM_ATTR to match.
+  esp_intr_alloc (twaiInterruptSource, ESP_INTR_FLAG_IRAM, isr, this, & mInterruptHandler) ;
 //--------------------------------- Enable Interupts
   TWAI_INT_ENA_REG () = TWAI_TX_INT_ENA | TWAI_RX_INT_ENA ;
 //--------------------------------- Set to Requested Mode
@@ -361,7 +366,7 @@ void IRAM_ATTR ACAN_ESP32::isr (void * inUserArgument) {
 
 //------------------------------------------------------------------------------
 
-void ACAN_ESP32::handleTXInterrupt (void) {
+void IRAM_ATTR ACAN_ESP32::handleTXInterrupt (void) {
   CANMessage message ;
   const bool sendmsg = mDriverTransmitBuffer.remove (message) ;
   if (sendmsg) {
@@ -373,7 +378,7 @@ void ACAN_ESP32::handleTXInterrupt (void) {
 
 //------------------------------------------------------------------------------
 
-void ACAN_ESP32::handleRXInterrupt (void) {
+void IRAM_ATTR ACAN_ESP32::handleRXInterrupt (void) {
   CANMessage frame;
   getReceivedMessage (frame) ;
   switch (mAcceptedFrameFormat) {
@@ -413,7 +418,7 @@ bool ACAN_ESP32::receive (CANMessage & outMessage) {
 
 //------------------------------------------------------------------------------
 
-void ACAN_ESP32::getReceivedMessage (CANMessage & outFrame) {
+void IRAM_ATTR ACAN_ESP32::getReceivedMessage (CANMessage & outFrame) {
   const uint32_t frameInfo = TWAI_FRAME_INFO () ;
 
   outFrame.len = frameInfo & 0xF;
@@ -464,7 +469,7 @@ bool ACAN_ESP32::tryToSend (const CANMessage & inMessage) {
 
 //------------------------------------------------------------------------------
 
-void ACAN_ESP32::internalSendMessage (const CANMessage & inFrame) {
+void IRAM_ATTR ACAN_ESP32::internalSendMessage (const CANMessage & inFrame) {
 //--- DLC
   const uint8_t dlc = (inFrame.len <= 8) ? inFrame.len : 8 ;
 //--- RTR
