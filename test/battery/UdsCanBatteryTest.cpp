@@ -61,6 +61,11 @@ class TestUdsBattery : public UdsCanBattery {
   void on_uds_sequence_step(uint16_t state, uint8_t sid, const uint8_t* data, uint16_t len) override {
     seq_calls.push_back(
         {state, sid, data != nullptr ? std::vector<uint8_t>(data, data + len) : std::vector<uint8_t>()});
+    if (state == auto_send_state && auto_send_state != 0) {
+      // Real subclasses send their first step from here; record whether the
+      // send was accepted so tests can catch dispatch-into-refusal races.
+      auto_send_accepted = send_sequence_message(state + 1, SID::TesterPresent, (const uint8_t*)"\x00", 1, 10, 2);
+    }
   }
 
   void on_uds_sequence_timeout(uint16_t state) override { seq_timeouts.push_back(state); }
@@ -69,6 +74,8 @@ class TestUdsBattery : public UdsCanBattery {
 
   // --- Test hooks ---------------------------------------------------------
   uint16_t detour_pid = 0;
+  uint16_t auto_send_state = 0;
+  bool auto_send_accepted = false;
 
   std::vector<PidCall> pid_calls;
   std::vector<SeqCall> seq_calls;
@@ -726,6 +733,31 @@ TEST_F(UdsCanBatteryTest, DtcClearAckLeavesTheStoredListByDefault) {
   EXPECT_EQ(datalayer.battery.dtc.dtc_count, 3);
   EXPECT_EQ(datalayer.battery.dtc.dtc_last_read_millis, 77u);
   EXPECT_FALSE(battery->uds_is_busy());
+}
+
+// A sequence queued while a PID request is mid-retry must not be silently
+// dropped: dispatching it into the in-flight transaction would be refused by
+// send_sequence_message and the request lost. It is held until the PID
+// resolves (here: by exhausting its retries against a silent ECU).
+TEST_F(UdsCanBatteryTest, SequenceQueuedDuringPidRetryIsHeldNotLost) {
+  static const uint16_t pids[] = {0x1234};
+  battery->set_pid_scan_list(pids, 1);
+  tick(1000);  // PID request goes out, no reply will come.
+  ASSERT_EQ(get_transmitted_frames().size(), 1u);
+
+  battery->auto_send_state = 42;    // The dispatch hook sends the first step.
+  battery->start_sequence(42);      // Queued while the PID is in flight.
+
+  bool dispatched = false;
+  for (int k = 2; k <= 60 && !dispatched; k++) {
+    tick(1000 + 100 * k);
+    dispatched = !battery->seq_calls.empty();
+  }
+  ASSERT_TRUE(dispatched) << "queued sequence never dispatched";
+  EXPECT_EQ(battery->seq_calls[0].state, 42);
+  // The step's send must have been ACCEPTED - a dispatch into an in-flight
+  // PID retry is refused by send_sequence_message and the sequence lost.
+  EXPECT_TRUE(battery->auto_send_accepted);
 }
 
 // A sequence queued while a pause is active must not be silently dropped: it is
