@@ -92,7 +92,29 @@ void init_stored_settings() {
   // which are the single source of truth for keys, validation ranges and the
   // storage variables.
   migrate_static_ip_settings(settings);  // Must run before the string loads read LOCALIP etc.
+
+  // For these keys a stored 0 means "never configured", not zero: firmware
+  // before the table rejig saved them unconditionally in store_settings(), so
+  // devices that saved settings before configuring a capacity or voltage
+  // target carry a literal 0 in NVS. The pre-table loader skipped the stored
+  // value in that case (if (temp != 0) ...); the table loop loads it verbatim.
+  // Capture the boot defaults so the skip can be reproduced after the loop —
+  // clamping to the row minimum would be just as wrong (a 1 Wh battery).
+  const uint32_t default_capacity_Wh = datalayer.battery.info.total_capacity_Wh;
+  const uint16_t default_charge_voltage_dV = datalayer.battery.settings.max_user_set_charge_voltage_dV;
+  const uint16_t default_discharge_voltage_dV = datalayer.battery.settings.max_user_set_discharge_voltage_dV;
+
   load_stored_settings(settings);
+
+  if (datalayer.battery.info.total_capacity_Wh == 0) {
+    datalayer.battery.info.total_capacity_Wh = default_capacity_Wh;
+  }
+  if (datalayer.battery.settings.max_user_set_charge_voltage_dV == 0) {
+    datalayer.battery.settings.max_user_set_charge_voltage_dV = default_charge_voltage_dV;
+  }
+  if (datalayer.battery.settings.max_user_set_discharge_voltage_dV == 0) {
+    datalayer.battery.settings.max_user_set_discharge_voltage_dV = default_discharge_voltage_dV;
+  }
 
   // ---- Boot-only derived state, from the settings loaded above ----
 
