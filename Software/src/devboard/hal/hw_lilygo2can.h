@@ -60,9 +60,18 @@ class LilyGo2CANHal : public Esp32Hal {
   virtual gpio_num_t MCP2517_SDI() { return is_fd() ? GPIO_NUM_11 : GPIO_NUM_42; }
   virtual gpio_num_t MCP2517_SDO() { return is_fd() ? GPIO_NUM_13 : GPIO_NUM_37; }
   virtual gpio_num_t MCP2517_CS() { return is_fd() ? GPIO_NUM_10 : GPIO_NUM_41; }
-  virtual gpio_num_t MCP2517_INT() { return is_fd() ? GPIO_NUM_NC : GPIO_NUM_39; }
-  virtual gpio_num_t MCP2517_INT0() { return is_fd() ? GPIO_NUM_9 : GPIO_NUM_NC; }
-  virtual gpio_num_t MCP2517_INT1() { return is_fd() ? GPIO_NUM_3 : GPIO_NUM_NC; }
+  // The FD variant's interrupt is the MCP2518FD's DEDICATED nINT pin, on GPIO8 -
+  // the same net the MCP2515 variant's interrupt uses, which is why GPIO8 was
+  // otherwise unclaimed here. Measured on both FD boards and both classic boards.
+  //
+  // The split nINT0/nINT1 pair this used to declare is not usable: nINT0 does
+  // reach GPIO9, but nINT1 reaches nothing at all. Since nINT1 is the RECEIVE
+  // interrupt, pointing the driver at that pair means RX interrupts are never
+  // delivered - the RX path then runs only off the driver task's 500 ms poll
+  // timeout, which is the ~55 frame/s ceiling seen on this board.
+  virtual gpio_num_t MCP2517_INT() { return is_fd() ? GPIO_NUM_8 : GPIO_NUM_39; }
+  virtual gpio_num_t MCP2517_INT0() { return GPIO_NUM_NC; }
+  virtual gpio_num_t MCP2517_INT1() { return GPIO_NUM_NC; }
   virtual uint32_t MCP2517_FREQ() { return is_fd() ? 40000000 : 0; }
 
   // Use the 2515 SPI bus for the add-on on the FD (as it isn't being used for a 2515)
