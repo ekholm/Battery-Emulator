@@ -276,7 +276,7 @@ uint32_t ACAN_ESP32::begin (const ACAN_ESP32_Settings & inSettings,
   //    call chain below carries IRAM_ATTR to match.
   esp_intr_alloc (twaiInterruptSource, ESP_INTR_FLAG_IRAM, isr, this, & mInterruptHandler) ;
 //--------------------------------- Enable Interupts
-  TWAI_INT_ENA_REG () = TWAI_TX_INT_ENA | TWAI_RX_INT_ENA ;
+  TWAI_INT_ENA_REG () = TWAI_TX_INT_ENA | TWAI_RX_INT_ENA | TWAI_OVERRUN_INT_ENA ;
 //--------------------------------- Set to Requested Mode
   setRequestedCANMode (inSettings, inFilterSettings) ;
 //---
@@ -353,7 +353,12 @@ void IRAM_ATTR ACAN_ESP32::isr (void * inUserArgument) {
 
   portENTER_CRITICAL (&portMux) ;
   const uint32_t interrupt = myDriver->TWAI_INT_RAW_REG () ;
-  if ((interrupt & TWAI_RX_INT_ST) != 0) {
+  if ((interrupt & TWAI_OVERRUN_INT_ST) != 0) {
+     //--- After a data overrun the FIFO read pointer is no longer trustworthy
+     //    (post-overrun reads cross frame boundaries - the errata IDF handles
+     //    with CONFIG_TWAI_ERRATA_FIX_RX_FIFO_CORRUPT). Drain instead of read.
+     myDriver->handleOverrunInterrupt () ;
+  }else if ((interrupt & TWAI_RX_INT_ST) != 0) {
      myDriver->handleRXInterrupt () ;
   }
   if ((interrupt & TWAI_TX_INT_ST) != 0) {
@@ -396,6 +401,28 @@ void IRAM_ATTR ACAN_ESP32::handleRXInterrupt (void) {
     mDriverReceiveBuffer.append (frame) ;
     break ;
   }
+}
+
+//------------------------------------------------------------------------------
+
+void IRAM_ATTR ACAN_ESP32::handleOverrunInterrupt (void) {
+//--- Recovery mirrors IDF's twai_hal_clear_rx_fifo_overrun(): release every
+//    buffered message until the RX message counter reads zero (kept polling -
+//    a frame can arrive while clearing), then issue the clear-data-overrun
+//    command. The drained frames are DISCARDED, not delivered: on this
+//    controller the frame boundaries in the FIFO are unreliable once an
+//    overrun has occurred, and delivering them is exactly the interleaved-
+//    garbage corruption this recovery exists to stop.
+//    The loop is bounded at twice the 64-message counter range so a
+//    misbehaving counter degrades to a missed drain, never a hung ISR.
+  uint32_t dropped = 0 ;
+  while (((TWAI_RX_MSG_CNT_REG () & 0x7F) != 0) && (dropped < 128)) {
+    TWAI_CMD_REG () = TWAI_RELEASE_BUF ;
+    dropped += 1 ;
+  }
+  TWAI_CMD_REG () = TWAI_CLR_OVERRUN ;
+  mHardwareRxOverrunCount += 1 ;
+  mHardwareRxOverrunDroppedFrameCount += dropped ;
 }
 
 //------------------------------------------------------------------------------

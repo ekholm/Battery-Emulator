@@ -128,6 +128,13 @@ class ACAN_ESP32 {
 
   public: void handleTXInterrupt (void) ;
   public: void handleRXInterrupt (void) ;
+  public: void handleOverrunInterrupt (void) ;
+
+  //--- Data-overrun statistics (see handleOverrunInterrupt)
+  private: uint32_t mHardwareRxOverrunCount = 0 ;
+  private: uint32_t mHardwareRxOverrunDroppedFrameCount = 0 ;
+  public: inline uint32_t hardwareRxOverrunCount (void) const { return mHardwareRxOverrunCount ; }
+  public: inline uint32_t hardwareRxOverrunDroppedFrameCount (void) const { return mHardwareRxOverrunDroppedFrameCount ; }
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // STATUS FLAGS
@@ -193,6 +200,10 @@ class ACAN_ESP32 {
 
   public: inline volatile uint32_t & TWAI_INT_ENA_REG (void) const {
     return * ((volatile uint32_t *) (twaiBaseAddress + 0x010)) ;
+  }
+
+  public: inline volatile uint32_t & TWAI_RX_MSG_CNT_REG (void) const { // RMC[6:0], address 0x074
+    return * ((volatile uint32_t *) (twaiBaseAddress + 0x074)) ;
   }
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -351,6 +362,7 @@ static const uint32_t TWAI_BUS_ERR_INT_ST     = 0x80;
 
 static const uint32_t TWAI_RX_INT_ENA = 0x01 ;
 static const uint32_t TWAI_TX_INT_ENA = 0x02 ;
+static const uint32_t TWAI_OVERRUN_INT_ENA = 0x08 ;
 
 //------------------------------------------------------------------------------
 // TWAI_FRAME_INFO bit definitions
