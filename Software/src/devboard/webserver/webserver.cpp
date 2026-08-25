@@ -555,7 +555,22 @@ void init_webserver() {
                   // allow negative offsets so save as number
                   settings.saveInt("CPUTEMPOFFSET", atoi(p->value().c_str()));
                 } else if (p->name() == "SSID") {
-                  settings.saveString("SSID", p->value().c_str());
+                  // Blank = keep existing, same as PASSWORD below - but for a different
+                  // reason, so the two are not quite symmetric. PASSWORD is RENDERED empty,
+                  // so blank there means "unchanged". SSID is rendered WITH its value
+                  // (settings_html.cpp: value="%SSID%"), so a blank one means either a
+                  // partial/scripted client that sent the field empty, or a user who cleared
+                  // it. Neither should be honoured here: writing "" strands the board on the
+                  // very network it is being configured over, and because USB logging is off
+                  // by default it then looks completely dead.
+                  //
+                  // Clearing the STA credentials deliberately already has a safe path - the
+                  // board button (AP_BUTTON_STA_WIPE_MS -> clear_wifi_sta_settings()), which
+                  // force-enables the AP first so the device stays reachable. That is local,
+                  // on purpose, and is why nothing is lost by refusing a blank here.
+                  if (!p->value().isEmpty()) {
+                    settings.saveString("SSID", p->value().c_str());
+                  }
                   ssid = settings.getString("SSID", "").c_str();
                 } else if (p->name() == "PASSWORD") {
                   if (!p->value().isEmpty()) {  // blank = keep existing (field is rendered empty)
