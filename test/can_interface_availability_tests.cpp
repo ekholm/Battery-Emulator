@@ -47,13 +47,50 @@ std::string available_interfaces_body(const std::string& source) {
   // second return - is invisible to the check. That made the test unable to see
   // a board whose availability depends on a runtime probe. Matching is strictly
   // stronger: it can only ever see MORE of the body.
+  // R213: ...and skip comments and string/char literals while matching. A brace
+  // that appears in PROSE is still counted by a naive matcher, which runs the
+  // slice past the end of the function - and every assertion here except the
+  // phantom one is POSITIVE ("the body mentions X"), so an over-reaching slice
+  // is satisfied by text outside the function. Demonstrated during review: one
+  // '{' in a comment inside hw_waveshare.h's body made the acceptance test pass
+  // over a board whose declaration had been reverted. The commit's "strictly
+  // stronger, never weaker" holds only in the direction it reasoned about;
+  // over-reach weakens the other one.
   size_t close = open;
-  for (int depth = 0; close < source.size(); ++close) {
-    if (source[close] == '{') {
+  int depth = 0;
+  while (close < source.size()) {
+    const char c = source[close];
+    if (c == '/' && close + 1 < source.size() && source[close + 1] == '/') {
+      const size_t eol = source.find('\n', close);
+      if (eol == std::string::npos) {
+        break;
+      }
+      close = eol;
+      continue;
+    }
+    if (c == '/' && close + 1 < source.size() && source[close + 1] == '*') {
+      const size_t end = source.find("*/", close + 2);
+      if (end == std::string::npos) {
+        break;
+      }
+      close = end + 2;
+      continue;
+    }
+    if (c == '"' || c == '\'') {
+      const char quote = c;
+      ++close;
+      while (close < source.size() && source[close] != quote) {
+        close += (source[close] == '\\') ? 2 : 1;
+      }
+      ++close;
+      continue;
+    }
+    if (c == '{') {
       ++depth;
-    } else if (source[close] == '}' && --depth == 0) {
+    } else if (c == '}' && --depth == 0) {
       break;
     }
+    ++close;
   }
   return source.substr(open, close - open);
 }
@@ -73,6 +110,53 @@ bool declares(const std::string& haystack, const std::string& token) {
 }
 
 }  // namespace
+
+/* R213: the body extractor itself, on synthetic sources.
+ *
+ * It is load-bearing for every case below - four of which are POSITIVE ("the
+ * body mentions X") - so a slice that runs past the end of the function makes
+ * those pass on text that is not in the function at all. The brace-matching
+ * change fixed the opposite bias (the old first-'}' scan truncated at the end
+ * of the first `return {...}`), and these pin both directions at once so the
+ * next edit cannot trade one for the other.
+ */
+TEST(CanInterfaceAvailability, TheBodyExtractorStopsAtTheFunctionsOwnBrace) {
+  const std::string after = "\n  const char* name_for(comm_interface i) { return \"CanFdAddonMcp2518\"; }\n";
+
+  // The case the brace-match was introduced for: a conditional AFTER the first
+  // return must still be inside the slice.
+  const std::string conditional =
+      "  std::vector<comm_interface> available_interfaces() {\n"
+      "    std::vector<comm_interface> out = {comm_interface::CanNative};\n"
+      "    if (is_fd()) {\n      out.push_back(comm_interface::CanFdAddonMcp2518_2);\n    }\n"
+      "    return out;\n  }\n" + after;
+  EXPECT_NE(available_interfaces_body(conditional).find("CanFdAddonMcp2518_2"), std::string::npos)
+      << "a push_back after the first brace group is invisible - the extractor truncated early";
+
+  // ...and the case that costs the other direction: a brace in PROSE must not
+  // carry the slice out of the function and into the rest of the header.
+  const std::string prose =
+      "  std::vector<comm_interface> available_interfaces() {\n"
+      "    // the list below is a { brace in prose\n"
+      "    return {comm_interface::CanNative};\n  }\n" + after;
+  EXPECT_EQ(available_interfaces_body(prose).find("CanFdAddonMcp2518"), std::string::npos)
+      << "a brace in a comment ran the slice past the function, so text outside it satisfies the "
+         "positive checks: " << available_interfaces_body(prose);
+
+  const std::string in_string =
+      "  std::vector<comm_interface> available_interfaces() {\n"
+      "    const char* shape = \"{\";\n"
+      "    return {comm_interface::CanNative};\n  }\n" + after;
+  EXPECT_EQ(available_interfaces_body(in_string).find("CanFdAddonMcp2518"), std::string::npos)
+      << "a brace in a string literal ran the slice past the function: " << available_interfaces_body(in_string);
+
+  const std::string block_comment =
+      "  std::vector<comm_interface> available_interfaces() {\n"
+      "    /* an unbalanced { in a block comment */\n"
+      "    return {comm_interface::CanNative};\n  }\n" + after;
+  EXPECT_EQ(available_interfaces_body(block_comment).find("CanFdAddonMcp2518"), std::string::npos)
+      << "a brace in a block comment ran the slice past the function: " << available_interfaces_body(block_comment);
+}
 
 TEST(CanInterfaceAvailability, TheStarkDeclaresThePopulatedFdChip) {
   // Chip 1 is real - CS=GPIO18, INT=GPIO35 - and has been driven on silicon (wq185 ran it in
