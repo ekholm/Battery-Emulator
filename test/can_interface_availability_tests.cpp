@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -44,13 +45,27 @@ std::string available_interfaces_body(const std::string& source) {
   return source.substr(open, close - open);
 }
 
+/* Whole-token search. `CanFdAddonMcp2518` is a PREFIX of `CanFdAddonMcp2518_2`, so a plain
+ * find() for the populated chip also matches the phantom: swapping the real chip FOR the
+ * phantom left TheStarkDeclaresThePopulatedFdChip passing (R202). The suite still caught that
+ * swap via the phantom test, but this one was not checking what it says it checks. */
+bool declares(const std::string& haystack, const std::string& token) {
+  for (size_t at = haystack.find(token); at != std::string::npos; at = haystack.find(token, at + 1)) {
+    const size_t after = at + token.size();
+    if (after >= haystack.size() || (!std::isalnum(haystack[after]) && haystack[after] != '_')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 TEST(CanInterfaceAvailability, TheStarkDeclaresThePopulatedFdChip) {
   // Chip 1 is real - CS=GPIO18, INT=GPIO35 - and has been driven on silicon (wq185 ran it in
   // internal loopback on this very board). A board that has it must be able to offer it.
   const std::string body = available_interfaces_body(read_source("hw_stark.h"));
-  EXPECT_NE(body.find("CanFdAddonMcp2518"), std::string::npos)
+  EXPECT_TRUE(declares(body, "CanFdAddonMcp2518"))
       << "the Stark's populated MCP2518FD is missing from its declaration, so the settings page "
          "cannot offer the interface the board actually has";
 }
@@ -94,5 +109,51 @@ TEST(CanInterfaceAvailability, EveryBoardDeclaresSomething) {
     const std::string body = available_interfaces_body(read_source(board));
     EXPECT_NE(body.find("comm_interface::"), std::string::npos)
         << board << " declares no interfaces, so the settings page would offer none";
+  }
+}
+
+/* R202 FINDING - the opposite-direction check the item's brief asked for, and it fails.
+ *
+ * wq202 makes available_interfaces() load-bearing in two places at once: the settings page
+ * hides anything undeclared, and init_CAN() REFUSES it. That is right for the Stark's phantom
+ * chip. But four boards declare pin accessors - and one of them a non-empty display NAME - for
+ * interfaces they do not list, so the same mechanism now hides and refuses hardware that is
+ * really there:
+ *
+ *   hw_lilygo2can.h  MCP2517_CS2() = GPIO41 when is_fd(), and CanFdAddonMcp2518_2 is NAMED
+ *                    "CAN FD (MCP2518 add-on)" in that mode - yet it is not declared. is_fd()
+ *                    is a RUNTIME probe (one firmware, both T-2CAN variants), and
+ *                    available_interfaces() is static, so the declaration cannot express it.
+ *                    lilygo_2CAN_330 is a shipping env.
+ *   hw_devkit.h      MCP2515_CS()=GPIO18, MCP2517_CS()=GPIO25, neither interface declared.
+ *   hw_waveshare.h   MCP2517_CS()=GPIO13, not declared.
+ *   hw_3LB.h         MCP2515_CS()=GPIO18, MCP2517_CS()=GPIO21, neither declared.
+ *
+ * Blast radius: the refusal loop runs BEFORE anything is initialised and returns on the first
+ * undeclared interface, and Software.cpp:783 DISCARDS the return value - so one stale selection
+ * silently initialises NO CAN at all, including a perfectly valid native interface, signalled
+ * only by EVENT_INTERFACE_MISSING at EVENT_LEVEL_INFO whose text says "Recompile software!".
+ *
+ * DISABLED_ so the branch suite stays green while the evidence lives in the tree. Remove the
+ * prefix as part of the fix; it is the acceptance test for the reopened item.
+ */
+TEST(CanInterfaceAvailability, DISABLED_NoBoardHidesAnInterfaceItsPinsDeclare) {
+  const std::pair<const char*, const char*> implies[] = {
+      {"MCP2517_CS2()", "CanFdAddonMcp2518_2"},
+      {"MCP2517_CS()", "CanFdAddonMcp2518"},
+      {"MCP2515_CS()", "CanAddonMcp2515"},
+  };
+  for (const std::string board : {"hw_stark.h", "hw_lilygo.h", "hw_lilygo2can.h", "hw_becom.h", "hw_devkit.h",
+                                  "hw_waveshare.h", "hw_3LB.h", "hw_dfrobot_edge101.h"}) {
+    const std::string source = read_source(board);
+    const std::string body = available_interfaces_body(source);
+    for (const auto& [pin, interface] : implies) {
+      if (source.find(std::string("gpio_num_t ") + pin) == std::string::npos) {
+        continue;  // the board does not route that chip select at all
+      }
+      EXPECT_NE(body.find(interface), std::string::npos)
+          << board << " routes " << pin << " but does not declare " << interface
+          << ", so the settings page now hides it and init_CAN() refuses it";
+    }
   }
 }
