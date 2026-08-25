@@ -80,7 +80,9 @@ class WaveshareS3Rs485CanHal : public Esp32Hal {
   virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_14; }
 
   std::vector<comm_interface> available_interfaces() {
-    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative};
+    // MCP2517_CS is routed for a user-fitted CAN FD add-on; see hw_devkit.h (wq213).
+    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative,
+            comm_interface::CanFdAddonMcp2518};
   }
 
   virtual const char* name_for_comm_interface(comm_interface comm) {

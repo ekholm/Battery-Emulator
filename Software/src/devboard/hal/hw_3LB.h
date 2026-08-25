@@ -68,7 +68,10 @@ class ThreeLBHal : public Esp32Hal {
   virtual gpio_num_t WUP_PIN2() { return GPIO_NUM_32; }
 
   std::vector<comm_interface> available_interfaces() {
-    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative};
+    // MCP2515_CS and MCP2517_CS are both routed for user-fitted add-ons; see
+    // hw_devkit.h for why routing the chip select is what "available" means (wq213).
+    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative,
+            comm_interface::CanAddonMcp2515, comm_interface::CanFdAddonMcp2518};
   }
 };
 
