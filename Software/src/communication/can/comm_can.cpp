@@ -86,6 +86,24 @@ static comm_interface comm_interface_for(CAN_Interface interface) {
   }
 }
 
+/* wq216: one absent controller must not cost the whole boot.
+ *
+ * Every block below used to `return false` straight out of init_CAN() on any
+ * failure - a pin it could not allocate, a chip that did not answer - and
+ * Software.cpp:783 discards that return, so the interfaces ORDERED AFTER the
+ * failing one were silently never brought up. Selecting a controller the board
+ * does not have therefore cost a user every other CAN interface too, with the
+ * only trace an event. Each block is a lambda now: `return false` inside it
+ * still means "this interface failed", but it ends that interface's bring-up
+ * and nothing else. What each block does on failure it still does; what it no
+ * longer does is take the others with it.
+ */
+static void interface_unavailable(CAN_Interface interface) {
+  set_event(EVENT_INTERFACE_MISSING, (uint8_t)interface);
+  logging.printf("CAN interface %s did not initialize - continuing without it\n", getCANInterfaceName(interface));
+  can_receivers.erase(interface);
+}
+
 bool init_CAN() {
   /* Refuse an interface this board does not have, rather than initialising it and failing
    * obscurely (wq202 / FOLLOWUPS L38).
@@ -117,7 +135,7 @@ bool init_CAN() {
 
   auto nativeIt = can_receivers.find(CAN_NATIVE);
 
-  if (nativeIt != can_receivers.end()) {
+  const bool native_ok = nativeIt == can_receivers.end() || [&]() -> bool {
     auto se_pin = esp32hal->CAN_SE_PIN();
     auto tx_pin = esp32hal->CAN_TX_PIN();
     auto rx_pin = esp32hal->CAN_RX_PIN();
@@ -161,12 +179,16 @@ bool init_CAN() {
       logging.println(errorCode, HEX);
       return false;
     }
+    return true;
+  }();
+  if (nativeIt != can_receivers.end() && !native_ok) {
+    interface_unavailable(CAN_NATIVE);
   }
 
   // Add-on CAN interface (via MCP2515)
 
   auto addonIt = can_receivers.find(CAN_ADDON_MCP2515);
-  if (addonIt != can_receivers.end()) {
+  const bool addon_ok = addonIt == can_receivers.end() || [&]() -> bool {
     auto cs_pin = esp32hal->MCP2515_CS();
     auto int_pin = esp32hal->MCP2515_INT();
     auto sck_pin = esp32hal->MCP2515_SCK();
@@ -208,6 +230,10 @@ bool init_CAN() {
       can2515 = nullptr;
       return false;
     }
+    return true;
+  }();
+  if (addonIt != can_receivers.end() && !addon_ok) {
+    interface_unavailable(CAN_ADDON_MCP2515);
   }
 
   // FD interface(s) (via MCP2518FD)
@@ -216,8 +242,16 @@ bool init_CAN() {
   auto fdAddonIt = can_receivers.find(CANFD_ADDON_MCP2518);
   auto fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end() || fdAddonIt_2 != can_receivers.end()) {
-    // Initialise SPI bus first
+  // The shared MCP2517 SPI bus. This is the likeliest place a selection for a
+  // controller the board does not have goes wrong (its pads are NC, or they
+  // collide with something already allocated), and it used to `return false`
+  // from here - taking the native and MCP2515 interfaces that were ALREADY UP
+  // with it, and every later one. If the bus cannot be brought up, no FD
+  // interface can exist, so all three are marked unavailable and the boot
+  // carries on (wq216).
+  const bool fd_bus_ok =
+      (fdNativeIt == can_receivers.end() && fdAddonIt == can_receivers.end() && fdAddonIt_2 == can_receivers.end()) ||
+      [&]() -> bool {
     auto sck_pin = esp32hal->MCP2517_SCK();
     auto sdo_pin = esp32hal->MCP2517_SDO();
     auto sdi_pin = esp32hal->MCP2517_SDI();
@@ -228,10 +262,22 @@ bool init_CAN() {
 
     SPI2517 = new SPIClass(esp32hal->MCP2517_BUS());
     SPI2517->begin(sck_pin, sdo_pin, sdi_pin);
+    return true;
+  }();
+  if (!fd_bus_ok) {
+    for (CAN_Interface fd : {CANFD_NATIVE, CANFD_ADDON_MCP2518, CANFD_ADDON_MCP2518_2}) {
+      if (can_receivers.find(fd) != can_receivers.end()) {
+        interface_unavailable(fd);
+      }
+    }
+    // Re-read: the erases above invalidate exactly the iterators for what was
+    // removed, and the blocks below test these against end().
+    fdNativeIt = can_receivers.find(CANFD_NATIVE);
+    fdAddonIt = can_receivers.find(CANFD_ADDON_MCP2518);
+    fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
   }
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end()) {
-
+  const bool fd_ok = (fdNativeIt == can_receivers.end() && fdAddonIt == can_receivers.end()) || [&]() -> bool {
     auto speed = (fdNativeIt != can_receivers.end()) ? fdNativeIt->second.speed : fdAddonIt->second.speed;
 
     auto cs_pin = esp32hal->MCP2517_CS();
@@ -262,10 +308,18 @@ bool init_CAN() {
     if (!begin_canfd()) {
       return false;
     }
+    return true;
+  }();
+  if (!fd_ok) {
+    if (fdNativeIt != can_receivers.end()) {
+      interface_unavailable(CANFD_NATIVE);
+    }
+    if (fdAddonIt != can_receivers.end()) {
+      interface_unavailable(CANFD_ADDON_MCP2518);
+    }
   }
 
-  if (fdAddonIt_2 != can_receivers.end()) {
-
+  const bool fd2_ok = fdAddonIt_2 == can_receivers.end() || [&]() -> bool {
     auto cs_pin = esp32hal->MCP2517_CS2();
     auto int_pin = esp32hal->MCP2517_INT2();
 
@@ -311,9 +365,16 @@ bool init_CAN() {
     if (!begin_canfd_2()) {
       return false;
     }
+    return true;
+  }();
+  if (fdAddonIt_2 != can_receivers.end() && !fd2_ok) {
+    interface_unavailable(CANFD_ADDON_MCP2518_2);
   }
 
-  return true;
+  // True when every interface that was asked for came up. The caller discards
+  // it today; it is still the honest answer, and now a false here means "some
+  // interface is missing", not "the CAN stack was abandoned part-way".
+  return native_ok && addon_ok && fd_bus_ok && fd_ok && fd2_ok;
 }
 
 static bool begin_canfd() {
