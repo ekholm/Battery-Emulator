@@ -93,13 +93,21 @@ bool init_CAN() {
    * a message about a crystal, for a chip that is not fitted. The board already declares what
    * it has; consult it first and say so plainly.
    */
-  for (const auto& [interface, registration] : can_receivers) {
-    const auto available = esp32hal->available_interfaces();
-    if (std::find(available.begin(), available.end(), comm_interface_for(interface)) == available.end()) {
+  const auto available = esp32hal->available_interfaces();
+  for (auto it = can_receivers.begin(); it != can_receivers.end();) {
+    if (std::find(available.begin(), available.end(), comm_interface_for(it->first)) == available.end()) {
+      // Drop THIS interface and carry on (wq213). Returning here aborted the whole
+      // of init_CAN() before anything was initialised, so one stale selection left
+      // the board with NO CAN at all - including a perfectly good native channel -
+      // and Software.cpp discards the return value, so the only trace was an INFO
+      // event. Refusing the one thing that is missing is the behaviour the check
+      // was for.
       logging.printf("CAN interface %s is not available on this board - refusing to initialize it\n",
-                     getCANInterfaceName(interface));
-      set_event(EVENT_INTERFACE_MISSING, (uint8_t)interface);
-      return false;
+                     getCANInterfaceName(it->first));
+      set_event(EVENT_INTERFACE_MISSING, (uint8_t)it->first);
+      it = can_receivers.erase(it);
+    } else {
+      ++it;
     }
   }
 

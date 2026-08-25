@@ -149,8 +149,19 @@ class LilyGo2CANHal : public Esp32Hal {
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
 
   std::vector<comm_interface> available_interfaces() {
-    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanAddonMcp2515,
-            comm_interface::CanFdAddonMcp2518};
+    // This board is TWO boards depending on which chip is fitted, and is_fd() is a
+    // runtime probe, so the answer cannot be a fixed list (wq213). It does not have
+    // to be: available_interfaces() is a virtual method, so it can just ask. In FD
+    // mode MCP2517_CS2 is routed and the second FD channel is real - and it is the
+    // channel this board NAMES "CAN FD (MCP2518 add-on)", so hiding it hid a
+    // working interface on a shipping env.
+    std::vector<comm_interface> out = {comm_interface::Modbus, comm_interface::RS485,
+                                       comm_interface::CanNative, comm_interface::CanAddonMcp2515,
+                                       comm_interface::CanFdAddonMcp2518};
+    if (is_fd()) {
+      out.push_back(comm_interface::CanFdAddonMcp2518_2);
+    }
+    return out;
   }
 
   virtual const char* name_for_comm_interface(comm_interface comm) {

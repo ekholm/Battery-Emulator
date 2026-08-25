@@ -41,7 +41,20 @@ std::string available_interfaces_body(const std::string& source) {
     return "";
   }
   const size_t open = source.find('{', at);
-  const size_t close = source.find('}', open);
+  // Brace-MATCH rather than scan to the first '}' (wq213): the body's own
+  // initializer list is a nested brace, so a naive slice stops at the end of the
+  // first `return {...}` and everything after it - a conditional push_back, a
+  // second return - is invisible to the check. That made the test unable to see
+  // a board whose availability depends on a runtime probe. Matching is strictly
+  // stronger: it can only ever see MORE of the body.
+  size_t close = open;
+  for (int depth = 0; close < source.size(); ++close) {
+    if (source[close] == '{') {
+      ++depth;
+    } else if (source[close] == '}' && --depth == 0) {
+      break;
+    }
+  }
   return source.substr(open, close - open);
 }
 
@@ -137,7 +150,7 @@ TEST(CanInterfaceAvailability, EveryBoardDeclaresSomething) {
  * DISABLED_ so the branch suite stays green while the evidence lives in the tree. Remove the
  * prefix as part of the fix; it is the acceptance test for the reopened item.
  */
-TEST(CanInterfaceAvailability, DISABLED_NoBoardHidesAnInterfaceItsPinsDeclare) {
+TEST(CanInterfaceAvailability, NoBoardHidesAnInterfaceItsPinsDeclare) {
   const std::pair<const char*, const char*> implies[] = {
       {"MCP2517_CS2()", "CanFdAddonMcp2518_2"},
       {"MCP2517_CS()", "CanFdAddonMcp2518"},
