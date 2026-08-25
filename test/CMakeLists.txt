@@ -211,6 +211,7 @@ target_link_libraries(tests
 # Define the path for tests
 target_compile_definitions(tests PRIVATE 
     TEST_CAN_LOG_DIR="${CMAKE_SOURCE_DIR}/can_log_based/can_logs"
+    TEST_HAL_SOURCE_DIR="${CMAKE_SOURCE_DIR}/../Software/src/devboard/hal"
 )
 
 gtest_discover_tests(tests)
