@@ -1,4 +1,6 @@
 #include "settings_html.h"
+#include "../hal/hal.h"
+#include <algorithm>
 #include <Arduino.h>
 #include "../../../src/communication/contactorcontrol/comm_contactorcontrol.h"
 #include "../../../src/communication/equipmentstopbutton/comm_equipmentstopbutton.h"
@@ -66,6 +68,43 @@ String options_for_enum_with_none(TEnum selected, Func name_for_type, TEnum none
     options +=
         ("<option value=\"" + String(static_cast<int>(type)) + "\"" + (selected == type ? " selected" : "") + ">");
     options += name;
+    options += "</option>";
+  }
+  return options;
+}
+
+/* Comm-interface option lists are filtered by the RUNNING BOARD, not just by whether a name
+ * happens to be non-empty (wq202 / FOLLOWUPS L38).
+ *
+ * `available_interfaces()` has been pure-virtual in hal.h and implemented by every board HAL
+ * since it was introduced, and was called by NOTHING - a per-board declaration nobody read.
+ * Meanwhile the page enumerated the whole enum, so a board could offer an interface it does not
+ * have. On the Stark that was not hypothetical: it offered a second MCP2518FD that is not
+ * fitted, and selecting it produced "autodetected crystal: 0MHz" and a configuration error on
+ * silicon. Reading the declaration is the fix; the declaration itself was already there.
+ *
+ * The CURRENTLY SELECTED value is always kept in the list even if the board does not declare
+ * it, so an existing configuration is visible and correctable rather than silently rewritten
+ * to whatever happens to be first.
+ */
+String options_for_comm_interface(comm_interface selected) {
+  String options;
+  const auto available = esp32hal->available_interfaces();
+  auto values = enum_values_and_names<comm_interface>(name_for_comm_interface, nullptr);
+  for (const auto& [name, type] : values) {
+    if (name[0] == '\0') {
+      continue;  // Don't show blank options
+    }
+    const bool declared = std::find(available.begin(), available.end(), type) != available.end();
+    if (!declared && type != selected) {
+      continue;
+    }
+    options +=
+        ("<option value=\"" + String(static_cast<int>(type)) + "\"" + (selected == type ? " selected" : "") + ">");
+    options += name;
+    if (!declared) {
+      options += " (not available on this board)";
+    }
     options += "</option>";
   }
   return options;
@@ -274,8 +313,7 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
                                       name_for_battery_type, BatteryType::None);
   }
   if (var == "BATTCOMM") {
-    return options_for_enum((comm_interface)settings.getUInt("BATTCOMM", (int)comm_interface::CanNative),
-                            name_for_comm_interface);
+    return options_for_comm_interface((comm_interface)settings.getUInt("BATTCOMM", (int)comm_interface::CanNative));
   }
   if (var == "BTRCAPCSS") {
     return capability_css("if-dblcapable", battery_supports_double) +
@@ -291,16 +329,14 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
         InverterProtocolType::None);
   }
   if (var == "INVCOMM") {
-    return options_for_enum((comm_interface)settings.getUInt("INVCOMM", (int)comm_interface::CanNative),
-                            name_for_comm_interface);
+    return options_for_comm_interface((comm_interface)settings.getUInt("INVCOMM", (int)comm_interface::CanNative));
   }
   if (var == "CHGTYPE") {
     return options_for_enum_with_none((ChargerType)settings.getUInt("CHGTYPE", (int)ChargerType::None),
                                       name_for_charger_type, ChargerType::None);
   }
   if (var == "CHGCOMM") {
-    return options_for_enum((comm_interface)settings.getUInt("CHGCOMM", (int)comm_interface::CanNative),
-                            name_for_comm_interface);
+    return options_for_comm_interface((comm_interface)settings.getUInt("CHGCOMM", (int)comm_interface::CanNative));
   }
 
   if (var == "SHUNTTYPE") {
@@ -309,8 +345,7 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
   }
 
   if (var == "SHUNTCOMM") {
-    return options_for_enum((comm_interface)settings.getUInt("SHUNTCOMM", (int)comm_interface::CanNative),
-                            name_for_comm_interface);
+    return options_for_comm_interface((comm_interface)settings.getUInt("SHUNTCOMM", (int)comm_interface::CanNative));
   }
 
   if (var == "CTATTEN") {
@@ -326,13 +361,11 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
   }
 
   if (var == "BATT2COMM") {
-    return options_for_enum((comm_interface)settings.getUInt("BATT2COMM", (int)comm_interface::CanNative),
-                            name_for_comm_interface);
+    return options_for_comm_interface((comm_interface)settings.getUInt("BATT2COMM", (int)comm_interface::CanNative));
   }
 
   if (var == "BATT3COMM") {
-    return options_for_enum((comm_interface)settings.getUInt("BATT3COMM", (int)comm_interface::CanNative),
-                            name_for_comm_interface);
+    return options_for_comm_interface((comm_interface)settings.getUInt("BATT3COMM", (int)comm_interface::CanNative));
   }
 
   // The GTW keys must render with the same fallbacks init_stored_settings()
