@@ -57,10 +57,11 @@ class StarkHal : public Esp32Hal {
   virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_35; }
   virtual uint32_t MCP2517_FREQ() { return 40000000; }
 
-  // MCP2518FD add-on via the GPIO pins
-  // SPI Bus is shared with the 1st interface, only INT and CS pins are needed
-  virtual gpio_num_t MCP2517_CS2() { return GPIO_NUM_12; }
-  virtual gpio_num_t MCP2517_INT2() { return GPIO_NUM_14; }
+  // No second MCP2518FD is fitted on this board. The declaration used to name CS=GPIO12 /
+  // INT=GPIO14 and the settings page OFFERED it, so selecting it drove a chip select at pins
+  // where nothing answers - "autodetected crystal: 0MHz" then "CAN-FD 2 Configuration error
+  // 0x1" (reproduced on silicon, wq202/L38). Falling back to the NC defaults in hal.h removes
+  // the phantom and frees GPIO12.
 
   // Contactor handling
   virtual gpio_num_t POSITIVE_CONTACTOR_PIN() { return GPIO_NUM_32; }
@@ -111,7 +112,7 @@ class StarkHal : public Esp32Hal {
 
   std::vector<comm_interface> available_interfaces() {
     return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanAddonMcp2515,
-            comm_interface::CanFdNative};
+            comm_interface::CanFdNative, comm_interface::CanFdAddonMcp2518};
   }
 
   virtual const char* name_for_comm_interface(comm_interface comm) {
@@ -123,9 +124,9 @@ class StarkHal : public Esp32Hal {
       case comm_interface::CanAddonMcp2515:
         return "";
       case comm_interface::CanFdAddonMcp2518:
-        return "";
+        return "CAN FD (MCP2518FD add-on)";
       case comm_interface::CanFdAddonMcp2518_2:
-        return "MCP2518FD (GPIO add-on)";
+        return "";
       case comm_interface::Modbus:
         return "Modbus";
       case comm_interface::RS485:

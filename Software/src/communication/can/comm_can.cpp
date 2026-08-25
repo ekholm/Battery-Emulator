@@ -64,7 +64,45 @@ static ACAN2517FDSettings* settings2517_2;
 
 static bool native_can_initialized = false;
 
+// CAN_Interface (the runtime channel) back to comm_interface (what a board DECLARES it has).
+// comm_nvm.cpp maps the other direction when it reads the settings; this is the inverse, kept
+// local because the only caller is the availability check below.
+static comm_interface comm_interface_for(CAN_Interface interface) {
+  switch (interface) {
+    case CAN_Interface::CAN_NATIVE:
+      return comm_interface::CanNative;
+    case CAN_Interface::CANFD_NATIVE:
+      return comm_interface::CanFdNative;
+    case CAN_Interface::CAN_ADDON_MCP2515:
+      return comm_interface::CanAddonMcp2515;
+    case CAN_Interface::CANFD_ADDON_MCP2518:
+      return comm_interface::CanFdAddonMcp2518;
+    case CAN_Interface::CANFD_ADDON_MCP2518_2:
+      return comm_interface::CanFdAddonMcp2518_2;
+    default:
+      return comm_interface::Highest;  // no declaration can match, so it is refused
+  }
+}
+
 bool init_CAN() {
+  /* Refuse an interface this board does not have, rather than initialising it and failing
+   * obscurely (wq202 / FOLLOWUPS L38).
+   *
+   * Selecting an absent interface used to drive a chip select at pins where nothing answers and
+   * report it as "autodetected crystal: 0MHz" followed by "CAN-FD 2 Configuration error 0x1" -
+   * a message about a crystal, for a chip that is not fitted. The board already declares what
+   * it has; consult it first and say so plainly.
+   */
+  for (const auto& [interface, registration] : can_receivers) {
+    const auto available = esp32hal->available_interfaces();
+    if (std::find(available.begin(), available.end(), comm_interface_for(interface)) == available.end()) {
+      logging.printf("CAN interface %s is not available on this board - refusing to initialize it\n",
+                     getCANInterfaceName(interface));
+      set_event(EVENT_INTERFACE_MISSING, (uint8_t)interface);
+      return false;
+    }
+  }
+
   // Native CAN (onboard the ESP32)
 
   auto nativeIt = can_receivers.find(CAN_NATIVE);
