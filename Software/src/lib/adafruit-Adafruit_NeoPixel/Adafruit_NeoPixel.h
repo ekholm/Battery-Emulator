@@ -67,7 +67,17 @@ class Adafruit_NeoPixel {
  protected:
   uint16_t numLEDs = 1;    ///< Number of LEDs in the chain
   uint8_t numBytes = 3;    ///< Size of 'pixels' buffer below
-  int16_t pin;             ///< Output pin number (-1 if not yet set)
+  /* -1 until setPin() assigns one, and it MUST start there. setPin() reads
+   * `pin` before writing it, to release a previously driven pad; upstream
+   * guarded that read with a `begun` flag it initialised to false, and the
+   * guard was dropped here (ce7547f7) without giving `pin` an initial value.
+   * A heap-allocated LED then started life with whatever bytes were in the
+   * block, and setPin() handed them to pinMode(): harmless when the garbage
+   * was out of range ("Invalid IO 232"), fatal when it was not. On an S3 the
+   * value 27 is MSPI_IOMUX_PIN_NUM_HD - the SPI flash hold line - and
+   * reconfiguring it as an input cut the flash bus mid-boot, which reads as a
+   * silent TG1WDT loop because the panic handler cannot run without flash. */
+  int16_t pin = -1;        ///< Output pin number (-1 if not yet set)
   uint8_t* pixels;         ///< Holds LED color values (3 or 4 bytes each)
   uint8_t rOffset = 0b01;  ///< Red index within each 3- or 4-byte pixel
   uint8_t gOffset = 0b00;  ///< Index of green byte

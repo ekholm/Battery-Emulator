@@ -33,7 +33,13 @@ void digitalWrite(uint8_t pin, uint8_t val) {
 unsigned long micros() {
   return 0;
 }
-void pinMode(uint8_t pin, uint8_t mode) {}
+std::vector<PinModeCall>& pinmode_calls() {
+  static std::vector<PinModeCall> calls;
+  return calls;
+}
+void pinMode(uint8_t pin, uint8_t mode) {
+  pinmode_calls().push_back({pin, mode});
+}
 
 int max(int a, int b) {
   return (a > b) ? a : b;
