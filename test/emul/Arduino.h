@@ -90,6 +90,16 @@ template <typename T>
 inline const T& max(const T& a, const T& b) {
   return (a > b) ? a : b;
 }
+/* Recorded so a test can assert WHICH pads a constructor touches, not merely
+ * that it did not crash. A heap-allocated Adafruit_NeoPixel read an
+ * uninitialised `pin` member and handed it to pinMode(), which on the bench
+ * board meant reconfiguring the SPI flash hold line mid-boot. A no-op pinMode
+ * cannot see that; a recording one can. */
+struct PinModeCall {
+  uint8_t pin;
+  uint8_t mode;
+};
+std::vector<PinModeCall>& pinmode_calls();
 void pinMode(uint8_t pin, uint8_t mode);
 void digitalWrite(uint8_t pin, uint8_t val);
 int digitalRead(uint8_t pin);
