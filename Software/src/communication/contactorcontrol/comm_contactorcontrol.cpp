@@ -234,7 +234,30 @@ void handle_contactors() {
       set_indicator_led(IndicatorLed::CONTACTOR_POS, false);
       datalayer.system.status.contactors_engaged = 0;
 
-      if (datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active) {
+      /* A faulted system must not leave DISCONNECTED at all.
+       *
+       * The startup inhibit further down reads millis(), while the fault latch
+       * above counts CALLS (timeSpentInFaultedMode > MAX_ALLOWED_FAULT_TICKS,
+       * "1000 = 10 seconds"). Those two cancel only when handle_contactors()
+       * runs exactly every 10 ms. At any slower period the fault latches LATER
+       * in real time than the startup gate opens, and because this transition
+       * sits ABOVE that gate the ladder is already armed when it does -
+       * measured as 990 ms of energised negative contactor at an 11 ms loop,
+       * and 10 s at 20 ms.
+       *
+       * The remedy is a state gate rather than a retiming: refuse to arm at
+       * all while the system is not ACTIVE. system_status defaults to ACTIVE
+       * and is derived from the highest active event level, so this costs a
+       * healthy boot nothing and blocks exactly the faulted case (and an
+       * in-progress update, which also should not be closing contactors).
+       *
+       * First in the conjunction on purpose: it is the broadest and cheapest
+       * question - is the system healthy at all - and prepending it leaves the
+       * permission terms below in the order the layer-00 resolution records.
+       */
+      if (datalayer.system.status.system_status == ACTIVE &&
+          datalayer.system.status.inverter_allows_contactor_closing &&
+          !datalayer.system.info.equipment_stop_active) {
         contactorStatus = START_PRECHARGE;
       }
     }

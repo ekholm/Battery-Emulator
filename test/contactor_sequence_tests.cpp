@@ -312,3 +312,90 @@ TEST_F(ContactorSequenceTest, DoesNothingWhenContactorControlIsDisabled) {
 
   EXPECT_EQ(contactorStatus, DISCONNECTED);
 }
+
+/* A faulted system must not be able to close a contactor at t≈10 s.
+ *
+ * Ported from the Wired-Square fork's fault-at-boot test, which covers a
+ * race our suite did not pin. The two guards are measured in different units:
+ * handle_contactors() counts faulted CALLS (timeSpentInFaultedMode >
+ * MAX_ALLOWED_FAULT_TICKS, 1000) while the startup inhibit reads millis()
+ * (currentTime < INTERVAL_10_S). They cancel only when the call happens exactly
+ * every 10 ms.
+ *
+ * The DISCONNECTED -> START_PRECHARGE transition sits ABOVE the startup gate and
+ * tests only inverter permission and e-stop, with no system-status term, so the
+ * ladder is already armed when the gate opens. At any period slower than 10 ms
+ * the fault latches later in real time than the gate opens, and the difference is
+ * a window in which a faulted system energises the negative contactor.
+ */
+TEST_F(ContactorSequenceTest, FaultLatchedAtBootCannotRaceTheStartupGate) {
+  datalayer.system.status.system_status = FAULT;
+
+  for (unsigned long t = 0; t <= INTERVAL_10_S + 2000; t += 10) {
+    tick_at(t);
+    ASSERT_TRUE(contactorStatus == DISCONNECTED || contactorStatus == SHUTDOWN_REQUESTED)
+        << "at t=" << t
+        << " the ladder engaged: the 10 s startup gate and MAX_ALLOWED_FAULT_TICKS expire together, leaving a "
+           "tick-sized window unless DISCONNECTED itself refuses a faulted system";
+  }
+
+  EXPECT_EQ(contactorStatus, SHUTDOWN_REQUESTED);
+}
+
+// The measurement that carries the severity: sweep realistic loop periods and
+// report when a faulted system first ENERGISES a contactor. Measured windows
+// before the fix were 990 ms at 11 ms, 1992 at 12, 4995 at 15 and 10000 at 20;
+// only an exactly-10 ms loop was safe, and by a single tick.
+TEST_F(ContactorSequenceTest, AFaultedSystemClosesWhenTheLoopIsSlowerThan10ms) {
+  bool any_closed = false;
+  for (unsigned long period : {10UL, 11UL, 12UL, 15UL, 20UL}) {
+    datalayer.system.status.system_status = ACTIVE;  // the fault counter is a file static
+    tick_at(0);
+    contactorStatus = DISCONNECTED;
+    datalayer.system.status.system_status = FAULT;
+
+    long first_engaged_ms = -1;
+    for (unsigned long t = 0; t <= INTERVAL_10_S + 30000; t += period) {
+      tick_at(t);
+      if (first_engaged_ms < 0 && datalayer.system.status.contactors_engaged == kEngagedClosing) {
+        first_engaged_ms = (long)t;
+      }
+    }
+    if (first_engaged_ms >= 0) {
+      any_closed = true;
+    }
+  }
+  EXPECT_FALSE(any_closed) << "a faulted system energised a contactor at a realistic loop period";
+}
+
+/* The gate is "== ACTIVE", not "!= FAULT", and the difference is real.
+ *
+ * Without this case the two spellings are indistinguishable to the suite, so a
+ * later edit could weaken the gate to !=FAULT and nothing would notice. They
+ * differ on the two other states the system actually reaches:
+ *
+ *   UPDATING - an OTA is in progress (events.cpp update_bms_status()). Arming
+ *              the ladder into a firmware update is not something to leave to
+ *              luck.
+ *   STANDBY  - BMW-i3 sets it while balancing (BMW-I3-BATTERY.cpp), and that
+ *              same block reports contactors open and stops CAN. Arming there
+ *              would contradict the driver's own intent.
+ *
+ * This also aligns the contactor gate with precharge_conditions_ok(), which has
+ * required system_status == ACTIVE all along - the two should never have
+ * disagreed.
+ */
+TEST_F(ContactorSequenceTest, OnlyAnActiveSystemArmsTheLadderNotMerelyANonFaultedOne) {
+  for (const auto& state : {std::make_pair(UPDATING, "UPDATING"), std::make_pair(STANDBY, "STANDBY")}) {
+    tick_at(0);
+    contactorStatus = DISCONNECTED;
+    datalayer.system.status.system_status = state.first;
+
+    for (unsigned long t = 0; t <= INTERVAL_10_S + 2000; t += 10) {
+      tick_at(t);
+      ASSERT_NE(datalayer.system.status.contactors_engaged, kEngagedClosing)
+          << "a system in " << state.second << " energised a contactor at t=" << t
+          << " - the gate is == ACTIVE precisely so this cannot happen";
+    }
+  }
+}
