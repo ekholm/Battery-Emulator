@@ -60,8 +60,7 @@ TEST_F(PylonCanInverterTest, TransmitCanIsNoOp) {
   // transmit_can() must not emit any frame — all TX is RX-triggered.
   pylon->update_values();
   pylon->transmit_can(INTERVAL_60_S + 1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "PYLON-CAN must not transmit periodically; all TX is poll-driven";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "PYLON-CAN must not transmit periodically; all TX is poll-driven";
 }
 
 // ---- RX aliveness -----------------------------------------------------------
@@ -114,9 +113,9 @@ TEST_F(PylonCanInverterTest, Poll0x4200Data02SendsSetupInfoFrames) {
 TEST_F(PylonCanInverterTest, Frame421XEncodesVoltageCurrentTempSocSoh) {
   datalayer.battery.status.voltage_dV = 3700;
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-810);  // charging: -81.0 A
-  datalayer.battery.status.temperature_max_dC = 250;  // 25.0 °C → stored as 250 + 1000 = 1250
-  datalayer.battery.status.reported_soc = 7550;       // 75.50 % → integer: 75
-  datalayer.battery.status.soh_pptt = 9900;           // 99.00 % → integer: 99
+  datalayer.battery.status.temperature_max_dC = 250;                          // 25.0 °C → stored as 250 + 1000 = 1250
+  datalayer.battery.status.reported_soc = 7550;                               // 75.50 % → integer: 75
+  datalayer.battery.status.soh_pptt = 9900;                                   // 99.00 % → integer: 99
 
   pylon->update_values();
   request_system_data();
@@ -272,9 +271,9 @@ TEST_F(PylonCanInverterTest, Frame428XForbidsBothOnFault) {
 
 TEST_F(PylonCanInverterTest, Pylon30kOffsetShiftsCurrentAndLimits) {
   user_selected_pylon_30koffset = true;
-  datalayer.battery.status.reported_current_dA = 100;  // 100 → 100 + 30000 = 30100 = 0x75D4
-  datalayer.battery.status.max_charge_current_dA = 250;   // 250 + 30000 = 30250 = 0x762A
-  datalayer.battery.status.max_discharge_current_dA = 200; // 200 + 30000 = 30200 = 0x75F8
+  datalayer.battery.status.reported_current_dA = 100;       // 100 → 100 + 30000 = 30100 = 0x75D4
+  datalayer.battery.status.max_charge_current_dA = 250;     // 250 + 30000 = 30250 = 0x762A
+  datalayer.battery.status.max_discharge_current_dA = 200;  // 200 + 30000 = 30200 = 0x75F8
 
   pylon->update_values();
   request_system_data();

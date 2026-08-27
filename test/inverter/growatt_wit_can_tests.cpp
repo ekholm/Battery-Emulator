@@ -16,7 +16,7 @@ namespace {
 
 // FSN 0xB5 at bits [23:16] → 0x1AB5XXXX. Driver matches (id >> 16) & 0xFF.
 // Actual frame ID from the inverter is 0x1AB5F1FF (SA=0xF1=PCS, TA=0xFF=broadcast).
-static constexpr uint32_t ID_HEARTBEAT   = 0x1AB5F1FF;
+static constexpr uint32_t ID_HEARTBEAT = 0x1AB5F1FF;
 static constexpr uint32_t ID_PCS_PRODUCT = 0x1ABEF1FF;
 
 class GrowattWitCanInverterTest : public ::testing::Test {
@@ -69,8 +69,7 @@ TEST_F(GrowattWitCanInverterTest, StandardFrameIsIgnoredByRxHandler) {
 TEST_F(GrowattWitCanInverterTest, StaysSilentUntilInverterSpeaksFirst) {
   gw->update_values();
   gw->transmit_can(INTERVAL_2_S + 1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Driver must not transmit before receiving heartbeat";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Driver must not transmit before receiving heartbeat";
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +84,7 @@ TEST_F(GrowattWitCanInverterTest, PcsProductTriggersSendsEventMessages) {
   EXPECT_GT(count_frames_with_id(0x1AC2FFF3), 0u) << "1AC2 product version expected";
   EXPECT_GT(count_frames_with_id(0x1A80FFF3), 0u) << "1A80 BMS SW version expected";
   // Serial number: 3 frames of 1A82.
-  EXPECT_EQ(count_frames_with_id(0x1A82FFF3), 3u)  << "3 serial-number frames expected";
+  EXPECT_EQ(count_frames_with_id(0x1A82FFF3), 3u) << "3 serial-number frames expected";
 }
 
 // ---------------------------------------------------------------------------
@@ -137,10 +136,10 @@ TEST_F(GrowattWitCanInverterTest, PeriodicGroupsCadence) {
 // ---------------------------------------------------------------------------
 
 TEST_F(GrowattWitCanInverterTest, LimitsFrameEncodesCurrentAndVoltageLE) {
-  datalayer.battery.status.max_charge_current_dA    = 150;
+  datalayer.battery.status.max_charge_current_dA = 150;
   datalayer.battery.status.max_discharge_current_dA = 250;
-  datalayer.battery.info.max_design_voltage_dV      = 4100;
-  datalayer.battery.info.min_design_voltage_dV      = 2900;
+  datalayer.battery.info.max_design_voltage_dV = 4100;
+  datalayer.battery.info.min_design_voltage_dV = 2900;
   datalayer.battery.settings.user_set_voltage_limits_active = false;
   gw->update_values();
 
@@ -150,15 +149,15 @@ TEST_F(GrowattWitCanInverterTest, LimitsFrameEncodesCurrentAndVoltageLE) {
   const CAN_frame* f = find_frame_with_id(0x1AC3FFF3);
   ASSERT_NE(f, nullptr);
   EXPECT_TRUE(f->ext_ID) << "1AC3 must use extended ID";
-  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 150u)  << "charge current LE";
-  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 250u)  << "discharge current LE";
+  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 150u) << "charge current LE";
+  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 250u) << "discharge current LE";
   EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 4100u) << "max charge voltage LE";
   EXPECT_EQ(u16_le(f->data.u8[6], f->data.u8[7]), 2900u) << "min discharge voltage LE";
 }
 
 TEST_F(GrowattWitCanInverterTest, UserVoltageLimitsOverrideDesignInLimitsFrame) {
-  datalayer.battery.settings.user_set_voltage_limits_active    = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV    = 3950;
+  datalayer.battery.settings.user_set_voltage_limits_active = true;
+  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3950;
   datalayer.battery.settings.max_user_set_discharge_voltage_dV = 3100;
   gw->update_values();
 
@@ -186,10 +185,10 @@ TEST_F(GrowattWitCanInverterTest, CVVoltageIs100dVBelowMaxChargeVoltage) {
 }
 
 TEST_F(GrowattWitCanInverterTest, SocSohAndCapacityEncodedIn1AC6) {
-  datalayer.battery.status.reported_soc         = 6500;  // 65.00 % → byte 65
-  datalayer.battery.status.soh_pptt             = 9200;  // 92.00 % → byte 92
+  datalayer.battery.status.reported_soc = 6500;  // 65.00 % → byte 65
+  datalayer.battery.status.soh_pptt = 9200;      // 92.00 % → byte 92
   datalayer.battery.info.reported_total_capacity_Wh = 20000;
-  datalayer.battery.status.voltage_dV           = 4000;  // 400 V
+  datalayer.battery.status.voltage_dV = 4000;  // 400 V
   // dAh = Wh * 100 / voltage_dV = 20000*100/4000 = 500
   gw->update_values();
 
@@ -204,7 +203,7 @@ TEST_F(GrowattWitCanInverterTest, SocSohAndCapacityEncodedIn1AC6) {
 }
 
 TEST_F(GrowattWitCanInverterTest, LowSohSetsScrapWarningBit) {
-  datalayer.battery.status.soh_pptt   = 4900;  // 49 % → scrap warning bit
+  datalayer.battery.status.soh_pptt = 4900;  // 49 % → scrap warning bit
   datalayer.battery.status.voltage_dV = 3500;
   gw->update_values();
 
@@ -218,8 +217,8 @@ TEST_F(GrowattWitCanInverterTest, LowSohSetsScrapWarningBit) {
 }
 
 TEST_F(GrowattWitCanInverterTest, VoltageCurrentEncodedIn1AC7WithOffset) {
-  datalayer.battery.status.voltage_dV  = 3800;
-  datalayer.battery.status.current_dA  = static_cast<int16_t>(-300);  // -30.0 A
+  datalayer.battery.status.voltage_dV = 3800;
+  datalayer.battery.status.current_dA = static_cast<int16_t>(-300);  // -30.0 A
   // Raw current = current_dA + 10000 = 9700
   gw->update_values();
 
@@ -228,14 +227,14 @@ TEST_F(GrowattWitCanInverterTest, VoltageCurrentEncodedIn1AC7WithOffset) {
 
   const CAN_frame* f = find_frame_with_id(0x1AC7FFF3);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 3800u)  << "voltage LE b2-3";
-  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 9700u)  << "current + offset LE";
+  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 3800u) << "voltage LE b2-3";
+  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 9700u) << "current + offset LE";
 }
 
 TEST_F(GrowattWitCanInverterTest, WorkingStatusByteFaultChargeDischarge) {
   // Fault → status byte = 5
   datalayer.system.status.system_status = FAULT;
-  datalayer.battery.status.current_dA   = 200;
+  datalayer.battery.status.current_dA = 200;
   gw->update_values();
   wake_inverter();
   gw->transmit_can(INTERVAL_100_MS + 1);
@@ -302,7 +301,7 @@ TEST_F(GrowattWitCanInverterTest, MinTempBelowOffsetClampedToZeroIn1ACD) {
 }
 
 TEST_F(GrowattWitCanInverterTest, ChargeForbiddenFlagIn1AC5) {
-  datalayer.battery.status.max_charge_current_dA    = 0;
+  datalayer.battery.status.max_charge_current_dA = 0;
   datalayer.battery.status.max_discharge_current_dA = 100;
   // reported_soc must be non-zero to not also trigger the discharge-forbidden path
   // (which fires when reported_soc == 0, see GROWATT-WIT-CAN.cpp).

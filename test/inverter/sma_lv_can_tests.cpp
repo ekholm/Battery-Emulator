@@ -3,8 +3,8 @@
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/SMA-LV-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SMA-LV-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the SMA Sunny Island Low Voltage (48 V) CAN inverter
@@ -87,8 +87,8 @@ TEST_F(SmaLvInverterTest, LimitsFrameEncodesChargeVoltageWithOffset) {
   ASSERT_NE(f, nullptr);
   // BE: byte 0 = high byte, byte 1 = low byte
   EXPECT_EQ(u16_be(f->data.u8[0], f->data.u8[1]), static_cast<uint16_t>(580 - 40));
-  EXPECT_EQ(u16_be(f->data.u8[2], f->data.u8[3]), 500u);   // discharge current
-  EXPECT_EQ(u16_be(f->data.u8[4], f->data.u8[5]), 125u);   // charge current
+  EXPECT_EQ(u16_be(f->data.u8[2], f->data.u8[3]), 500u);  // discharge current
+  EXPECT_EQ(u16_be(f->data.u8[4], f->data.u8[5]), 125u);  // charge current
   EXPECT_EQ(u16_be(f->data.u8[6], f->data.u8[7]), static_cast<uint16_t>(420 + 40));
 }
 
@@ -133,8 +133,8 @@ TEST_F(SmaLvInverterTest, SocSohFrameEncodesSocSohAndHighResSoc) {
 
 TEST_F(SmaLvInverterTest, VoltageCurrentTempFrameEncodesValues) {
   // 0x356 — voltage in mV (dV * 10), current signed dA, average temperature dC
-  datalayer.battery.status.voltage_dV = 520;                                    // 52.0 V -> raw 5200
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-300);   // -30.0 A
+  datalayer.battery.status.voltage_dV = 520;                                  // 52.0 V -> raw 5200
+  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-300);  // -30.0 A
   datalayer.battery.status.temperature_max_dC = 250;
   datalayer.battery.status.temperature_min_dC = 150;  // average = 200
 
