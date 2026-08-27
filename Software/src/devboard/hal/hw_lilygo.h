@@ -32,6 +32,13 @@ class LilyGoHal : public Esp32Hal {
   virtual gpio_num_t MCP2515_INT() { return GPIO_NUM_35; }
 
   // CANFD_ADDON defines for MCP2517
+  /* On VSPI, not the classic-ESP32 default (HSPI): HSPI belongs to the SD card
+   * on this board - see SD_SPI_BUS() below for why sharing a controller is not
+   * an option. The FD add-on uses the same external header pins as the MCP2515
+   * add-on, so only one of the two can be attached at a time (configuring both
+   * trips alloc_pins() on the identical pin numbers), and each is alone on
+   * VSPI whenever it is present. */
+  uint8_t MCP2517_BUS() override { return VSPI; }
   virtual gpio_num_t MCP2517_SCK() { return GPIO_NUM_12; }
   virtual gpio_num_t MCP2517_SDI() { return GPIO_NUM_5; }
   virtual gpio_num_t MCP2517_SDO() { return GPIO_NUM_34; }
@@ -76,8 +83,24 @@ class LilyGoHal : public Esp32Hal {
   //        virtual gpio_num_t INVERTER_CONTACTOR_ENABLE_LED_PIN() { return GPIO_NUM_NC; }
 
 #ifdef SDCARD
-  // SD card
-  uint8_t SD_SPI_BUS() override { return VSPI; }
+  /* SD card - on HSPI, and the reason is invisible from the pin numbers.
+   *
+   * The MCP2515 add-on lives on VSPI (the classic-ESP32 default), and two
+   * SPIClass::begin() calls on one ESP32 controller cannot coexist: a
+   * controller's MISO input can be sourced from exactly one GPIO, and the
+   * second begin() silently re-points it (spiAttachMISO() never detaches the
+   * previous pin). With both on VSPI, a user who enabled SD logging together
+   * with a second CAN battery got a board where the SD card mounted and then
+   * went deaf the moment init_CAN() ran - every later log write failing with
+   * no event. alloc_pins() cannot catch it, because the two pin sets are
+   * disjoint; the collision is over the CONTROLLER. Measured on a T-CAN485
+   * (GPIO matrix routing registers, 15/15 boots): the last begin() wins and
+   * the loser's MISO is gone.
+   *
+   * HSPI is otherwise unused here - the T-CAN485 has no soldered FD chip, and
+   * the MCP2517 add-on interface is moved to VSPI above so it cannot re-create
+   * the same collision on this bus. */
+  uint8_t SD_SPI_BUS() override { return HSPI; }
   virtual gpio_num_t SD_MISO_PIN() {
     if (user_selected_gpioopt4 == GPIOOPT4::DEFAULT_SD_CARD) {
       return GPIO_NUM_2;
