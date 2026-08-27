@@ -205,6 +205,8 @@ bool init_sdcard() {
     return false;
   }
 
+  esp32hal->claim_spi_bus("SD Card", esp32hal->SD_SPI_BUS(), sclk_pin, miso_pin, mosi_pin);
+
   static SPIClass sd_spi(esp32hal->SD_SPI_BUS());
   sd_spi.begin(sclk_pin, miso_pin, mosi_pin, cs_pin);
 

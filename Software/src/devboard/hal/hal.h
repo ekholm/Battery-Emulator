@@ -69,6 +69,34 @@ class Esp32Hal {
     return true;
   }
 
+  /* Record which device is using an SPI controller, and complain if another one
+   * already had it with different wiring.
+   *
+   * alloc_pins() above cannot see this collision. It compares pin NUMBERS, so
+   * two devices on one controller with disjoint pins pass it silently - and
+   * then an ESP32 SPI controller sources its MISO input from exactly one GPIO.
+   * SPIClass::begin() re-points that input with no way to refuse, so the second
+   * begin() takes the bus and the first device stops receiving, with nothing
+   * logged anywhere. Measured on a T-CAN485 where the SD card and the MCP2515
+   * add-on both defaulted to VSPI: the SD mounted at 115 ms, the MCP2515 began
+   * at 1.15 s, and every later log write failed silently.
+   *
+   * Sharing a controller with the SAME sck/miso/mosi is ordinary SPI practice -
+   * several chip selects on one bus - and is not reported. Only a DIFFERENT
+   * triple on an already-claimed controller steals the routing.
+   *
+   * Deliberately NOT a veto, and the reason is worth keeping: on the boards
+   * this fires for today it is the SECOND begin() that ends up working, so
+   * refusing it would trade a deaf SD card for a dead CAN interface. The event
+   * is a warning rather than an error for the same reason - an error would put
+   * the emulator in FAULT (see update_bms_status), which is not a proportionate
+   * response to a logging device losing its bus. The job here is to make the
+   * collision visible; deciding which device should win is a board's business.
+   *
+   * Pass GPIO_NUM_NC for a pin the device does not use; a claim whose three
+   * pins are all unset is ignored, since it says nothing about routing. */
+  void claim_spi_bus(const char* name, uint8_t bus, gpio_num_t sck, gpio_num_t miso, gpio_num_t mosi);
+
   // Helper to forward vector to variadic template
   template <typename Vec, size_t... Is>
   bool alloc_pins_from_vector(const char* name, const Vec& pins, std::index_sequence<Is...>) {
@@ -245,13 +273,37 @@ class Esp32Hal {
   String failed_allocator() { return allocator_name; }
   String conflicting_allocator() { return allocated_name; }
 
+  /* Named separately from the two above on purpose - see the fields. */
+  String spi_conflict_claimant_name() { return spi_conflict_claimant; }
+  String spi_conflict_holder_name() { return spi_conflict_holder; }
+
  private:
   std::unordered_map<gpio_num_t, std::string> allocated_pins;
+
+  // Who holds an SPI controller, and with which routing. See claim_spi_bus().
+  struct SpiBusClaim {
+    std::string name;
+    gpio_num_t sck;
+    gpio_num_t miso;
+    gpio_num_t mosi;
+  };
+  std::unordered_map<uint8_t, SpiBusClaim> claimed_spi_buses;
 
   // For event logging, store the name of the allocator/allocated
   // for failed gpio allocations.
   String allocator_name;
   String allocated_name;
+
+  /* The SPI conflict keeps its OWN pair. get_event_message_string() is
+   * re-rendered every time the event is published - the events page, MQTT and
+   * ESP-NOW all call it - so a message that reads these back live names whoever
+   * failed an allocation MOST RECENTLY, not the devices the event is about.
+   * Sharing allocator_name with alloc_pins() made an SPI conflict report e.g.
+   * "'Shunt' shares an SPI controller with 'Charger'" after any later GPIO
+   * failure. This event is also persistent on the affected boards - it is
+   * raised on every boot - so it gets re-rendered for the life of the board. */
+  String spi_conflict_claimant;
+  String spi_conflict_holder;
 };
 
 extern Esp32Hal* esp32hal;
