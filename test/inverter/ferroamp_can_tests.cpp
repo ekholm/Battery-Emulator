@@ -63,8 +63,7 @@ TEST_F(FerroampCanInverterTest, UnknownRxFrameDoesNotRefreshAliveness) {
 TEST_F(FerroampCanInverterTest, NoPeriodicTransmission) {
   ferro->update_values();
   ferro->transmit_can(INTERVAL_60_S + 1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Ferroamp has no periodic TX; only reacts to RX";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Ferroamp has no periodic TX; only reacts to RX";
 }
 
 TEST_F(FerroampCanInverterTest, SetupRequestTriggers7311And7321) {
@@ -92,8 +91,8 @@ TEST_F(FerroampCanInverterTest, SystemDataFrameEncodesVoltageCurrentTempSocSoh) 
   datalayer.battery.status.voltage_dV = 4000;
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-150);  // charging
   datalayer.battery.status.temperature_max_dC = 300;
-  datalayer.battery.status.reported_soc = 6500;   // 65.00 %
-  datalayer.battery.status.soh_pptt = 9500;       // 95.00 %
+  datalayer.battery.status.reported_soc = 6500;  // 65.00 %
+  datalayer.battery.status.soh_pptt = 9500;      // 95.00 %
 
   ferro->update_values();
   send_inverter_request(0x00);
@@ -113,8 +112,8 @@ TEST_F(FerroampCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
   // 0x4221 — charge voltage = max design, discharge = 30000 - discharge_current
   datalayer.battery.info.max_design_voltage_dV = 4000;
   datalayer.battery.info.min_design_voltage_dV = 3000;
-  datalayer.battery.status.max_charge_current_dA = 100;    // +30000 -> 30100
-  datalayer.battery.status.max_discharge_current_dA = 200; // 30000 - 200 -> 29800
+  datalayer.battery.status.max_charge_current_dA = 100;     // +30000 -> 30100
+  datalayer.battery.status.max_discharge_current_dA = 200;  // 30000 - 200 -> 29800
 
   ferro->update_values();
   send_inverter_request(0x00);

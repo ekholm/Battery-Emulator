@@ -2,8 +2,8 @@
 
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
-#include "../../Software/src/inverter/SUNGROW-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SUNGROW-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the Sungrow SBRXXX CAN inverter driver.
@@ -28,9 +28,7 @@ class SungrowCanInverterTest : public ::testing::Test {
     clear_transmitted_frames();
   }
 
-  void TearDown() override {
-    user_selected_inverter_sungrow_type = 0;
-  }
+  void TearDown() override { user_selected_inverter_sungrow_type = 0; }
 
   // Helper to inject a known 0x101 frame (triggers INIT mode).
   void rx_init_trigger() {
@@ -54,15 +52,13 @@ class SungrowCanInverterTest : public ::testing::Test {
 // ---------------------------------------------------------------------------
 
 TEST_F(SungrowCanInverterTest, KnownRxFramesRefreshAliveness) {
-  for (uint32_t id : {0x100u, 0x101u, 0x102u, 0x103u, 0x104u, 0x105u,
-                      0x106u, 0x108u, 0x109u, 0x191u, 0x1E0u}) {
+  for (uint32_t id : {0x100u, 0x101u, 0x102u, 0x103u, 0x104u, 0x105u, 0x106u, 0x108u, 0x109u, 0x191u, 0x1E0u}) {
     datalayer.system.status.CAN_inverter_still_alive = 0;
     CAN_frame f = {.FD = false, .ext_ID = false, .DLC = 8, .ID = id, .data = {0}};
     // 0x1E0 with DLC=8 needs a valid Modbus CRC to not early-exit, but
     // aliveness is set before the CRC check, so zero bytes is fine here.
     sg->map_can_frame_to_variable(f);
-    EXPECT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE)
-        << "ID 0x" << std::hex << id;
+    EXPECT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE) << "ID 0x" << std::hex << id;
   }
 }
 
@@ -105,16 +101,16 @@ TEST_F(SungrowCanInverterTest, RunModeDoesNotSendInitSpecificFrames) {
 // ---------------------------------------------------------------------------
 
 TEST_F(SungrowCanInverterTest, Frame701EncodesVoltageCurrentLimitsLE) {
-  datalayer.battery.info.max_design_voltage_dV      = 4100;
-  datalayer.battery.info.min_design_voltage_dV      = 2800;
-  datalayer.battery.status.max_charge_current_dA    = 200;
+  datalayer.battery.info.max_design_voltage_dV = 4100;
+  datalayer.battery.info.min_design_voltage_dV = 2800;
+  datalayer.battery.status.max_charge_current_dA = 200;
   datalayer.battery.status.max_discharge_current_dA = 300;
   sg->update_values();
   rx_run_trigger();
   // Drive through batches to reach case 2 (batch B: 0x701).
-  sg->transmit_can(INTERVAL_1_S + 1);                         // batch 0: head
-  sg->transmit_can(2 * (INTERVAL_1_S + 200UL));               // batch 1: A
-  sg->transmit_can(3 * (INTERVAL_1_S + 400UL));               // batch 2: B (0x701)
+  sg->transmit_can(INTERVAL_1_S + 1);            // batch 0: head
+  sg->transmit_can(2 * (INTERVAL_1_S + 200UL));  // batch 1: A
+  sg->transmit_can(3 * (INTERVAL_1_S + 400UL));  // batch 2: B (0x701)
 
   const CAN_frame* f = find_last_frame_with_id(0x701);
   ASSERT_NE(f, nullptr);
@@ -125,10 +121,10 @@ TEST_F(SungrowCanInverterTest, Frame701EncodesVoltageCurrentLimitsLE) {
 }
 
 TEST_F(SungrowCanInverterTest, Frame702EncodesSocSohRemainingAndCapacityLE) {
-  datalayer.battery.status.reported_soc                    = 7500;  // 75.00 %
-  datalayer.battery.status.soh_pptt                        = 9500;  // 95.00 %
+  datalayer.battery.status.reported_soc = 7500;  // 75.00 %
+  datalayer.battery.status.soh_pptt = 9500;      // 95.00 %
   datalayer.battery.status.reported_remaining_capacity_Wh = 15000;
-  datalayer.battery.info.reported_total_capacity_Wh        = 20000;
+  datalayer.battery.info.reported_total_capacity_Wh = 20000;
   sg->update_values();
   rx_run_trigger();
 
@@ -138,16 +134,16 @@ TEST_F(SungrowCanInverterTest, Frame702EncodesSocSohRemainingAndCapacityLE) {
 
   const CAN_frame* f = find_last_frame_with_id(0x702);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 7500u)  << "SOC pptt LE";
-  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 9500u)  << "SOH pptt LE";
+  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 7500u) << "SOC pptt LE";
+  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 9500u) << "SOH pptt LE";
   EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 15000u) << "remaining Wh LE";
   EXPECT_EQ(u16_le(f->data.u8[6], f->data.u8[7]), 20000u) << "capacity Wh LE";
 }
 
 TEST_F(SungrowCanInverterTest, Frame704EncodesVoltageSignedCurrentAndTemperature) {
-  datalayer.battery.status.voltage_dV          = 3800;
+  datalayer.battery.status.voltage_dV = 3800;
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-400);  // -40.0 A
-  datalayer.battery.status.temperature_max_dC  = static_cast<int16_t>(-150); // -15.0 °C
+  datalayer.battery.status.temperature_max_dC = static_cast<int16_t>(-150);   // -15.0 °C
   sg->update_values();
   rx_run_trigger();
 
@@ -168,7 +164,7 @@ TEST_F(SungrowCanInverterTest, Frame704EncodesVoltageSignedCurrentAndTemperature
 TEST_F(SungrowCanInverterTest, Frame704CurrentFlippedIn504) {
   // 0x504 must carry the flipped (negated) current vs. 0x704.
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(200);
-  datalayer.battery.status.voltage_dV          = 3700;
+  datalayer.battery.status.voltage_dV = 3700;
   sg->update_values();
   rx_run_trigger();
 
@@ -187,14 +183,14 @@ TEST_F(SungrowCanInverterTest, Frame704CurrentFlippedIn504) {
 
   int16_t cur704 = static_cast<int16_t>(u16_le(f704->data.u8[2], f704->data.u8[3]));
   int16_t cur504 = static_cast<int16_t>(u16_le(f504->data.u8[2], f504->data.u8[3]));
-  EXPECT_EQ(cur704, 200)  << "normal current in 0x704";
+  EXPECT_EQ(cur704, 200) << "normal current in 0x704";
   EXPECT_EQ(cur504, -200) << "flipped current in 0x504";
 }
 
 TEST_F(SungrowCanInverterTest, EndStopByteSetWhenFullOrEmpty) {
   // Full: charge limit == 0 → END_STOP_FULL
   datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.reported_soc          = 9000;
+  datalayer.battery.status.reported_soc = 9000;
   sg->update_values();
   rx_run_trigger();
   sg->transmit_can(INTERVAL_1_S + 1);
@@ -209,8 +205,8 @@ TEST_F(SungrowCanInverterTest, EndStopByteSetWhenFullOrEmpty) {
 }
 
 TEST_F(SungrowCanInverterTest, Frame706EncodesTemperatureAndCellVoltagesLE) {
-  datalayer.battery.status.temperature_max_dC  = 400;  // 40.0 °C
-  datalayer.battery.status.temperature_min_dC  = 100;  // 10.0 °C
+  datalayer.battery.status.temperature_max_dC = 400;  // 40.0 °C
+  datalayer.battery.status.temperature_min_dC = 100;  // 10.0 °C
   datalayer.battery.status.cell_max_voltage_mV = 3500;
   datalayer.battery.status.cell_min_voltage_mV = 3300;
   sg->update_values();
@@ -222,8 +218,8 @@ TEST_F(SungrowCanInverterTest, Frame706EncodesTemperatureAndCellVoltagesLE) {
 
   const CAN_frame* f = find_last_frame_with_id(0x706);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 400u)  << "temp max LE";
-  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 100u)  << "temp min LE";
+  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 400u) << "temp max LE";
+  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 100u) << "temp min LE";
   EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 3500u) << "cell max mV LE";
   EXPECT_EQ(u16_le(f->data.u8[6], f->data.u8[7]), 3300u) << "cell min mV LE";
 }
@@ -297,8 +293,8 @@ TEST_F(SungrowCanInverterTest, ModbusPollWithCorrectCrcTriggersReply) {
   // Build a valid Modbus request: slave=0x01, func=0x04, start=0x4DE2, qty=0x0002
   // CRC16 computed manually or trusted from the code itself.
   // We construct it and let the driver compute the CRC the same way.
-  CAN_frame f = {.FD = false, .ext_ID = false, .DLC = 8, .ID = 0x1E0,
-                 .data = {0x01, 0x04, 0x4D, 0xE2, 0x00, 0x02, 0x00, 0x00}};
+  CAN_frame f = {
+      .FD = false, .ext_ID = false, .DLC = 8, .ID = 0x1E0, .data = {0x01, 0x04, 0x4D, 0xE2, 0x00, 0x02, 0x00, 0x00}};
   // Compute and patch in the correct CRC.
   // Poly 0xA001, init 0xFFFF over first 6 bytes.
   auto crc16 = [](const uint8_t* d, uint8_t len) -> uint16_t {
@@ -306,8 +302,10 @@ TEST_F(SungrowCanInverterTest, ModbusPollWithCorrectCrcTriggersReply) {
     for (uint8_t i = 0; i < len; ++i) {
       crc ^= d[i];
       for (uint8_t b = 0; b < 8; ++b) {
-        if (crc & 1) crc = (crc >> 1) ^ 0xA001;
-        else         crc >>= 1;
+        if (crc & 1)
+          crc = (crc >> 1) ^ 0xA001;
+        else
+          crc >>= 1;
       }
     }
     return crc;
@@ -326,8 +324,8 @@ TEST_F(SungrowCanInverterTest, ModbusPollWithCorrectCrcTriggersReply) {
 }
 
 TEST_F(SungrowCanInverterTest, ModbusPollWithBadCrcIsIgnored) {
-  CAN_frame f = {.FD = false, .ext_ID = false, .DLC = 8, .ID = 0x1E0,
-                 .data = {0x01, 0x04, 0x4D, 0xE2, 0x00, 0x02, 0xFF, 0xFF}};
+  CAN_frame f = {
+      .FD = false, .ext_ID = false, .DLC = 8, .ID = 0x1E0, .data = {0x01, 0x04, 0x4D, 0xE2, 0x00, 0x02, 0xFF, 0xFF}};
   sg->map_can_frame_to_variable(f);
   // Bad CRC → no response TX beyond aliveness update.
   EXPECT_TRUE(get_transmitted_frames().empty()) << "Bad CRC must not generate a Modbus reply";

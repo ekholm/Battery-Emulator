@@ -42,8 +42,7 @@ class PylonLvCanInverterTest : public ::testing::Test {
 TEST_F(PylonLvCanInverterTest, DoesNotTransmitBeforeIntervalElapses) {
   pylon_lv->update_values();
   pylon_lv->transmit_can(999);  // just under 1 s
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Must not send before 1000 ms have elapsed";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Must not send before 1000 ms have elapsed";
 }
 
 TEST_F(PylonLvCanInverterTest, SendsAllSixFramesEvery1s) {
@@ -133,7 +132,7 @@ TEST_F(PylonLvCanInverterTest, Frame351ClampsUserVoltageToDesignMax) {
 
 TEST_F(PylonLvCanInverterTest, Frame355EncodesSocAndSohLE) {
   datalayer.battery.status.reported_soc = 7550;  // 75.50% → integer 75
-  datalayer.battery.status.soh_pptt = 9900;       // 99.00% → integer 99
+  datalayer.battery.status.soh_pptt = 9900;      // 99.00% → integer 99
   datalayer.battery.status.real_soc = 5000;
 
   tick_1s();
@@ -147,10 +146,10 @@ TEST_F(PylonLvCanInverterTest, Frame355EncodesSocAndSohLE) {
 // ---- Payload: 0x356 (voltage in cV LE, current LE, avg temp LE) -------------
 
 TEST_F(PylonLvCanInverterTest, Frame356EncodesVoltageCvCurrentAndAvgTempLE) {
-  datalayer.battery.status.voltage_dV = 4800;            // 4800 * 10 = 48000 cV = 0xBB80
+  datalayer.battery.status.voltage_dV = 4800;                                // 4800 * 10 = 48000 cV = 0xBB80
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(100);  // 10.0 A discharge
   datalayer.battery.status.temperature_max_dC = 300;
-  datalayer.battery.status.temperature_min_dC = 100;    // avg = 200
+  datalayer.battery.status.temperature_min_dC = 100;  // avg = 200
   datalayer.battery.status.real_soc = 5000;
 
   tick_1s();
@@ -229,7 +228,7 @@ TEST_F(PylonLvCanInverterTest, ChargeCurrentZeroedWhenChargeDisabledByMaxVoltage
 
   const CAN_frame* f = find_frame_with_id(0x351);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 0u);   // charge zeroed
+  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 0u);    // charge zeroed
   EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 300u);  // discharge intact
 }
 
@@ -246,7 +245,7 @@ TEST_F(PylonLvCanInverterTest, Frame359BmsFaultBitSetOnSystemFault) {
 }
 
 TEST_F(PylonLvCanInverterTest, Frame359OverCurrentErrorBitSetWhenDischargeExceedsLimit) {
-  datalayer.battery.status.reported_current_dA = 200;      // reported current
+  datalayer.battery.status.reported_current_dA = 200;       // reported current
   datalayer.battery.status.max_discharge_current_dA = 180;  // limit is lower
   // current >= limit + 10 (200 >= 180 + 10 = 190): overcurrent
   datalayer.battery.status.real_soc = 5000;

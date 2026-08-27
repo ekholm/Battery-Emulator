@@ -4,8 +4,8 @@
 #include "../../Software/src/devboard/hal/hal.h"
 #include "../../Software/src/devboard/safety/safety.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/SOL-ARK-LV-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SOL-ARK-LV-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the Sol-Ark LV CAN inverter driver (v1.3 protocol,
@@ -196,7 +196,7 @@ TEST_F(SolArkLvInverterTest, ControlFrameIs40WhenVoltageAboveUserChargeLimit) {
 TEST_F(SolArkLvInverterTest, ControlFrameIsA0WhenVoltageUnderUserDischargeLimit) {
   // Charge forced when voltage is below user discharge voltage
   datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 5000;   // high enough not to trigger charge-overvolt
+  datalayer.battery.settings.max_user_set_charge_voltage_dV = 5000;  // high enough not to trigger charge-overvolt
   datalayer.battery.settings.max_user_set_discharge_voltage_dV = 4500;
   datalayer.battery.status.voltage_dV = 4400;  // below discharge limit
 

@@ -52,8 +52,7 @@ class GrowattHvCanInverterTest : public ::testing::Test {
 TEST_F(GrowattHvCanInverterTest, StaysSilentUntilHeartbeatReceived) {
   growatt_hv->update_values();
   drain_all_batches();
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Driver must not transmit before the inverter sends 0x3010";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Driver must not transmit before the inverter sends 0x3010";
 }
 
 TEST_F(GrowattHvCanInverterTest, StartsSendingAfterHeartbeat) {
@@ -203,8 +202,8 @@ TEST_F(GrowattHvCanInverterTest, Frame3130EncodesVoltageCurrentTempSocSoh) {
   datalayer.battery.status.voltage_dV = 3700;
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);  // -10 A
   datalayer.battery.status.temperature_max_dC = 250;
-  datalayer.battery.status.reported_soc = 8000;   // 80.00% → 80
-  datalayer.battery.status.soh_pptt = 9700;        // 97.00% → 97
+  datalayer.battery.status.reported_soc = 8000;  // 80.00% → 80
+  datalayer.battery.status.soh_pptt = 9700;      // 97.00% → 97
 
   growatt_hv->update_values();
   wake_inverter();

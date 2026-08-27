@@ -26,7 +26,7 @@ class FoxessCanInverterTest : public ::testing::Test {
     user_selected_inverter_protocol = InverterProtocolType::Foxess;
     // Defaults — reset before every test so mutations don't leak.
     user_selected_inverter_foxess_modules = 0;
-    user_selected_inverter_foxess_type    = 0;
+    user_selected_inverter_foxess_type = 0;
     user_selected_inverter_foxess_subtype = 0;
     setup_inverter();
     ASSERT_NE(inverter, nullptr);
@@ -36,7 +36,7 @@ class FoxessCanInverterTest : public ::testing::Test {
 
   void TearDown() override {
     user_selected_inverter_foxess_modules = 0;
-    user_selected_inverter_foxess_type    = 0;
+    user_selected_inverter_foxess_type = 0;
     user_selected_inverter_foxess_subtype = 0;
   }
 
@@ -136,9 +136,9 @@ TEST_F(FoxessCanInverterTest, Byte0Eq04TriggersCellVoltagesBatch) {
 // ---------------------------------------------------------------------------
 
 TEST_F(FoxessCanInverterTest, LimitsFrameEncodesVoltageAndCurrentLE) {
-  datalayer.battery.info.max_design_voltage_dV      = 4000;
-  datalayer.battery.info.min_design_voltage_dV      = 3200;
-  datalayer.battery.status.max_charge_current_dA    = 200;
+  datalayer.battery.info.max_design_voltage_dV = 4000;
+  datalayer.battery.info.min_design_voltage_dV = 3200;
+  datalayer.battery.status.max_charge_current_dA = 200;
   datalayer.battery.status.max_discharge_current_dA = 300;
   foxess->update_values();
   flush_bms_info();
@@ -148,15 +148,15 @@ TEST_F(FoxessCanInverterTest, LimitsFrameEncodesVoltageAndCurrentLE) {
   EXPECT_TRUE(f->ext_ID) << "0x1872 must be extended ID";
   EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 4000u) << "max voltage LE b0-1";
   EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 3200u) << "min voltage LE b2-3";
-  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 200u)  << "charge current LE b4-5";
-  EXPECT_EQ(u16_le(f->data.u8[6], f->data.u8[7]), 300u)  << "discharge current LE b6-7";
+  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 200u) << "charge current LE b4-5";
+  EXPECT_EQ(u16_le(f->data.u8[6], f->data.u8[7]), 300u) << "discharge current LE b6-7";
 }
 
 TEST_F(FoxessCanInverterTest, PackDataFrameEncodesVoltageCurrentSocAndRemaining) {
-  datalayer.battery.status.voltage_dV                     = 3700;
-  datalayer.battery.status.reported_current_dA            = static_cast<int16_t>(-300);  // -30 A
-  datalayer.battery.status.reported_soc                   = 6000;  // 60.00 % → byte 60
-  datalayer.battery.status.reported_remaining_capacity_Wh = 12000;  // /10 = 1200
+  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-300);  // -30 A
+  datalayer.battery.status.reported_soc = 6000;                               // 60.00 % → byte 60
+  datalayer.battery.status.reported_remaining_capacity_Wh = 12000;            // /10 = 1200
   foxess->update_values();
   flush_bms_info();
 
@@ -170,11 +170,11 @@ TEST_F(FoxessCanInverterTest, PackDataFrameEncodesVoltageCurrentSocAndRemaining)
 
 TEST_F(FoxessCanInverterTest, CellDataFrameEncodesTemperaturesAndTweakedVoltages) {
   // LFP chemistry: cell voltages pass through unchanged.
-  datalayer.battery.info.chemistry               = battery_chemistry_enum::LFP;
-  datalayer.battery.status.temperature_max_dC    = 350;
-  datalayer.battery.status.temperature_min_dC    = static_cast<int16_t>(-100); // -10 °C
-  datalayer.battery.status.cell_max_voltage_mV   = 3400;
-  datalayer.battery.status.cell_min_voltage_mV   = 3300;
+  datalayer.battery.info.chemistry = battery_chemistry_enum::LFP;
+  datalayer.battery.status.temperature_max_dC = 350;
+  datalayer.battery.status.temperature_min_dC = static_cast<int16_t>(-100);  // -10 °C
+  datalayer.battery.status.cell_max_voltage_mV = 3400;
+  datalayer.battery.status.cell_min_voltage_mV = 3300;
   foxess->update_values();
   flush_bms_info();
 
@@ -188,7 +188,7 @@ TEST_F(FoxessCanInverterTest, CellDataFrameEncodesTemperaturesAndTweakedVoltages
 
 TEST_F(FoxessCanInverterTest, NonLfpChemistryCellVoltagesAreRescaled) {
   // Non-LFP: [2500-4200] → [2500-3400]. Cell at 4200 should map to 3400.
-  datalayer.battery.info.chemistry             = battery_chemistry_enum::NCA;
+  datalayer.battery.info.chemistry = battery_chemistry_enum::NCA;
   datalayer.battery.status.cell_max_voltage_mV = 4200;
   datalayer.battery.status.cell_min_voltage_mV = 2500;
   foxess->update_values();
@@ -218,9 +218,9 @@ TEST_F(FoxessCanInverterTest, StatusFrameEncodesAverageTemperatureAndModuleCount
 
 TEST_F(FoxessCanInverterTest, PackTempsFrameChargeNotAllowedBitWhenCurrentZero) {
   // Charge not allowed flag in 0x1876 b0 bit0.
-  datalayer.battery.status.max_charge_current_dA    = 0;
+  datalayer.battery.status.max_charge_current_dA = 0;
   datalayer.battery.status.max_discharge_current_dA = 100;
-  datalayer.battery.status.reported_soc             = 5000;
+  datalayer.battery.status.reported_soc = 5000;
   foxess->update_values();
   flush_bms_info();
 
@@ -230,10 +230,10 @@ TEST_F(FoxessCanInverterTest, PackTempsFrameChargeNotAllowedBitWhenCurrentZero) 
 }
 
 TEST_F(FoxessCanInverterTest, PackTempsFrameChargeAllowedWhenCurrentNonZero) {
-  datalayer.battery.status.max_charge_current_dA    = 100;
+  datalayer.battery.status.max_charge_current_dA = 100;
   datalayer.battery.status.max_discharge_current_dA = 100;
-  datalayer.battery.status.reported_soc             = 5000;
-  datalayer.system.status.system_status             = ACTIVE;
+  datalayer.battery.status.reported_soc = 5000;
+  datalayer.system.status.system_status = ACTIVE;
   foxess->update_values();
   flush_bms_info();
 
@@ -283,9 +283,9 @@ TEST_F(FoxessCanInverterTest, StatusByteIn1879ReflectsChargingVsDischarging) {
 
 TEST_F(FoxessCanInverterTest, IndividualPackVoltageAndCurrentDividedByModuleCount) {
   // Default: 8 modules. voltage / 8 * 10 (cV), current / 8.
-  datalayer.battery.status.voltage_dV          = 3200;  // 320 V / 8 = 40 V → 400 cV
-  datalayer.battery.status.reported_current_dA = 80;    // / 8 = 10 dA
-  datalayer.battery.status.reported_soc        = 7000;  // 70%
+  datalayer.battery.status.voltage_dV = 3200;         // 320 V / 8 = 40 V → 400 cV
+  datalayer.battery.status.reported_current_dA = 80;  // / 8 = 10 dA
+  datalayer.battery.status.reported_soc = 7000;       // 70%
   foxess->update_values();
 
   rx1871(0x01, 0x01);  // individual pack

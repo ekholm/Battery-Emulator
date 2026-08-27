@@ -41,8 +41,7 @@ class BydCanInverterTest : public ::testing::Test {
 TEST_F(BydCanInverterTest, StaysSilentUntilInverterSpeaksFirst) {
   byd->update_values();
   byd->transmit_can(INTERVAL_60_S + 1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Driver must not transmit before the inverter has sent a frame";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Driver must not transmit before the inverter has sent a frame";
 }
 
 TEST_F(BydCanInverterTest, KnownRxFramesRefreshAliveness) {
@@ -236,11 +235,8 @@ TEST_F(BydCanInverterTest, ShuntModePopulatesShuntDatalayerFromInverterMeasureme
   // (datalayer.h) while measured_amperage_mA is int32_t, so a discharge
   // current wraps in the dA field - recorded as an upstream finding rather
   // than pinned as intended behaviour.
-  CAN_frame meas = {.FD = false,
-                    .ext_ID = false,
-                    .DLC = 8,
-                    .ID = 0x091,
-                    .data = {0x0E, 0x74, 0x00, 0x32, 0x00, 0xFA, 0x00, 0x00}};
+  CAN_frame meas = {
+      .FD = false, .ext_ID = false, .DLC = 8, .ID = 0x091, .data = {0x0E, 0x74, 0x00, 0x32, 0x00, 0xFA, 0x00, 0x00}};
   byd->map_can_frame_to_variable(meas);
 
   EXPECT_TRUE(datalayer.shunt.available);

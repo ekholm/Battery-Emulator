@@ -3,8 +3,8 @@
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/SMA-BYD-H-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SMA-BYD-H-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the SMA compatible BYD Battery-Box H CAN inverter driver.
@@ -64,8 +64,7 @@ TEST_F(SmaBydHCanInverterTest, StaysSilentWhenContactorEnableIsLow) {
   datalayer.system.status.inverter_allows_contactor_closing = false;
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Driver must not transmit while contactor-enable line is low";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Driver must not transmit while contactor-enable line is low";
 }
 
 TEST_F(SmaBydHCanInverterTest, PairingRequest5E7TriggersBatchSend) {
@@ -96,8 +95,7 @@ TEST_F(SmaBydHCanInverterTest, BatchDoesNotSendBeforeMinimalDelay) {
   send_pairing_frame();
   // Call with currentMillis=1; 1-0=1 < delay_between_batches_ms(7) → no send.
   sma->transmit_can(1);
-  EXPECT_EQ(count_frames_with_id(0x558), 0u)
-      << "Batch must wait for the 7 ms inter-batch delay";
+  EXPECT_EQ(count_frames_with_id(0x558), 0u) << "Batch must wait for the 7 ms inter-batch delay";
 }
 
 TEST_F(SmaBydHCanInverterTest, WithoutPairingNoBatchFramesSent) {
@@ -117,16 +115,15 @@ TEST_F(SmaBydHCanInverterTest, BatchSendsOncePerPairing) {
   for (int i = 0; i < 4; i++) {
     sma->transmit_can(100u + static_cast<unsigned long>(i) * 8);
   }
-  EXPECT_EQ(count_frames_with_id(0x558), 0u)
-      << "Init batch must only fire once per pairing event";
+  EXPECT_EQ(count_frames_with_id(0x558), 0u) << "Init batch must only fire once per pairing event";
   (void)count_before;
 }
 
 // ── TX payload – frame 0x358 (limits) ────────────────────────────────────────
 
 TEST_F(SmaBydHCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
-  datalayer.battery.info.max_design_voltage_dV = 4200;   // 420.0 V
-  datalayer.battery.info.min_design_voltage_dV = 3000;   // 300.0 V
+  datalayer.battery.info.max_design_voltage_dV = 4200;      // 420.0 V
+  datalayer.battery.info.min_design_voltage_dV = 3000;      // 300.0 V
   datalayer.battery.status.max_discharge_current_dA = 500;  // 50.0 A
   datalayer.battery.status.max_charge_current_dA = 250;     // 25.0 A
 
@@ -226,8 +223,8 @@ TEST_F(SmaBydHCanInverterTest, ReadyByteIsReadyStateWhenNotFault) {
 // ── TX payload – frame 0x518 (temperature / voltage / cell voltages) ──────────
 
 TEST_F(SmaBydHCanInverterTest, TemperatureFrameEncodesMinMaxAndCellVoltages) {
-  datalayer.battery.status.temperature_max_dC = 350;   // 35.0 °C
-  datalayer.battery.status.temperature_min_dC = -50;   // -5.0 °C  (negative, signed)
+  datalayer.battery.status.temperature_max_dC = 350;  // 35.0 °C
+  datalayer.battery.status.temperature_min_dC = -50;  // -5.0 °C  (negative, signed)
   datalayer.battery.status.voltage_dV = 3800;
   datalayer.battery.status.cell_min_voltage_mV = 3500;  // 3500 / 25 = 140
   datalayer.battery.status.cell_max_voltage_mV = 4100;  // 4100 / 25 = 164
@@ -275,8 +272,7 @@ TEST_F(SmaBydHCanInverterTest, ErrorFlagByte2Is0xAAWhenBatteryAllows) {
 
   const CAN_frame* f = find_frame_with_id(0x158);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(f->data.u8[2], 0xAAu)
-      << "Battery allows contactor → byte 2 must be 0xAA (no fault)";
+  EXPECT_EQ(f->data.u8[2], 0xAAu) << "Battery allows contactor → byte 2 must be 0xAA (no fault)";
 }
 
 TEST_F(SmaBydHCanInverterTest, ErrorFlagByte2Is0x6AWhenBatteryForbids) {
@@ -286,8 +282,7 @@ TEST_F(SmaBydHCanInverterTest, ErrorFlagByte2Is0x6AWhenBatteryForbids) {
 
   const CAN_frame* f = find_frame_with_id(0x158);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(f->data.u8[2], 0x6Au)
-      << "Battery forbids contactor → byte 2 must be 0x6A (internal hardware fault)";
+  EXPECT_EQ(f->data.u8[2], 0x6Au) << "Battery forbids contactor → byte 2 must be 0x6A (internal hardware fault)";
 }
 
 // ── Periodic cadence ──────────────────────────────────────────────────────────
@@ -310,19 +305,14 @@ TEST_F(SmaBydHCanInverterTest, SixtySecondWindowSendsExtraEnergyFrame) {
 
   sma->transmit_can(INTERVAL_60_S + 2);  // 60s window fires
   // 0x458 appears both from the 100ms path and the 60s path.
-  EXPECT_GE(count_frames_with_id(0x458), 2u)
-      << "60s window must add an extra 0x458 energy frame";
+  EXPECT_GE(count_frames_with_id(0x458), 2u) << "60s window must add an extra 0x458 energy frame";
 }
 
 // ── RX – aliveness and pairing ────────────────────────────────────────────────
 
 TEST_F(SmaBydHCanInverterTest, KnownRxFramesRefreshAliveness) {
-  for (uint32_t id : {0x360u, 0x3E0u, 0x420u,
-                      0x560u, 0x561u, 0x562u, 0x563u,
-                      0x564u, 0x565u, 0x566u, 0x567u,
-                      0x5E0u, 0x5E1u, 0x5E2u, 0x5E3u,
-                      0x5E4u, 0x5E5u, 0x5E6u, 0x5E7u,
-                      0x62Cu, 0x660u}) {
+  for (uint32_t id : {0x360u, 0x3E0u, 0x420u, 0x560u, 0x561u, 0x562u, 0x563u, 0x564u, 0x565u, 0x566u, 0x567u,
+                      0x5E0u, 0x5E1u, 0x5E2u, 0x5E3u, 0x5E4u, 0x5E5u, 0x5E6u, 0x5E7u, 0x62Cu, 0x660u}) {
     datalayer.system.status.CAN_inverter_still_alive = 0;
     CAN_frame f = {.FD = false, .ext_ID = false, .DLC = 8, .ID = id, .data = {0}};
     sma->map_can_frame_to_variable(f);

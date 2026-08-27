@@ -166,7 +166,7 @@ TEST_F(GrowattLvCanInverterTest, Frame313EncodesSignedCurrentBE) {
 
 TEST_F(GrowattLvCanInverterTest, Frame313EncodesSocAndSohAsIntegerPercent) {
   datalayer.battery.status.reported_soc = 8000;  // 80.00% → 80
-  datalayer.battery.status.soh_pptt = 9500;       // 95.00% → 95
+  datalayer.battery.status.soh_pptt = 9500;      // 95.00% → 95
 
   growatt_lv->update_values();
   inverter_poll();
@@ -183,12 +183,12 @@ TEST_F(GrowattLvCanInverterTest, Frame314EncodesCapacityWithCurrentBehaviour) {
   // NOTE: The formula used is (Wh / voltage_dV) * 100 * 100 for the 16-bit
   // frame field.  This is 10× larger than the 10 mAh unit value.  The test
   // pins current behaviour; the bug is noted in the file-level comment.
-  datalayer.battery.status.voltage_dV = 3600;                     // must be >10 to update
+  datalayer.battery.status.voltage_dV = 3600;                      // must be >10 to update
   datalayer.battery.status.reported_remaining_capacity_Wh = 3600;  // /3600 = 1, *100 = 100
   datalayer.battery.info.reported_total_capacity_Wh = 36000;       // /3600 = 10, *100 = 1000
   //   frame value: remaining = 100 * 100 = 10000, full = 1000 * 100 = 100000 (overflows uint16?)
   // Let's keep it in range:
-  datalayer.battery.info.reported_total_capacity_Wh = 3600;        // full = 100 * 100 = 10000
+  datalayer.battery.info.reported_total_capacity_Wh = 3600;  // full = 100 * 100 = 10000
 
   growatt_lv->update_values();
   inverter_poll();

@@ -3,8 +3,8 @@
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/SMA-BYD-HVS-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SMA-BYD-HVS-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the SMA compatible BYD Battery-Box HVS CAN inverter driver.
@@ -76,8 +76,7 @@ TEST_F(SmaBydHvsCanInverterTest, SilentBeforePairingEvenWhenContactorEnabled) {
   // and pairing_completed = false → 2s/10s/60s paths are blocked.
   // The queue is also empty (no pairing), so nothing is sent.
   hvs->transmit_can(INTERVAL_60_S + 1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Driver must not transmit before a pairing frame is received";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Driver must not transmit before a pairing frame is received";
 }
 
 // ── Pairing handshake ─────────────────────────────────────────────────────────
@@ -122,8 +121,7 @@ TEST_F(SmaBydHvsCanInverterTest, OnlyOneFrameSentPerTwoFiftyMsWindow) {
   // First window → only frame 0 (558) sent.
   hvs->transmit_can(INTERVAL_250_MS + 1);
   EXPECT_EQ(count_frames_with_id(0x558), 1u);
-  EXPECT_EQ(count_frames_with_id(0x598), 0u)
-      << "Queue must emit at most one frame per 250ms window";
+  EXPECT_EQ(count_frames_with_id(0x598), 0u) << "Queue must emit at most one frame per 250ms window";
 }
 
 TEST_F(SmaBydHvsCanInverterTest, PairingCompletedAfterQueueDrained) {
@@ -135,8 +133,7 @@ TEST_F(SmaBydHvsCanInverterTest, PairingCompletedAfterQueueDrained) {
   hvs->transmit_can(t + INTERVAL_2_S);
   // 2s path pushes a 358 frame into the (now empty) queue; next 250ms drains it.
   hvs->transmit_can(t + INTERVAL_2_S + INTERVAL_250_MS + 1);
-  EXPECT_GE(count_frames_with_id(0x358), 1u)
-      << "2s periodic frame should appear after pairing_completed";
+  EXPECT_GE(count_frames_with_id(0x358), 1u) << "2s periodic frame should appear after pairing_completed";
 }
 
 // ── TX payload – frame 0x358 (limits) ────────────────────────────────────────
@@ -280,11 +277,11 @@ TEST_F(SmaBydHvsCanInverterTest, TenSecondPeriodicPushesThreeFrames) {
   // receives 4 frames: [358, 518, 4D8, 3D8].  5 transmit_can calls are
   // needed: the first pushes, then each subsequent drains one.
   unsigned long t10 = t + INTERVAL_10_S + 1;
-  hvs->transmit_can(t10);                                         // push 4
-  hvs->transmit_can(t10 + 1 * (INTERVAL_250_MS + 1));            // drain 358
-  hvs->transmit_can(t10 + 2 * (INTERVAL_250_MS + 1));            // drain 518
-  hvs->transmit_can(t10 + 3 * (INTERVAL_250_MS + 1));            // drain 4D8
-  hvs->transmit_can(t10 + 4 * (INTERVAL_250_MS + 1));            // drain 3D8
+  hvs->transmit_can(t10);                              // push 4
+  hvs->transmit_can(t10 + 1 * (INTERVAL_250_MS + 1));  // drain 358
+  hvs->transmit_can(t10 + 2 * (INTERVAL_250_MS + 1));  // drain 518
+  hvs->transmit_can(t10 + 3 * (INTERVAL_250_MS + 1));  // drain 4D8
+  hvs->transmit_can(t10 + 4 * (INTERVAL_250_MS + 1));  // drain 3D8
   EXPECT_GE(count_frames_with_id(0x518), 1u);
   EXPECT_GE(count_frames_with_id(0x4D8), 1u);
   EXPECT_GE(count_frames_with_id(0x3D8), 1u);
@@ -293,8 +290,7 @@ TEST_F(SmaBydHvsCanInverterTest, TenSecondPeriodicPushesThreeFrames) {
 // ── RX – aliveness ────────────────────────────────────────────────────────────
 
 TEST_F(SmaBydHvsCanInverterTest, KnownRxFramesRefreshAliveness) {
-  for (uint32_t id : {0x360u, 0x3E0u, 0x420u, 0x560u,
-                      0x5E0u, 0x5E7u, 0x660u}) {
+  for (uint32_t id : {0x360u, 0x3E0u, 0x420u, 0x560u, 0x5E0u, 0x5E7u, 0x660u}) {
     datalayer.system.status.CAN_inverter_still_alive = 0;
     CAN_frame f = {.FD = false, .ext_ID = false, .DLC = 8, .ID = id, .data = {0}};
     hvs->map_can_frame_to_variable(f);

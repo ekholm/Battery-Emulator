@@ -3,8 +3,8 @@
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/SOLAX-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SOLAX-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the SolaX Triple Power LFP CAN inverter driver.
@@ -17,13 +17,13 @@
 namespace {
 
 // Canonical "stay in announce state" payload (byte4 == 0 → contactor open)
-static const uint64_t PAYLOAD_ANNOUNCE  = __builtin_bswap64(0x0200010000000000);
+static const uint64_t PAYLOAD_ANNOUNCE = __builtin_bswap64(0x0200010000000000);
 // Inverter requests contactor close (byte4 == 1)
-static const uint64_t PAYLOAD_CLOSE     = __builtin_bswap64(0x0200010001000000);
+static const uint64_t PAYLOAD_CLOSE = __builtin_bswap64(0x0200010001000000);
 // Inverter requests contactor open again
-static const uint64_t PAYLOAD_OPEN      = __builtin_bswap64(0x0200010000000000);
+static const uint64_t PAYLOAD_OPEN = __builtin_bswap64(0x0200010000000000);
 // Inverter requests serial-number enumeration
-static const uint64_t PAYLOAD_ENUM      = __builtin_bswap64(0x0500010000000000);
+static const uint64_t PAYLOAD_ENUM = __builtin_bswap64(0x0500010000000000);
 
 class SolaxCanInverterTest : public ::testing::Test {
  protected:
@@ -40,7 +40,7 @@ class SolaxCanInverterTest : public ::testing::Test {
 
   void TearDown() override {
     // Restore user globals that DataLayerResetListener does not clear.
-    user_selected_inverter_modules   = 0;
+    user_selected_inverter_modules = 0;
     user_selected_inverter_battery_type = 0;
     user_selected_inverter_contactor_mode = inverter_contactor_mode_enum::NoWorkaround;
   }
@@ -54,22 +54,22 @@ class SolaxCanInverterTest : public ::testing::Test {
 
   // Set non-zero datalayer values so payload asserts are non-trivial.
   void set_typical_battery_values() {
-    datalayer.battery.info.max_design_voltage_dV  = 4000;  // 400.0 V
-    datalayer.battery.info.min_design_voltage_dV  = 3000;  // 300.0 V
-    datalayer.battery.status.max_charge_current_dA    = 200;  // 20.0 A
+    datalayer.battery.info.max_design_voltage_dV = 4000;      // 400.0 V
+    datalayer.battery.info.min_design_voltage_dV = 3000;      // 300.0 V
+    datalayer.battery.status.max_charge_current_dA = 200;     // 20.0 A
     datalayer.battery.status.max_discharge_current_dA = 300;  // 30.0 A
-    datalayer.battery.status.voltage_dV             = 3700;
-    datalayer.battery.status.reported_current_dA    = static_cast<int16_t>(-150);  // -15.0 A (charging)
-    datalayer.battery.status.reported_soc           = 7500;  // 75.00 %
+    datalayer.battery.status.voltage_dV = 3700;
+    datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-150);  // -15.0 A (charging)
+    datalayer.battery.status.reported_soc = 7500;                               // 75.00 %
     datalayer.battery.status.reported_remaining_capacity_Wh = 15000;
     datalayer.battery.info.reported_total_capacity_Wh = 20000;
-    datalayer.battery.status.temperature_max_dC     = 280;
-    datalayer.battery.status.temperature_min_dC     = 220;
-    datalayer.battery.status.cell_max_voltage_mV    = 3450;
-    datalayer.battery.status.cell_min_voltage_mV    = 3400;
-    datalayer.battery.info.max_cell_voltage_mV      = 4200;
-    datalayer.battery.info.min_cell_voltage_mV      = 2500;
-    datalayer.battery.status.soh_pptt               = 9800;
+    datalayer.battery.status.temperature_max_dC = 280;
+    datalayer.battery.status.temperature_min_dC = 220;
+    datalayer.battery.status.cell_max_voltage_mV = 3450;
+    datalayer.battery.status.cell_min_voltage_mV = 3400;
+    datalayer.battery.info.max_cell_voltage_mV = 4200;
+    datalayer.battery.info.min_cell_voltage_mV = 2500;
+    datalayer.battery.status.soh_pptt = 9800;
   }
 
   SolaxInverter* solax = nullptr;
@@ -103,8 +103,7 @@ TEST_F(SolaxCanInverterTest, TransmitCanIsAlwaysNoOp) {
   set_typical_battery_values();
   solax->update_values();
   solax->transmit_can(INTERVAL_60_S + 1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "SolaX driver must only transmit in response to inverter RX";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "SolaX driver must only transmit in response to inverter RX";
 }
 
 // ---------------------------------------------------------------------------
@@ -160,10 +159,10 @@ TEST_F(SolaxCanInverterTest, ClosePayloadAdvancesStateMachineToWaitingAndContact
 
 TEST_F(SolaxCanInverterTest, ContractorStatus1In1875WhenClosed) {
   // Walk to CONTACTOR_CLOSED and confirm byte[4] in 0x1875 == 1.
-  rx1871(PAYLOAD_CLOSE);                 // → WAITING_FOR_CONTACTOR
-  rx1871(PAYLOAD_ANNOUNCE);             // → CONTACTOR_CLOSED
+  rx1871(PAYLOAD_CLOSE);     // → WAITING_FOR_CONTACTOR
+  rx1871(PAYLOAD_ANNOUNCE);  // → CONTACTOR_CLOSED
   clear_transmitted_frames();
-  rx1871(PAYLOAD_ANNOUNCE);             // stay in CONTACTOR_CLOSED, re-transmit
+  rx1871(PAYLOAD_ANNOUNCE);  // stay in CONTACTOR_CLOSED, re-transmit
 
   const CAN_frame* status = find_last_frame_with_id(0x1875);
   ASSERT_NE(status, nullptr);
@@ -234,9 +233,9 @@ TEST_F(SolaxCanInverterTest, LockAfterFirstCloseIgnoresSubsequentOpenRequest) {
 // ---------------------------------------------------------------------------
 
 TEST_F(SolaxCanInverterTest, LimitsFrameEncodesVoltageAndCurrentLittleEndian) {
-  datalayer.battery.info.max_design_voltage_dV  = 4100;
-  datalayer.battery.info.min_design_voltage_dV  = 2900;
-  datalayer.battery.status.max_charge_current_dA    = 150;
+  datalayer.battery.info.max_design_voltage_dV = 4100;
+  datalayer.battery.info.min_design_voltage_dV = 2900;
+  datalayer.battery.status.max_charge_current_dA = 150;
   datalayer.battery.status.max_discharge_current_dA = 250;
   solax->update_values();
 
@@ -256,9 +255,9 @@ TEST_F(SolaxCanInverterTest, LimitsFrameEncodesVoltageAndCurrentLittleEndian) {
 }
 
 TEST_F(SolaxCanInverterTest, PackDataFrameEncodesVoltageCurrentAndSoc) {
-  datalayer.battery.status.voltage_dV          = 3800;
+  datalayer.battery.status.voltage_dV = 3800;
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-500);  // -50.0 A
-  datalayer.battery.status.reported_soc        = 6250;    // 62.50 % → byte = 62
+  datalayer.battery.status.reported_soc = 6250;                               // 62.50 % → byte = 62
   datalayer.battery.status.reported_remaining_capacity_Wh = 12500;
   solax->update_values();
 
@@ -279,12 +278,12 @@ TEST_F(SolaxCanInverterTest, PackDataFrameEncodesVoltageCurrentAndSoc) {
 TEST_F(SolaxCanInverterTest, CellDataFrameEncodesTemperaturesAndRescaledVoltages) {
   // With min=2500, max=4200, rescale maps to [3000,3500]:
   // 3300 mV → 3000 + (3300-2500)*500/(4200-2500) = 3000 + 800*500/1700 ≈ 3235 mV → 32 dV
-  datalayer.battery.status.temperature_max_dC  = 300;  // 30.0 °C, signed
-  datalayer.battery.status.temperature_min_dC  = static_cast<int16_t>(-50);  // -5.0 °C
+  datalayer.battery.status.temperature_max_dC = 300;                        // 30.0 °C, signed
+  datalayer.battery.status.temperature_min_dC = static_cast<int16_t>(-50);  // -5.0 °C
   datalayer.battery.status.cell_max_voltage_mV = 3300;
   datalayer.battery.status.cell_min_voltage_mV = 3200;
-  datalayer.battery.info.max_cell_voltage_mV   = 4200;
-  datalayer.battery.info.min_cell_voltage_mV   = 2500;
+  datalayer.battery.info.max_cell_voltage_mV = 4200;
+  datalayer.battery.info.min_cell_voltage_mV = 2500;
   solax->update_values();
 
   rx1871(PAYLOAD_CLOSE);
@@ -321,7 +320,7 @@ TEST_F(SolaxCanInverterTest, StatusFrameEncodesTemperatureAverageAndModuleCount)
 }
 
 TEST_F(SolaxCanInverterTest, PackStatsFrameEncodesVoltageAndCapacity) {
-  datalayer.battery.status.voltage_dV               = 3900;
+  datalayer.battery.status.voltage_dV = 3900;
   datalayer.battery.info.reported_total_capacity_Wh = 25000;
   solax->update_values();
 
@@ -341,8 +340,8 @@ TEST_F(SolaxCanInverterTest, PackStatsFrameEncodesVoltageAndCapacity) {
 
 TEST_F(SolaxCanInverterTest, UltraFrameEncodesSohAndSocIntegerBytes) {
   datalayer.battery.info.reported_total_capacity_Wh = 20000;
-  datalayer.battery.status.soh_pptt                = 9500;  // 95.00 % → byte = 95
-  datalayer.battery.status.reported_soc            = 8000;  // 80.00 % → byte = 80
+  datalayer.battery.status.soh_pptt = 9500;      // 95.00 % → byte = 95
+  datalayer.battery.status.reported_soc = 8000;  // 80.00 % → byte = 80
   solax->update_values();
 
   rx1871(PAYLOAD_CLOSE);

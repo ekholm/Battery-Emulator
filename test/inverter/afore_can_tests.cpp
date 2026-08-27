@@ -40,8 +40,7 @@ class AforeCanInverterTest : public ::testing::Test {
 TEST_F(AforeCanInverterTest, StaysSilentUntilInverterSpeaksFirst) {
   afore->update_values();
   afore->transmit_can(0);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Must not transmit before the inverter sends 0x305";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Must not transmit before the inverter sends 0x305";
 }
 
 TEST_F(AforeCanInverterTest, KnownRxFrameRefreshesAliveness) {
@@ -76,15 +75,14 @@ TEST_F(AforeCanInverterTest, TxGateResetAfterOneBurst) {
 
   // Second transmit without a new 0x305 must be silent.
   afore->transmit_can(1);
-  EXPECT_TRUE(get_transmitted_frames().empty())
-      << "Transmit gate must be cleared after each burst";
+  EXPECT_TRUE(get_transmitted_frames().empty()) << "Transmit gate must be cleared after each burst";
 }
 
 TEST_F(AforeCanInverterTest, OperationFrameEncodesVoltageCurrentTemperature) {
   // 0x350 — Operation information (little-endian throughout)
-  datalayer.battery.status.voltage_dV = 3750;                                     // 375.0 V
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);      // -10.0 A discharge
-  datalayer.battery.status.temperature_max_dC = 250;                              // 25.0 °C
+  datalayer.battery.status.voltage_dV = 3750;                                 // 375.0 V
+  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);  // -10.0 A discharge
+  datalayer.battery.status.temperature_max_dC = 250;                          // 25.0 °C
 
   afore->update_values();
   wake_inverter();
@@ -105,7 +103,7 @@ TEST_F(AforeCanInverterTest, BatteryInfoFrameEncodesSocAndSoh) {
   datalayer.battery.status.reported_soc = 7500;  // 75.00 %
   datalayer.battery.status.soh_pptt = 9800;      // 98.00 %
   datalayer.battery.info.number_of_cells = 96;
-  datalayer.battery.status.max_charge_current_dA = 100;     // keep enable bits set
+  datalayer.battery.status.max_charge_current_dA = 100;  // keep enable bits set
   datalayer.battery.status.max_discharge_current_dA = 200;
 
   afore->update_values();
@@ -114,10 +112,10 @@ TEST_F(AforeCanInverterTest, BatteryInfoFrameEncodesSocAndSoh) {
 
   const CAN_frame* f = find_frame_with_id(0x351);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(f->data.u8[0], 75u);    // SOC %
-  EXPECT_EQ(f->data.u8[1], 98u);    // SOH %
-  EXPECT_EQ(f->data.u8[2], 100u);   // SOCMAX constant
-  EXPECT_EQ(f->data.u8[3], 1u);     // SOCMIN constant
+  EXPECT_EQ(f->data.u8[0], 75u);   // SOC %
+  EXPECT_EQ(f->data.u8[1], 98u);   // SOH %
+  EXPECT_EQ(f->data.u8[2], 100u);  // SOCMAX constant
+  EXPECT_EQ(f->data.u8[3], 1u);    // SOCMIN constant
   // Normal operation: Bit0 (charge), Bit1 (discharge), Bit5 (normal) all set
   EXPECT_EQ(f->data.u8[4], 0x23u);
   // Number of cells LE
@@ -239,8 +237,8 @@ TEST_F(AforeCanInverterTest, CellVoltageFrameRemapsNonLfpVoltages) {
 
 TEST_F(AforeCanInverterTest, TemperatureFrameEncodesMaxAndMinWithOffset) {
   // 0x355 — Cell temperature parameters; raw = dC + 1000
-  datalayer.battery.status.temperature_max_dC = 350;   // 35.0 °C -> raw 1350
-  datalayer.battery.status.temperature_min_dC = 100;   // 10.0 °C -> raw 1100
+  datalayer.battery.status.temperature_max_dC = 350;  // 35.0 °C -> raw 1350
+  datalayer.battery.status.temperature_min_dC = 100;  // 10.0 °C -> raw 1100
 
   afore->update_values();
   wake_inverter();
