@@ -296,6 +296,7 @@ void init_events(void) {
   events.entries[EVENT_MQTT_DISCONNECT].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_EQUIPMENT_STOP].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_SD_INIT_FAILED].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_SD_WRITE_FAILED].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_PERIODIC_BMS_RESET].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_BMS_RESET_REQ_SUCCESS].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_BMS_RESET_REQ_FAIL].level = EVENT_LEVEL_INFO;
@@ -712,6 +713,10 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
       return "User requested stop, either via equipment stop circuit or webserver Open Contactor button";
     case EVENT_SD_INIT_FAILED:
       return "SD card initialization failed, check hardware. Power must be removed to reset the SD card.";
+    case EVENT_SD_WRITE_FAILED:
+      return "SD card writing failed after a successful mount, so logging has been stopped. The card may have "
+             "been removed, filled up or worn out. Check the card, then export or delete the log from the web "
+             "interface to retry, or reboot.";
     case EVENT_PERIODIC_BMS_RESET:
       return "BMS reset event completed.";
     case EVENT_PERIODIC_BMS_RESET_FAILURE:
