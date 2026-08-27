@@ -85,6 +85,31 @@ TEST_F(MachineryProtectionTest, EachPackRaisesAndClearsItsOwnOverheat) {
 // Upstream deliberately un-latched the deviation warning (it follows the
 // pack; a latched event could never be released by the clear branch). The
 // verdict path used to latch it - this pins the upstream semantics.
+// FROZEN left the verdicts with the other two, but nothing pinned it: flattening
+// its pack number to a hard 1 passed all 206 tests. Same shape as the overheat
+// pair above - pack 2's cold reading lands on pack 2's id, pack 1 stays clean,
+// and the event follows the pack when it warms again. Temperatures are set on
+// BOTH ends so this reads only the frozen path: leaving max at its default
+// would trip the deviation warning too and the test would pass for the wrong
+// reason.
+TEST_F(MachineryProtectionTest, EachPackRaisesAndClearsItsOwnFrozen) {
+  datalayer.batteries[0].status.temperature_min_dC = 100;  // fine
+  datalayer.batteries[0].status.temperature_max_dC = 200;
+  datalayer.batteries[1].status.temperature_min_dC = -300;  // below BATTERY_MINTEMPERATURE
+  datalayer.batteries[1].status.temperature_max_dC = -200;  // deviation stays under the limit
+
+  update_machineryprotection();
+  EXPECT_EQ(get_event_pointer(EVENT_BATTERY2_FROZEN)->state, EVENT_STATE_ACTIVE);
+  EXPECT_EQ(get_event_pointer(EVENT_BATTERY_FROZEN)->state, EVENT_STATE_INACTIVE)
+      << "a cold pack 2 must not raise pack 1's id";
+
+  datalayer.batteries[1].status.temperature_min_dC = 100;  // pack 2 warms up
+  datalayer.batteries[1].status.temperature_max_dC = 200;
+  update_machineryprotection();
+  EXPECT_EQ(get_event_pointer(EVENT_BATTERY2_FROZEN)->state, EVENT_STATE_INACTIVE)
+      << "the event follows the pack - it must clear when the pack warms";
+}
+
 TEST_F(MachineryProtectionTest, TemperatureDeviationFollowsThePack) {
   datalayer.batteries[1].status.temperature_max_dC = 300;
   datalayer.batteries[1].status.temperature_min_dC = 50;  // deviation 250 > max
