@@ -65,8 +65,13 @@ MCP2515_Lite::~MCP2515_Lite() {
     vQueueDelete(_rx_queue);
     _rx_queue = nullptr;
   }
+  detachIsrPin();
+}
+
+void MCP2515_Lite::detachIsrPin() {
   if (_isr_interrupt_installed) {
     gpio_isr_handler_remove((gpio_num_t)_int_pin);
+    _isr_interrupt_installed = false;
   } else {
     detachInterrupt(digitalPinToInterrupt(_int_pin));
   }
@@ -143,7 +148,7 @@ uint32_t MCP2515_Lite::autodetectOscillatorFrequency() {
   DEBUG_PRINTF("MCP2515: autodetect=%uus\n", elapsed_us);
 
   _can_task_handle = nullptr;
-  detachInterrupt(digitalPinToInterrupt(_int_pin));
+  detachIsrPin();
   reset();
 
   return elapsed_us < 13500 ? 16000000 : 8000000;
@@ -156,9 +161,14 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   digitalWrite(_cs, HIGH);
 
   pinMode(_int_pin, INPUT_PULLUP);
-  // The interrupt drain is not offered to autodetection: it runs before the
-  // chip is configured and tears its own interrupt down with detachInterrupt().
-  _isr_interrupt_installed = _isr_drain_requested && !skip_task_start && installIsrDrainInterrupt();
+  /* Autodetection calls begin() first, and it must take the SAME path: the
+   * GPIO interrupt service is installed once for the whole system, so an
+   * attachInterrupt() here would install it WITHOUT ESP_INTR_FLAG_IRAM and
+   * the real begin() would then find it installed and decline the drain
+   * for good. On the boards where MCP2515_FREQ() is 0 - the devkit and the
+   * 3LB - that is every boot.
+   */
+  _isr_interrupt_installed = _isr_drain_requested && installIsrDrainInterrupt();
   if (!_isr_interrupt_installed) {
     attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING);
   }
@@ -185,7 +195,10 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   // Leave config mode and enter normal mode
   modifyRegister(REG_CANCTRL, 0xE0, loopback ? CANCTRL_REQOP_LOOPBACK : CANCTRL_REQOP_NORMAL);
 
-  if (_isr_interrupt_installed) {
+  // Not for autodetection: it runs the chip in loopback at 7813 baud and only
+  // wants the interrupt's timing, so a drain there would put its test frame
+  // in the ring and hand it to the consumer later as if it were traffic.
+  if (_isr_interrupt_installed && !skip_task_start) {
     // One more Arduino transaction, so the peripheral carries this driver's
     // settings at the moment the register-level service snapshots them.
     readRegister(REG_CANSTAT);
@@ -218,16 +231,22 @@ void MCP2515_Lite::useIsrDrain(uint8_t spi_bus) {
  * through Arduino's dispatcher, which is itself flash-resident.
  */
 bool MCP2515_Lite::installIsrDrainInterrupt() {
-  const esp_err_t installed = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
-  if (installed == ESP_ERR_INVALID_STATE) {
-    // Someone installed the service first and its allocation flags are not
-    // ours to know. Claiming the drain would claim a window it may not have.
-    DEBUG_PRINTF("MCP2515: GPIO interrupt service already installed, draining in the task\n");
-    return false;
-  }
-  if (installed != ESP_OK) {
-    DEBUG_PRINTF("MCP2515: GPIO interrupt service install failed (0x%x)\n", installed);
-    return false;
+  if (!_isr_service_owned) {
+    const esp_err_t installed = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    if (installed == ESP_ERR_INVALID_STATE) {
+      // Someone installed the service first and its allocation flags are
+      // not ours to know. Claiming the drain would claim a window it may
+      // not have.
+      DEBUG_PRINTF("MCP2515: GPIO interrupt service already installed, draining in the task\n");
+      return false;
+    }
+    if (installed != ESP_OK) {
+      DEBUG_PRINTF("MCP2515: GPIO interrupt service install failed (0x%x)\n", installed);
+      return false;
+    }
+    // The service is a singleton: begin() runs twice when the oscillator is
+    // autodetected, and the second install would report it already there.
+    _isr_service_owned = true;
   }
   if (gpio_set_intr_type((gpio_num_t)_int_pin, GPIO_INTR_NEGEDGE) != ESP_OK) {
     return false;

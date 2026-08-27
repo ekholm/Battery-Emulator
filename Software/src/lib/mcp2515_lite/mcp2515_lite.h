@@ -130,6 +130,7 @@ class MCP2515_Lite {
   bool _isr_drain_requested = false;
   uint8_t _isr_spi_bus = 0;
   bool _isr_interrupt_installed = false;
+  bool _isr_service_owned = false;
   volatile bool _isr_drain_enabled = false;
   volatile uint32_t _isr_frames = 0;
   volatile uint32_t _isr_bus_deferrals = 0;
@@ -197,4 +198,7 @@ class MCP2515_Lite {
   bool installIsrDrainInterrupt();
 
   // ISR handler for the CAN interrupt pin
+
+  // Undo whichever of the two interrupt paths begin() took.
+  void detachIsrPin();
 };
