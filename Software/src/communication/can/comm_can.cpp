@@ -144,6 +144,7 @@ bool init_CAN() {
       delay(100);
     }
 
+    esp32hal->claim_spi_bus("CAN", esp32hal->MCP2515_BUS(), sck_pin, miso_pin, mosi_pin);
     SPI2515 = new SPIClass(esp32hal->MCP2515_BUS());
     SPI2515->begin(sck_pin, miso_pin, mosi_pin);
     can2515 = new MCP2515_Lite(*SPI2515, cs_pin, int_pin);
@@ -180,6 +181,7 @@ bool init_CAN() {
       return false;
     }
 
+    esp32hal->claim_spi_bus("CANFD", esp32hal->MCP2517_BUS(), sck_pin, sdo_pin, sdi_pin);
     SPI2517 = new SPIClass(esp32hal->MCP2517_BUS());
     SPI2517->begin(sck_pin, sdo_pin, sdi_pin);
   }
@@ -241,6 +243,7 @@ bool init_CAN() {
         return false;
       }
 
+      esp32hal->claim_spi_bus("CANFD2", esp32hal->MCP2517_BUS2(), sck_pin, sdo_pin, sdi_pin);
       SPI2517_2->begin(sck_pin, sdo_pin, sdi_pin);
     }
 

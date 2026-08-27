@@ -311,6 +311,11 @@ void init_events(void) {
   events.entries[EVENT_PERIODIC_BMS_RESET_FAILURE].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_GPIO_CONFLICT].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_GPIO_NOT_DEFINED].level = EVENT_LEVEL_ERROR;
+  /* WARNING, not ERROR, and the difference is behavioural: an error event puts
+     the emulator in FAULT (update_bms_status), which is not a proportionate
+     answer to a logging device losing its SPI routing. The board keeps
+     working; one device on the shared controller does not. */
+  events.entries[EVENT_SPI_BUS_CONFLICT].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_INVERTER_REBOOT_DECLINED].level = EVENT_LEVEL_WARNING;
 }
 
@@ -726,6 +731,12 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_GPIO_NOT_DEFINED:
       return "Missing GPIO Assignment: The component '" + esp32hal->failed_allocator() +
              "' requires a GPIO pin that isn't configured. Please define a valid pin number in your settings.";
+    case EVENT_SPI_BUS_CONFLICT:
+      return "SPI Bus Conflict: '" + esp32hal->spi_conflict_claimant_name() + "' shares an SPI controller with '" +
+             esp32hal->spi_conflict_holder_name() +
+             "', but they are wired to different pins. The controller can only route one of them, so the "
+             "one that starts last takes the bus and the other stops responding with no further warning. "
+             "Move one of them to a free SPI controller.";
     default:
       return "";
   }
