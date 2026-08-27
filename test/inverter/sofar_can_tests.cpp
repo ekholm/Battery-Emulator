@@ -3,8 +3,8 @@
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/SOFAR-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SOFAR-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the Sofar BMS (Extended) via CAN inverter driver.
@@ -52,15 +52,15 @@ class SofarCanInverterTest : public ::testing::Test {
 
   // Send an addressed 0x605 query frame to the driver.
   void send_605(uint8_t target_id, uint8_t inquiry, uint8_t sub_k = 0) {
-    CAN_frame f = {.FD = false, .ext_ID = true, .DLC = 8, .ID = 0x605,
-                   .data = {target_id, inquiry, sub_k, 0, 0, 0, 0, 0}};
+    CAN_frame f = {
+        .FD = false, .ext_ID = true, .DLC = 8, .ID = 0x605, .data = {target_id, inquiry, sub_k, 0, 0, 0, 0, 0}};
     sofar->map_can_frame_to_variable(f);
   }
 
   // Send an addressed 0x705 history query frame.
   void send_705(uint8_t target_id, uint8_t inquiry, uint8_t record_n = 0, uint8_t sub_k = 0) {
-    CAN_frame f = {.FD = false, .ext_ID = true, .DLC = 8, .ID = 0x705,
-                   .data = {target_id, inquiry, record_n, sub_k, 0, 0, 0, 0}};
+    CAN_frame f = {
+        .FD = false, .ext_ID = true, .DLC = 8, .ID = 0x705, .data = {target_id, inquiry, record_n, sub_k, 0, 0, 0, 0}};
     sofar->map_can_frame_to_variable(f);
   }
 
@@ -117,16 +117,15 @@ TEST_F(SofarCanInverterTest, OneSPeriodicSendsAllCyclicFrames) {
 TEST_F(SofarCanInverterTest, FramesNotSentBeforeOneSecond) {
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S - 1);
-  EXPECT_EQ(count_frames_with_id(0x351), 0u)
-      << "1s cyclic frames must not fire before the 1s boundary";
+  EXPECT_EQ(count_frames_with_id(0x351), 0u) << "1s cyclic frames must not fire before the 1s boundary";
 }
 
 // ── TX payload – frame 0x351 (limits, little-endian) ─────────────────────────
 
 TEST_F(SofarCanInverterTest, LimitsFrameEncodesVoltagesAndCurrentsLittleEndian) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;   // 400.0 V
-  datalayer.battery.info.min_design_voltage_dV = 3000;   // 300.0 V
-  datalayer.battery.status.max_charge_current_dA = 250;  // 25.0 A
+  datalayer.battery.info.max_design_voltage_dV = 4000;      // 400.0 V
+  datalayer.battery.info.min_design_voltage_dV = 3000;      // 300.0 V
+  datalayer.battery.status.max_charge_current_dA = 250;     // 25.0 A
   datalayer.battery.status.max_discharge_current_dA = 500;  // 50.0 A
 
   sofar->update_values();
@@ -137,9 +136,9 @@ TEST_F(SofarCanInverterTest, LimitsFrameEncodesVoltagesAndCurrentsLittleEndian) 
   // All 0x351 fields are little-endian (u16_le).
   EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 4000u)  // max design voltage
       << "0x351[0:1] charge cutoff voltage (LE)";
-  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 250u)   // max charge current
+  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 250u)  // max charge current
       << "0x351[2:3] charge current (LE)";
-  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 500u)   // max discharge current
+  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 500u)  // max discharge current
       << "0x351[4:5] discharge current (LE)";
   EXPECT_EQ(u16_le(f->data.u8[6], f->data.u8[7]), 3000u)  // min design voltage
       << "0x351[6:7] discharge cutoff voltage (LE)";
@@ -169,8 +168,7 @@ TEST_F(SofarCanInverterTest, SocCappedAt99PercentWhenReportedIs100) {
 
   const CAN_frame* f = find_frame_with_id(0x355);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(f->data.u8[0], 99u)
-      << "0x355 SoC byte must be capped at 99 to prevent the inverter treating 100% as 0";
+  EXPECT_EQ(f->data.u8[0], 99u) << "0x355 SoC byte must be capped at 99 to prevent the inverter treating 100% as 0";
 }
 
 // ── TX payload – frame 0x356 (voltage / current / temp, little-endian) ────────
@@ -186,11 +184,9 @@ TEST_F(SofarCanInverterTest, PackFrameEncodesVoltageSignedCurrentAndTemp) {
 
   const CAN_frame* f = find_frame_with_id(0x356);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 3700u)
-      << "0x356[0:1] voltage (LE)";
+  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 3700u) << "0x356[0:1] voltage (LE)";
   // Current is signed; cast to int16_t after LE assembly.
-  EXPECT_EQ(static_cast<int16_t>(u16_le(f->data.u8[2], f->data.u8[3])), -810)
-      << "0x356[2:3] signed current (LE)";
+  EXPECT_EQ(static_cast<int16_t>(u16_le(f->data.u8[2], f->data.u8[3])), -810) << "0x356[2:3] signed current (LE)";
   EXPECT_EQ(static_cast<int16_t>(u16_le(f->data.u8[4], f->data.u8[5])), 330)
       << "0x356[4:5] max temperature (LE, signed)";
 }
@@ -209,8 +205,7 @@ TEST_F(SofarCanInverterTest, CapacityFrameEncodesAhFromWh) {
   const CAN_frame* f = find_frame_with_id(0x35F);
   ASSERT_NE(f, nullptr);
   EXPECT_EQ(f->data.u8[0], 0x01u) << "0x35F byte 0 = Li-ion type";
-  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 100u)
-      << "0x35F[4:5] nominal capacity in Ah (LE)";
+  EXPECT_EQ(u16_le(f->data.u8[4], f->data.u8[5]), 100u) << "0x35F[4:5] nominal capacity in Ah (LE)";
 }
 
 TEST_F(SofarCanInverterTest, CapacityNotUpdatedWhenMaxVoltageAtOrBelowTwenty) {
@@ -234,8 +229,7 @@ TEST_F(SofarCanInverterTest, RemoteCommandFrameSentWhenEnableFlagsNonZero) {
   datalayer.battery.status.reported_soc = 5000;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
-  EXPECT_EQ(count_frames_with_id(0x30F), 1u)
-      << "0x30F must be sent at 1s when enable flags are non-zero";
+  EXPECT_EQ(count_frames_with_id(0x30F), 1u) << "0x30F must be sent at 1s when enable flags are non-zero";
 }
 
 TEST_F(SofarCanInverterTest, RemoteCommandByte1IsThreeForNormalSoc) {
@@ -267,8 +261,7 @@ TEST_F(SofarCanInverterTest, KnownRxFrames605And705SetAliveness) {
     datalayer.system.status.CAN_inverter_still_alive = 0;
     // Address frame to battery ID 0 (default).
     uint8_t tid = datalayer.battery.settings.sofar_user_specified_battery_id;
-    CAN_frame f = {.FD = false, .ext_ID = true, .DLC = 8, .ID = id,
-                   .data = {tid, 0, 0, 0, 0, 0, 0, 0}};
+    CAN_frame f = {.FD = false, .ext_ID = true, .DLC = 8, .ID = id, .data = {tid, 0, 0, 0, 0, 0, 0, 0}};
     sofar->map_can_frame_to_variable(f);
     EXPECT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE * 2u)
         << "ID 0x" << std::hex << id << " must refresh aliveness";
@@ -313,15 +306,13 @@ TEST_F(SofarCanInverterTest, Query605Inquiry0EResponseIs6C0) {
 TEST_F(SofarCanInverterTest, Query605WrongBatteryIdIgnored) {
   datalayer.battery.settings.sofar_user_specified_battery_id = 0;
   send_605(1 /*wrong id*/, 0x00);
-  EXPECT_EQ(count_frames_with_id(0x670), 0u)
-      << "Query addressed to wrong battery ID must produce no reply";
+  EXPECT_EQ(count_frames_with_id(0x670), 0u) << "Query addressed to wrong battery ID must produce no reply";
 }
 
 TEST_F(SofarCanInverterTest, Query605UnknownInquiryProducesNoReply) {
   send_605(0, 0xFF);
   // Total frame count should be 0 (only the TX frames we triggered matter).
-  EXPECT_EQ(get_transmitted_frames().size(), 0u)
-      << "Unsupported inquiry must not produce a reply";
+  EXPECT_EQ(get_transmitted_frames().size(), 0u) << "Unsupported inquiry must not produce a reply";
 }
 
 // ── RX – 0x705 history query-response routing ────────────────────────────────
@@ -370,10 +361,8 @@ TEST_F(SofarCanInverterTest, BatteryIdOneShiftsCanIdBy0x1000) {
   sofar->transmit_can(INTERVAL_1_S + 1);
 
   // base_offset = 1 << 12 = 0x1000; 0x351 + 0x1000 = 0x1351
-  EXPECT_EQ(count_frames_with_id(0x1351), 1u)
-      << "With battery_id=1, frame 0x351 must be sent as 0x1351";
-  EXPECT_EQ(count_frames_with_id(0x351), 0u)
-      << "Base ID 0x351 must not appear when offset is applied";
+  EXPECT_EQ(count_frames_with_id(0x1351), 1u) << "With battery_id=1, frame 0x351 must be sent as 0x1351";
+  EXPECT_EQ(count_frames_with_id(0x351), 0u) << "Base ID 0x351 must not appear when offset is applied";
 
   // Restore to default battery_id for other tests.
   datalayer.battery.settings.sofar_user_specified_battery_id = 0;

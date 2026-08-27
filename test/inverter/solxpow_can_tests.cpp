@@ -2,8 +2,8 @@
 
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
-#include "../../Software/src/inverter/SOLXPOW-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SOLXPOW-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the Solxpow CAN inverter driver.
@@ -26,11 +26,11 @@ class SolxpowCanInverterTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    user_selected_inverter_cells           = 0;
-    user_selected_inverter_modules         = 0;
-    user_selected_inverter_cells_per_module= 0;
-    user_selected_inverter_voltage_level   = 0;
-    user_selected_inverter_ah_capacity     = 0;
+    user_selected_inverter_cells = 0;
+    user_selected_inverter_modules = 0;
+    user_selected_inverter_cells_per_module = 0;
+    user_selected_inverter_voltage_level = 0;
+    user_selected_inverter_ah_capacity = 0;
   }
 
   // Inject 0x4200 with the given first byte (0x02 = setup, 0x00 = system data).
@@ -107,11 +107,11 @@ TEST_F(SolxpowCanInverterTest, SystemDataRequestSendsAllDataFrames) {
 // ---------------------------------------------------------------------------
 
 TEST_F(SolxpowCanInverterTest, DataFrameEncodesVoltageCurrentTemperatureSocSoh) {
-  datalayer.battery.status.voltage_dV          = 3700;
+  datalayer.battery.status.voltage_dV = 3700;
   datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-200);  // -20.0 A
-  datalayer.battery.status.temperature_max_dC  = 300;  // +1000 offset → 1300
-  datalayer.battery.status.reported_soc        = 7500;  // 75.00 % → 75
-  datalayer.battery.status.soh_pptt            = 9800;  // 98.00 % → 98
+  datalayer.battery.status.temperature_max_dC = 300;                          // +1000 offset → 1300
+  datalayer.battery.status.reported_soc = 7500;                               // 75.00 % → 75
+  datalayer.battery.status.soh_pptt = 9800;                                   // 98.00 % → 98
   solxpow->update_values();
   rx4200(0x00);
 
@@ -128,10 +128,10 @@ TEST_F(SolxpowCanInverterTest, DataFrameEncodesVoltageCurrentTemperatureSocSoh) 
 }
 
 TEST_F(SolxpowCanInverterTest, VoltagesFrameEncodesChargeDischargeAndCurrentLimits) {
-  datalayer.battery.info.max_design_voltage_dV  = 4100;
-  datalayer.battery.info.min_design_voltage_dV  = 2800;
+  datalayer.battery.info.max_design_voltage_dV = 4100;
+  datalayer.battery.info.min_design_voltage_dV = 2800;
   datalayer.battery.settings.user_set_voltage_limits_active = false;
-  datalayer.battery.status.max_charge_current_dA    = 180;
+  datalayer.battery.status.max_charge_current_dA = 180;
   datalayer.battery.status.max_discharge_current_dA = 280;
   solxpow->update_values();
   rx4200(0x00);
@@ -141,17 +141,17 @@ TEST_F(SolxpowCanInverterTest, VoltagesFrameEncodesChargeDischargeAndCurrentLimi
   // charge cutoff = max - VOLTAGE_OFFSET_DV. We need to find out VOLTAGE_OFFSET_DV.
   // The default (no user limits): charge_cutoff = max - VOLTAGE_OFFSET_DV. Since it's
   // not exposed, just assert the relationship: charge cutoff < 4100 and discharge cutoff > 2800.
-  uint16_t charge_cutoff  = u16_le(v->data.u8[0], v->data.u8[1]);
+  uint16_t charge_cutoff = u16_le(v->data.u8[0], v->data.u8[1]);
   uint16_t discharge_cutoff = u16_le(v->data.u8[2], v->data.u8[3]);
-  EXPECT_LE(charge_cutoff, 4100u)  << "charge cutoff must be <= max_design";
+  EXPECT_LE(charge_cutoff, 4100u) << "charge cutoff must be <= max_design";
   EXPECT_GE(discharge_cutoff, 2800u) << "discharge cutoff must be >= min_design";
-  EXPECT_EQ(u16_le(v->data.u8[4], v->data.u8[5]), 180u)  << "charge current LE";
-  EXPECT_EQ(u16_le(v->data.u8[6], v->data.u8[7]), 280u)  << "discharge current LE";
+  EXPECT_EQ(u16_le(v->data.u8[4], v->data.u8[5]), 180u) << "charge current LE";
+  EXPECT_EQ(u16_le(v->data.u8[6], v->data.u8[7]), 280u) << "discharge current LE";
 }
 
 TEST_F(SolxpowCanInverterTest, UserVoltageLimitsOverrideDesignVoltages) {
-  datalayer.battery.settings.user_set_voltage_limits_active    = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV    = 3950;
+  datalayer.battery.settings.user_set_voltage_limits_active = true;
+  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3950;
   datalayer.battery.settings.max_user_set_discharge_voltage_dV = 3050;
   datalayer.battery.info.max_design_voltage_dV = 4100;
   datalayer.battery.info.min_design_voltage_dV = 2800;
@@ -165,7 +165,7 @@ TEST_F(SolxpowCanInverterTest, UserVoltageLimitsOverrideDesignVoltages) {
 }
 
 TEST_F(SolxpowCanInverterTest, ChargeForbiddenByteSetWhenChargeCurrentZero) {
-  datalayer.battery.status.max_charge_current_dA    = 0;
+  datalayer.battery.status.max_charge_current_dA = 0;
   datalayer.battery.status.max_discharge_current_dA = 200;
   solxpow->update_values();
   rx4200(0x00);
@@ -177,7 +177,7 @@ TEST_F(SolxpowCanInverterTest, ChargeForbiddenByteSetWhenChargeCurrentZero) {
 }
 
 TEST_F(SolxpowCanInverterTest, DischargeForbiddenByteSetWhenDischargeCurrentZero) {
-  datalayer.battery.status.max_charge_current_dA    = 200;
+  datalayer.battery.status.max_charge_current_dA = 200;
   datalayer.battery.status.max_discharge_current_dA = 0;
   solxpow->update_values();
   rx4200(0x00);
@@ -189,9 +189,9 @@ TEST_F(SolxpowCanInverterTest, DischargeForbiddenByteSetWhenDischargeCurrentZero
 }
 
 TEST_F(SolxpowCanInverterTest, FaultStateForcesChargeForbiddenAndDischargeForbidden) {
-  datalayer.battery.status.max_charge_current_dA    = 200;
+  datalayer.battery.status.max_charge_current_dA = 200;
   datalayer.battery.status.max_discharge_current_dA = 200;
-  datalayer.system.status.system_status             = FAULT;
+  datalayer.system.status.system_status = FAULT;
   solxpow->update_values();
   rx4200(0x00);
 
@@ -257,7 +257,7 @@ TEST_F(SolxpowCanInverterTest, CellTemperaturesFrameEncodesMaxAndMinLE) {
 
   const CAN_frame* ct = find_frame_with_id(0x4240);
   ASSERT_NE(ct, nullptr);
-  EXPECT_EQ(u16_le(ct->data.u8[0], ct->data.u8[1]), 350u)  << "temp max LE";
+  EXPECT_EQ(u16_le(ct->data.u8[0], ct->data.u8[1]), 350u) << "temp max LE";
   EXPECT_EQ(static_cast<int16_t>(u16_le(ct->data.u8[2], ct->data.u8[3])), -100) << "temp min signed LE";
 }
 
@@ -268,8 +268,8 @@ TEST_F(SolxpowCanInverterTest, CellTemperaturesFrameEncodesMaxAndMinLE) {
 TEST_F(SolxpowCanInverterTest, CustomCellCountAppearsIn7320AfterSetup) {
   delete inverter;
   inverter = nullptr;
-  user_selected_inverter_cells    = 200;
-  user_selected_inverter_modules  = 5;
+  user_selected_inverter_cells = 200;
+  user_selected_inverter_modules = 5;
   setup_inverter();
   solxpow = static_cast<SolxpowInverter*>(inverter);
   clear_transmitted_frames();

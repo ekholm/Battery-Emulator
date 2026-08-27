@@ -3,8 +3,8 @@
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/SMA-SBS-BYD-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/SMA-SBS-BYD-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the SMA SBS compatible BYD Battery-Box HVS CAN driver.
@@ -96,8 +96,7 @@ TEST_F(SmaSbsBydCanInverterTest, PairingFlagsResetsAfterFirstTransmitCall) {
   clear_transmitted_frames();
 
   sbs->transmit_can(2);  // second call with no new pairing → no init frames
-  EXPECT_EQ(count_frames_with_id(0x558), 0u)
-      << "Init burst must only fire once per pairing event";
+  EXPECT_EQ(count_frames_with_id(0x558), 0u) << "Init burst must only fire once per pairing event";
 }
 
 // ── Periodic cadence (contactors_engaged == 1) ────────────────────────────────
@@ -121,8 +120,7 @@ TEST_F(SmaSbsBydCanInverterTest, HundredMsCadenceBlockedWithContactorsOpen) {
 
   datalayer.system.status.contactors_engaged = 0;
   sbs->transmit_can(INTERVAL_100_MS + 1);
-  EXPECT_EQ(count_frames_with_id(0x358), 0u)
-      << "100ms cadence must be gated on contactors_engaged == 1";
+  EXPECT_EQ(count_frames_with_id(0x358), 0u) << "100ms cadence must be gated on contactors_engaged == 1";
 }
 
 // ── TX payload – frame 0x358 (limits) ────────────────────────────────────────
@@ -284,12 +282,8 @@ TEST_F(SmaSbsBydCanInverterTest, ErrorFlagByte2Is0x6AWhenBatteryForbids) {
 // ── RX – aliveness ────────────────────────────────────────────────────────────
 
 TEST_F(SmaSbsBydCanInverterTest, KnownRxFramesRefreshAliveness) {
-  for (uint32_t id : {0x360u, 0x3E0u, 0x420u,
-                      0x560u, 0x561u, 0x562u, 0x563u,
-                      0x564u, 0x565u, 0x566u, 0x567u,
-                      0x5E0u, 0x5E1u, 0x5E2u, 0x5E3u,
-                      0x5E4u, 0x5E5u, 0x5E6u, 0x5E7u,
-                      0x62Cu, 0x660u}) {
+  for (uint32_t id : {0x360u, 0x3E0u, 0x420u, 0x560u, 0x561u, 0x562u, 0x563u, 0x564u, 0x565u, 0x566u, 0x567u,
+                      0x5E0u, 0x5E1u, 0x5E2u, 0x5E3u, 0x5E4u, 0x5E5u, 0x5E6u, 0x5E7u, 0x62Cu, 0x660u}) {
     datalayer.system.status.CAN_inverter_still_alive = 0;
     CAN_frame f = {.FD = false, .ext_ID = false, .DLC = 8, .ID = id, .data = {0}};
     sbs->map_can_frame_to_variable(f);
