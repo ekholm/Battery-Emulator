@@ -1,6 +1,7 @@
 #include "ElegantOTA.h"
 
 #include "../../../devboard/safety/safety.h"
+#include "../../../devboard/utils/flash_write_broker.h"
 
 ElegantOTAClass::ElegantOTAClass(){}
 
@@ -64,9 +65,17 @@ void ElegantOTAClass::begin(ELEGANTOTA_WEBSERVER *server){
           _current_progress_size = 0;
         }
 
-        // Write chunked data to the free sketch space
+        // Write chunked data to the free sketch space.
+        // Brokered: UpdateClass buffers to a whole flash sector and
+        // flushes it as an erase plus a program, which is by far the longest
+        // cache-off window the firmware produces at runtime. A chunk never
+        // exceeds a sector, so one chunk is at most one flush - the shortest
+        // unit this API can be asked for - and the broker drains the CAN
+        // receive FIFOs before it and yields after it.
         if(len){
-            if (Update.write(data, len) != len) {
+            size_t written = 0;
+            flash_write_broker().run([&]() { written = Update.write(data, len); });
+            if (written != len) {
                 return request->send(400, "text/plain", "FailWrite");
             }
             _current_progress_size += len;
@@ -75,7 +84,12 @@ void ElegantOTAClass::begin(ELEGANTOTA_WEBSERVER *server){
         }
             
         if (final) { // if the final flag is set then this is the last frame of data
-            if (!Update.end(true)) { //true to set the size to the current progress
+            // end() flushes the last partial sector and rewrites the OTA data
+            // partition, so it is another erase-bearing window and is brokered
+            // the same way.
+            bool ended = false;
+            flash_write_broker().run([&]() { ended = Update.end(true); }); //true to set the size to the current progress
+            if (!ended) {
                 // Save error to string
                 StreamString str;
                 Update.printError(str);

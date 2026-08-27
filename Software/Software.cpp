@@ -22,6 +22,7 @@
 #include "src/devboard/safety/parallel_safety.h"
 #include "src/devboard/sdcard/sdcard.h"
 #include "src/devboard/utils/events.h"
+#include "src/devboard/utils/flash_write_broker.h"
 #include "src/devboard/utils/led_handler.h"
 #include "src/devboard/utils/logging.h"
 #include "src/devboard/utils/ota_confirm_gate.h"
@@ -57,6 +58,10 @@ uint64_t start_time_values = 0;
 uint64_t start_time_cantx = 0;
 TaskHandle_t main_loop_task;
 TaskHandle_t connectivity_loop_task;
+// The task that owns the CAN receive FIFOs. core_loop publishes its own handle
+// here before its first drain; until then the broker has no owner to wait for
+// and drains in line instead.
+static TaskHandle_t can_owner_task = nullptr;
 #ifdef SDCARD
 TaskHandle_t logging_loop_task;
 #endif
@@ -599,8 +604,50 @@ void check_reset_reason() {
   }
 }
 
+// Teach the flash-write broker what this platform is. Installed before the
+// first stored setting is read, so that even a boot-time migration write is
+// measured; the drain half only starts working once core_loop is up.
+static void init_flash_write_broker() {
+  FlashWriteBroker::Hooks hooks;
+
+  hooks.now_us = []() {
+    return (uint64_t)esp_timer_get_time();
+  };
+
+  // One tick. core_loop drains every tick, so a single delay is one drain pass.
+  hooks.gap = []() {
+    vTaskDelay(1);
+  };
+
+  // A task may wait for the owner's acknowledgement only if there is an owner
+  // and it is somebody else. The owner writes settings too (the inverter
+  // watchdog save lives in its own 1 s branch) and would wait for itself.
+  hooks.may_wait = []() {
+    return can_owner_task != nullptr && xTaskGetCurrentTaskHandle() != can_owner_task;
+  };
+
+  // Used only when may_wait() said no, so this never runs alongside core_loop's
+  // own drain: either the caller IS core_loop, or core_loop does not exist yet.
+  hooks.drain_in_line = []() {
+    receive_can();
+  };
+
+  hooks.report = [](const FlashWriteBroker::StormSummary& storm) {
+    DEBUG_PRINTF(
+        "Flash storm: %u writes, longest operation %u us, %u us total, longest CAN drain gap %u us, %u drain "
+        "timeouts\n",
+        storm.operations, storm.longest_operation_us, (unsigned)storm.total_operation_us, storm.longest_drain_gap_us,
+        storm.drain_timeouts);
+  };
+
+  flash_write_broker().set_hooks(hooks);
+}
+
 void core_loop(void*) {
   esp_task_wdt_add(NULL);  // Register this task with WDT
+  // Claim ownership of the receive FIFOs before the first drain, so a flash
+  // write from another task waits for this task instead of draining in line.
+  can_owner_task = xTaskGetCurrentTaskHandle();
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(1);  // Convert 1ms to ticks
   int loopPhase = 0;
@@ -609,8 +656,13 @@ void core_loop(void*) {
     START_TIME_MEASUREMENT(all);
     START_TIME_MEASUREMENT(comm);
 
-    // Input, Runs as fast as possible
-    receive_can();    // Receive CAN messages
+    // Input, Runs as fast as possible.
+    // Bracketed for the flash-write broker: a writer waiting for an empty FIFO
+    // is released by a drain that started AFTER it asked, never by one already
+    // in progress when the request arrived.
+    flash_write_broker().drain_starting();
+    receive_can();  // Receive CAN messages
+    flash_write_broker().drain_completed();
     receive_rs485();  // Process serial2 RS485 interface
 
     END_TIME_MEASUREMENT_MAX(comm, datalayer.system.status.time_comm_us);
@@ -681,6 +733,10 @@ void core_loop(void*) {
 
       update_restart_progress();  // Check if we need to restart the ESP32
 
+      // Report a finished burst of flash writes. Without this the summary would
+      // wait for the next write, which may be days away.
+      flash_write_broker().poll();
+
       END_TIME_MEASUREMENT_MAX(values, datalayer.system.status.time_values_us);
     }
     START_TIME_MEASUREMENT(cantx);
@@ -741,6 +797,8 @@ void setup() {
   DEBUG_PRINTF("Battery emulator %s build " __DATE__ " " __TIME__ "\n", version_number);
 
   init_events();
+
+  init_flash_write_broker();
 
   init_stored_settings();
 

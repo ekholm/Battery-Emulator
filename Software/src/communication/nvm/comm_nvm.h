@@ -6,6 +6,7 @@
 #include <limits>
 #include "../../datalayer/datalayer.h"
 #include "../../devboard/utils/events.h"
+#include "../../devboard/utils/flash_write_broker.h"
 #include "../../devboard/utils/logging.h"
 #include "../../devboard/wifi/wifi.h"
 
@@ -51,6 +52,18 @@ void clear_wifi_sta_settings();
 
 // Wraps the Preferences object begin/end calls, so that the scope of this object
 // runs them automatically (via constructor/destructor).
+//
+// Every write goes through flash_write_broker(): one NVS key is the
+// shortest flash operation this API can issue, so a save of N changed keys
+// becomes N short cache-off windows with a CAN drain between them, instead of
+// one stall as long as the whole save. The reads are not brokered - they run
+// with the cache on and stall nothing.
+//
+// Batching the keys into one commit would NOT help: Preferences::putX calls
+// nvs_commit() per key, and nvs_commit() is a no-op in IDF ("no-op for now, to
+// be used when intermediate cache is added", nvs_api.cpp) - the entry is
+// already in flash when nvs_set_* returns. The write count is the key count,
+// and the interleave is what shortens the windows.
 class BatteryEmulatorSettingsStore {
  public:
   BatteryEmulatorSettingsStore(bool readOnly = false) {
@@ -62,7 +75,9 @@ class BatteryEmulatorSettingsStore {
   ~BatteryEmulatorSettingsStore() { settings.end(); }
 
   void clearAll() {
-    settings.clear();
+    // The one call here that erases whole pages rather than programming an
+    // entry, so the longest window a settings operation can produce.
+    flash_write_broker().run([&]() { settings.clear(); });
     settingsUpdated = true;
   }
 
@@ -74,7 +89,7 @@ class BatteryEmulatorSettingsStore {
     // isKey() check instead of a sentinel default: saving a value equal to the
     // sentinel into a missing key must not be skipped.
     if (!settings.isKey(name) || getInt(name, 0) != value) {
-      settings.putInt(name, value);
+      flash_write_broker().run([&]() { settings.putInt(name, value); });
       settingsUpdated = true;
     }
   }
@@ -87,7 +102,7 @@ class BatteryEmulatorSettingsStore {
     // isKey() check instead of a sentinel default: saving a value equal to the
     // sentinel into a missing key must not be skipped.
     if (!settings.isKey(name) || getUInt(name, 0) != value) {
-      settings.putUInt(name, value);
+      flash_write_broker().run([&]() { settings.putUInt(name, value); });
       settingsUpdated = true;
     }
   }
@@ -96,7 +111,7 @@ class BatteryEmulatorSettingsStore {
 
   void removeKey(const char* name) {
     if (settings.isKey(name)) {
-      settings.remove(name);
+      flash_write_broker().run([&]() { settings.remove(name); });
       settingsUpdated = true;
     }
   }
@@ -109,7 +124,7 @@ class BatteryEmulatorSettingsStore {
     // isKey() check: a stored 'false' must not be mistaken for a missing key,
     // or the first save of a false value would be skipped and never persisted.
     if (!settings.isKey(name) || getBool(name, false) != value) {
-      settings.putBool(name, value);
+      flash_write_broker().run([&]() { settings.putBool(name, value); });
       settingsUpdated = true;
     }
   }
@@ -124,7 +139,7 @@ class BatteryEmulatorSettingsStore {
     // isKey() check: a stored empty string must not be mistaken for a missing
     // key, or the first save of an empty value would be skipped.
     if (!settings.isKey(name) || getString(name, "") != String(value)) {
-      settings.putString(name, value);
+      flash_write_broker().run([&]() { settings.putString(name, value); });
       settingsUpdated = true;
     }
   }

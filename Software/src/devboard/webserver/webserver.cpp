@@ -19,6 +19,7 @@
 #include "../network/network_status.h"
 #include "../sdcard/sdcard.h"
 #include "../utils/events.h"
+#include "../utils/flash_write_broker.h"
 #include "../utils/led_handler.h"
 #include "../utils/millis64.h"
 #include "../utils/time_format.h"
@@ -712,10 +713,8 @@ void init_webserver() {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3.auto_calibrate_soc_enabled = enabled;
-      Preferences prefs;
-      prefs.begin("batterySettings", false);
-      prefs.putBool("BYDAUTOCALEN", enabled);
-      prefs.end();
+      BatteryEmulatorSettingsStore settings;
+      settings.saveBool("BYDAUTOCALEN", enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -726,10 +725,8 @@ void init_webserver() {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
         datalayer_extended.bydAtto3.auto_calibrate_soc_drift_percent = (uint8_t)value;
-        Preferences prefs;
-        prefs.begin("batterySettings", false);
-        prefs.putUInt("BYDAUTOCALDRIFT", (uint8_t)value);
-        prefs.end();
+        BatteryEmulatorSettingsStore settings;
+        settings.saveUInt("BYDAUTOCALDRIFT", (uint8_t)value);
       }
     }
     request->send(200, "text/plain", "OK");
@@ -797,10 +794,8 @@ void init_webserver() {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3.keep_iso_disabled = enabled;
       datalayer_extended.bydAtto3_2.keep_iso_disabled = enabled;
-      Preferences prefs;
-      prefs.begin("batterySettings", false);
-      prefs.putBool("BYDKEEPISOOFF", enabled);
-      prefs.end();
+      BatteryEmulatorSettingsStore settings;
+      settings.saveBool("BYDKEEPISOOFF", enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -818,10 +813,8 @@ void init_webserver() {
     if (request->hasParam("value")) {
       bool enabled = request->getParam("value")->value().toInt() != 0;
       datalayer_extended.bydAtto3_2.auto_calibrate_soc_enabled = enabled;
-      Preferences prefs;
-      prefs.begin("batterySettings", false);
-      prefs.putBool("BYDAUTOCALEN2", enabled);
-      prefs.end();
+      BatteryEmulatorSettingsStore settings;
+      settings.saveBool("BYDAUTOCALEN2", enabled);
     }
     request->send(200, "text/plain", "OK");
   });
@@ -831,10 +824,8 @@ void init_webserver() {
       int value = request->getParam("value")->value().toInt();
       if (value >= 1 && value <= 20) {
         datalayer_extended.bydAtto3_2.auto_calibrate_soc_drift_percent = (uint8_t)value;
-        Preferences prefs;
-        prefs.begin("batterySettings", false);
-        prefs.putUInt("BYDAUTOCALDRFT2", (uint8_t)value);
-        prefs.end();
+        BatteryEmulatorSettingsStore settings;
+        settings.saveUInt("BYDAUTOCALDRFT2", (uint8_t)value);
       }
     }
     request->send(200, "text/plain", "OK");
@@ -1117,6 +1108,23 @@ String processor(const String& var) {
       content += "<h4>Values function timing: " + String(datalayer.system.status.time_snap_values_us) + " us</h4>";
       content += "<h4>CAN/serial RX function timing: " + String(datalayer.system.status.time_snap_comm_us) + " us</h4>";
       content += "<h4>CAN TX function timing: " + String(datalayer.system.status.time_snap_cantx_us) + " us</h4>";
+      // Flash windows. The drain gap is the number that matters: while flash is
+      // busy the cache is off, no task runs and nothing drains the CAN
+      // controllers, so that is what the receive FIFOs have to cover on their
+      // own. The operation time is the brokered call, which for an OTA chunk
+      // contains several such windows with the cache back on between them.
+      const FlashWriteBroker::Stats& flash = flash_write_broker().stats();
+      content += "<h4>Flash writes: " + String(flash.operations) +
+                 ", longest operation: " + String(flash.longest_operation_us) +
+                 " us, longest CAN drain gap: " + String(flash.longest_drain_gap_us) +
+                 " us, drain timeouts: " + String(flash.drain_timeouts) + "</h4>";
+      // The burst line is per-storm throughout, timeouts included - the
+      // lifetime count above answers "has this ever happened", this one
+      // answers "did it happen during the save I just made".
+      content += "<h4>Last flash burst: " + String(flash.storm_operations) +
+                 " writes, longest operation: " + String(flash.storm_longest_operation_us) +
+                 " us, longest drain gap: " + String(flash.storm_longest_drain_gap_us) +
+                 " us, drain timeouts: " + String(flash.storm_drain_timeouts) + "</h4>";
     }
 
     // SSID/RSSI/channel are WiFi-specific; only show them when configured
