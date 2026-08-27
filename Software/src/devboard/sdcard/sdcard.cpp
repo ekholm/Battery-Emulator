@@ -19,6 +19,46 @@ bool delete_log_file = false;
 
 bool sd_card_active = false;
 
+/* Every SD failure below used to be discarded.
+ *
+ * EVENT_SD_INIT_FAILED guards the MOUNT only, so anything that killed the card
+ * AFTER mounting - the SPI bus collision fixed alongside this, a pulled card,
+ * one, a bad connector - left the user with an empty or truncated CAN log and no
+ * event anywhere. `SD.open()` hands back a File that is falsy when the open
+ * failed and `write()` returns what it actually wrote; both were dropped on the
+ * floor. `flush()` returns void, so it cannot report and is not checked.
+ *
+ * LATCHED on purpose - but what prevents log spam is NOT the latching.
+ * set_event_internal() emits a log line only on the inactive->active edge, and
+ * an event stays active however it was set, so a plain set_event() would also
+ * log once and then only bump the occurrence count. What latched actually buys
+ * is that clear_event() cannot clear it: the record of a failure whose evidence
+ * is MISSING data survives until the user resets the events page, the same
+ * shape as EVENT_SD_INIT_FAILED beside it.
+ *
+ * WARNING, not ERROR, matching EVENT_SD_INIT_FAILED beside it: update_bms_status()
+ * turns any active error into system_status = FAULT, and losing an optional log
+ * is not a reason to fault a running emulator.
+ */
+static void report_sd_write_failure() {
+  set_event_latched(EVENT_SD_WRITE_FAILED, 0);
+}
+
+/* Open a log file and say whether it worked.
+ *
+ * The `is_open` flag was previously set to true unconditionally next to every
+ * SD.open(), which is what turned ONE failed open into an unbounded run of
+ * writes to an invalid File - each of them also silent.
+ */
+static bool open_sd_log_file(File& file, const char* path, bool& is_open) {
+  file = SD.open(path, FILE_APPEND);
+  is_open = (bool)file;
+  if (!is_open) {
+    report_sd_write_failure();
+  }
+  return is_open;
+}
+
 void delete_can_log() {
   can_logging_paused = true;
   delete_can_file = true;
@@ -26,8 +66,7 @@ void delete_can_log() {
 
 void resume_can_writing() {
   can_logging_paused = false;
-  can_log_file = SD.open(CAN_LOG_FILE, FILE_APPEND);
-  can_file_open = true;
+  open_sd_log_file(can_log_file, CAN_LOG_FILE, can_file_open);
 }
 
 void pause_can_writing() {
@@ -46,8 +85,7 @@ void delete_log() {
 
 void resume_log_writing() {
   logging_paused = false;
-  log_file = SD.open(LOG_FILE, FILE_APPEND);
-  log_file_open = true;
+  open_sd_log_file(log_file, LOG_FILE, log_file_open);
 }
 
 void pause_log_writing() {
@@ -116,12 +154,26 @@ void write_can_frame_to_sdcard() {
     }
 
     if (can_file_open == false) {
-      can_log_file = SD.open(CAN_LOG_FILE, FILE_APPEND);
-      can_file_open = true;
+      if (!open_sd_log_file(can_log_file, CAN_LOG_FILE, can_file_open)) {
+        // Stop through the existing pause machinery rather than retrying every
+        // pass: the card is not going to come back on its own. Nothing offers a
+        // bare "resume" control today - what actually re-opens the file
+        // is exporting or deleting the log (both routes end in resume) or a
+        // reboot, and the event text names those.
+        can_logging_paused = true;
+        vRingbufferReturnItem(can_bufferHandle, (void*)buffer);
+        return;
+      }
     }
 
-    can_log_file.write(buffer, receivedMessageSize);
+    const size_t can_written = can_log_file.write(buffer, receivedMessageSize);
     can_log_file.flush();
+    if (can_written != receivedMessageSize) {
+      report_sd_write_failure();
+      can_log_file.close();
+      can_file_open = false;
+      can_logging_paused = true;
+    }
 
     vRingbufferReturnItem(can_bufferHandle, (void*)buffer);
   }
@@ -155,12 +207,22 @@ void write_log_to_sdcard() {
     }
 
     if (log_file_open == false) {
-      log_file = SD.open(LOG_FILE, FILE_APPEND);
-      log_file_open = true;
+      if (!open_sd_log_file(log_file, LOG_FILE, log_file_open)) {
+        logging_paused = true;
+        vRingbufferReturnItem(log_bufferHandle, (void*)buffer);
+        return;
+      }
     }
 
-    log_file.write(buffer, receivedMessageSize);
+    const size_t log_written = log_file.write(buffer, receivedMessageSize);
     log_file.flush();
+    if (log_written != receivedMessageSize) {
+      report_sd_write_failure();
+      log_file.close();
+      log_file_open = false;
+      logging_paused = true;
+    }
+
     vRingbufferReturnItem(log_bufferHandle, (void*)buffer);
   }
 }
