@@ -324,6 +324,29 @@ TEST(Mcp2515IsrDrain, TheInterruptIsInstalledWithTheFlagThatSurvivesAFlashWrite)
   EXPECT_NE(install.find("return false"), std::string::npos);
 }
 
+TEST(Mcp2515IsrDrain, OscillatorAutodetectionCannotLockTheDrainOut) {
+  const std::string src = driver_source();
+
+  // begin() runs twice when MCP2515_FREQ() is 0 - the devkit and the 3LB, i.e.
+  // every boot on the boards where the drain is otherwise live. The GPIO
+  // interrupt service is installed once for the whole system, so if the first
+  // pass reaches for attachInterrupt() the service is installed WITHOUT
+  // ESP_INTR_FLAG_IRAM and the second pass can only decline. Both passes have
+  // to take the same path.
+  EXPECT_NE(src.find("_isr_interrupt_installed = _isr_drain_requested && installIsrDrainInterrupt();"),
+            std::string::npos)
+      << "the interrupt path is chosen on something other than whether the drain was requested - if "
+         "autodetection is excluded, it installs Arduino's service first and the drain never runs";
+  EXPECT_EQ(src.find("detachInterrupt(digitalPinToInterrupt(_int_pin));\n    reset();"), std::string::npos)
+      << "autodetection tears the pin down with detachInterrupt() directly, which does not remove an "
+         "IDF-registered handler";
+
+  // The drain itself must still stay out of autodetection, which runs the chip
+  // in loopback and would otherwise leave its test frame in the ring.
+  EXPECT_NE(src.find("if (_isr_interrupt_installed && !skip_task_start) {"), std::string::npos)
+      << "the drain goes live during autodetection - its loopback test frame would reach the consumer as traffic";
+}
+
 TEST(Mcp2515IsrDrain, TheRingHasExactlyOneProducer) {
   const std::string task = body_of(driver_source(), "void MCP2515_Lite::canTask(void* pvParameters)");
 
