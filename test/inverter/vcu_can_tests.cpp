@@ -2,9 +2,10 @@
 
 #include "../../Software/src/datalayer/datalayer.h"
 #include "../../Software/src/devboard/hal/hal.h"
+#include "../../Software/src/devboard/utils/common_functions.h"
 #include "../../Software/src/devboard/utils/events.h"
-#include "../../Software/src/inverter/VCU-CAN.h"
 #include "../../Software/src/inverter/INVERTERS.h"
+#include "../../Software/src/inverter/VCU-CAN.h"
 #include "../utils/inverter_test_utils.h"
 
 // Protocol tests for the VCU (Nissan LEAF battery emulation) CAN driver.
@@ -36,6 +37,19 @@ class VcuCanInverterTest : public ::testing::Test {
   VCUInverter* vcu = nullptr;
 };
 
+// Independent re-implementation of the driver's calculate_CRC_Nissan(): the
+// shared Nissan table indexed by (crc ^ byte) over bytes 0-6, result in byte 7.
+// Written out here rather than reused from the driver - the driver's version is
+// file-static, and a test that called it could not tell a broken CRC from a
+// broken expectation.
+uint8_t expected_nissan_crc(const CAN_frame& frame) {
+  uint8_t crc = 0;
+  for (uint8_t j = 0; j < 7; j++) {
+    crc = crctable_nissan_leaf[(crc ^ frame.data.u8[j]) % 256];
+  }
+  return crc;
+}
+
 }  // namespace
 
 TEST_F(VcuCanInverterTest, KnownRxFramesRefreshAliveness) {
@@ -43,8 +57,7 @@ TEST_F(VcuCanInverterTest, KnownRxFramesRefreshAliveness) {
     datalayer.system.status.CAN_inverter_still_alive = 0;
     CAN_frame f = {.FD = false, .ext_ID = false, .DLC = 8, .ID = id, .data = {0}};
     vcu->map_can_frame_to_variable(f);
-    EXPECT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE)
-        << "ID 0x" << std::hex << id;
+    EXPECT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE) << "ID 0x" << std::hex << id;
   }
 }
 
@@ -251,4 +264,109 @@ TEST_F(VcuCanInverterTest, FiveC0ByteCyclesOnEvery500msCall) {
     expected_next = 0x40;
   }
   EXPECT_EQ(f1->data.u8[0], expected_next);
+}
+
+// ---- Byte 7: Nissan CRC -----------------------------------------------------
+//
+// The CRC was described in this file's header but never asserted: breaking
+// calculate_CRC_Nissan() (loop bound 7 -> 6) left every other case in this
+// suite green. A LEAF VCU rejects a frame whose byte 7 does not match, so an
+// unchecked CRC is a silent bus failure, not a cosmetic one.
+
+TEST_F(VcuCanInverterTest, TenMsFramesCarryNissanCrcInByte7) {
+  datalayer.battery.status.max_discharge_power_W = 50000;
+  datalayer.battery.status.max_charge_power_W = 25000;
+  datalayer.battery.status.current_dA = 100;
+  datalayer.battery.status.voltage_dV = 3700;
+
+  vcu->update_values();
+  vcu->transmit_can(INTERVAL_10_MS + 1);
+
+  for (uint32_t id : {0x1DCu, 0x1DBu}) {
+    const CAN_frame* f = find_last_frame_with_id(id);
+    ASSERT_NE(f, nullptr) << "ID 0x" << std::hex << id;
+    EXPECT_EQ(f->data.u8[7], expected_nissan_crc(*f)) << "ID 0x" << std::hex << id;
+  }
+}
+
+TEST_F(VcuCanInverterTest, HundredMsFrame55BCarriesNissanCrcInByte7) {
+  datalayer.battery.status.real_soc = 7550;
+
+  vcu->update_values();
+  vcu->transmit_can(INTERVAL_100_MS + 1);
+
+  const CAN_frame* f = find_last_frame_with_id(0x55B);
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->data.u8[7], expected_nissan_crc(*f));
+}
+
+TEST_F(VcuCanInverterTest, CrcCoversByte6AndSoTracksTheMprunCounter) {
+  // Every payload byte except byte 6 (the mprun10 counter) is held constant
+  // across the two 10 ms edges below, so a CRC that changed between them can
+  // only have done so because byte 6 is inside the covered range. This pins
+  // the loop bound from the payload side: a CRC over bytes 0-5 would repeat.
+  vcu->update_values();
+  vcu->transmit_can(INTERVAL_10_MS + 1);
+  const CAN_frame* first = find_last_frame_with_id(0x1DC);
+  ASSERT_NE(first, nullptr);
+  const uint8_t first_mprun = first->data.u8[6];
+  const uint8_t first_crc = first->data.u8[7];
+
+  clear_transmitted_frames();
+  vcu->transmit_can(2 * (INTERVAL_10_MS + 1));
+  const CAN_frame* second = find_last_frame_with_id(0x1DC);
+  ASSERT_NE(second, nullptr);
+  ASSERT_NE(second->data.u8[6], first_mprun) << "counter must have advanced for this test to mean anything";
+  for (uint8_t i = 0; i < 6; i++) {
+    ASSERT_EQ(second->data.u8[i], first->data.u8[i]) << "byte " << static_cast<int>(i) << " must be unchanged";
+  }
+  EXPECT_NE(second->data.u8[7], first_crc);
+  EXPECT_EQ(second->data.u8[7], expected_nissan_crc(*second));
+}
+
+TEST_F(VcuCanInverterTest, CrcTracksThePayloadNotJustTheCounter) {
+  // Two 100 ms edges with a different SOC each time. Byte 6 also advances, so
+  // this does not isolate the payload on its own - it is the recomputation
+  // that does: an expectation matching a payload-independent CRC would fail.
+  datalayer.battery.status.real_soc = 1000;
+  vcu->update_values();
+  vcu->transmit_can(INTERVAL_100_MS + 1);
+  const CAN_frame* low = find_last_frame_with_id(0x55B);
+  ASSERT_NE(low, nullptr);
+  const uint8_t low_byte0 = low->data.u8[0];
+  EXPECT_EQ(low->data.u8[7], expected_nissan_crc(*low));
+
+  clear_transmitted_frames();
+  datalayer.battery.status.real_soc = 9000;
+  vcu->update_values();
+  vcu->transmit_can(2 * (INTERVAL_100_MS + 1));
+  const CAN_frame* high = find_last_frame_with_id(0x55B);
+  ASSERT_NE(high, nullptr);
+  ASSERT_NE(high->data.u8[0], low_byte0) << "SOC byte must differ for this test to mean anything";
+  EXPECT_EQ(high->data.u8[7], expected_nissan_crc(*high));
+}
+
+// ---- 0x55B byte 2: the alternating sleep-request pattern --------------------
+
+TEST_F(VcuCanInverterTest, Frame55BByte2AlternatesEveryFiveHundredMsGroups) {
+  // counter_55B cycles 0..9; byte 2 is 0xAA for the first five and 0x55 for the
+  // rest. Ten 100 ms edges must therefore produce exactly five of each.
+  uint8_t seen_aa = 0;
+  uint8_t seen_55 = 0;
+  for (uint8_t i = 1; i <= 10; i++) {
+    clear_transmitted_frames();
+    vcu->update_values();
+    vcu->transmit_can(i * (INTERVAL_100_MS + 1));
+    const CAN_frame* f = find_last_frame_with_id(0x55B);
+    ASSERT_NE(f, nullptr) << "edge " << static_cast<int>(i);
+    if (f->data.u8[2] == 0xAA) {
+      seen_aa++;
+    } else if (f->data.u8[2] == 0x55) {
+      seen_55++;
+    } else {
+      ADD_FAILURE() << "byte 2 must be 0xAA or 0x55, got 0x" << std::hex << static_cast<int>(f->data.u8[2]);
+    }
+  }
+  EXPECT_EQ(seen_aa, 5);
+  EXPECT_EQ(seen_55, 5);
 }
