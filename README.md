@@ -111,6 +111,41 @@ Note: drafted with AI assistance, reviewed by me.
 
 ---
 
+**OTA: confirm a new image only after the system has actually run**
+Branch [`ota-confirm-after-run`](https://github.com/ekholm/Battery-Emulator/tree/ota-confirm-after-run) @ `e338c48f` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ota-confirm-after-run)
+A firmware update that cannot run is permanent today, because arduino-esp32 confirms the image before `setup()` runs - so the bootloader's rollback, which is already enabled, can never fire. This defers confirmation via the framework's own `verifyRollbackLater()` hook until the running system has held together for 42 s. +1,072 B.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+A firmware update that cannot run is permanent today. The board boot-loops, and the only way out is USB - which is why the standing advice for "bricked by update" has become "erase the flash and reconfigure", losing every setting.
+
+That is not for want of a rollback mechanism. `CONFIG_APP_ROLLBACK_ENABLE` is already on, and the bootloader already runs a new image as `PENDING_VERIFY` and restores the previous one if that boot resets before the app confirms itself. What closes the window is arduino-esp32: `initArduino()` calls `esp_ota_mark_app_valid_cancel_rollback()` **before** `setup()` runs, so an update is confirmed before a single line of this firmware has executed. Every crash worth rolling back for happens after that point.
+
+This takes the framework's own opt-out - the weak `verifyRollbackLater()` hook - and moves the confirmation to where it can mean something: **the image is confirmed once the running system has held together for 42 seconds.**
+
+**Why a running system and not the end of `setup()`.** Reaching the end of `setup()` only says the drivers were constructed. The failures that justify a rollback happen after that - the first frames parsed, the first MQTT or HTTP exchange, a watchdog trip under real load. 42 s also clears STA association, TLS-MQTT and autodiscovery bring-up, so first-contact crashes still revert.
+
+The check is one guarded compare at an unconditional point in the 1 ms core task - "both sub-tasks have been alternating for 42 s" is the strongest liveness witness the firmware has, since it means CAN is being serviced and the task watchdog fed every pass. The check only sets a flag; the write happens in ordinary main-task context from `loop()`, because confirming is itself a flash write and belongs on the same path as every other runtime flash write rather than being initiated from the core tick.
+
+**Criteria deliberately rejected**, since they look reasonable: *"all RTOS tasks started"* - starting is cheap, surviving under load is the signal. *Anything externally dependent* (CAN frames seen, WiFi up) - a bench board with no bus, or an offline install, must still be able to confirm, or every reboot reverts a perfectly good image forever.
+
+**A deliberate restart inside the window keeps the update.** The web-UI restart path confirms first if the system is healthy, then reboots. Panics, watchdog resets and brownouts still revert.
+
+**The honest cost to a user, stated plainly:** an image that dies at t = 30 s, or a power cut inside the window, now rolls back where previously it would have been kept. That is the intent - an image that cannot survive its first 42 seconds is not one to keep - but it is a real behaviour change and not only an improvement.
+
+**Evidence.** On a T-CAN485, with a deliberately faulted image OTA'd over a good one: before, OTA -> panic -> reboot -> still dead 200 s later, USB recovery required. After, the board is back on the previous firmware on its own, `otadata` reads `ABORTED` for the failed slot and `VALID` for the running one, and the event log names which version failed. Three further cases pass on hardware: a good update survives 42 s and a reboot; a good update survives a restart issued from the web UI *inside* the window; and a board sitting in first-boot configuration mode confirms there too, so no healthy state exists in which an update is never confirmed.
+
+On the host, 217 tests pass and the policy is now testable in a way it was not before - the 42 s boundary, the once-only latch and the restart arming all run on the host; only the `otadata` mechanics remain bench-only.
+
+Cost is **+1,072 B** of flash (`esp32devkit_330`, baseline and subject built back-to-back from wiped build directories in one lock hold). No sdkconfig change - the flag was never off.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
 ## What is Battery Emulator?
 
 Many manufacturers sell home battery systems to enable homeowners to store power collected from the grid, or renewable sources, to use at times when electricity demand is higher. However almost all of these home battery systems charge a high cost for every kilowatt hour (kWh) of capacity you buy.
