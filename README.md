@@ -261,6 +261,11 @@ Note: drafted with AI assistance, reviewed by me.
 
 ---
 
+*More is in preparation. Ask if it would help to know what is coming; equally, say so if you would
+rather nothing further appeared here.*
+
+---
+
 ## What is Battery Emulator?
 
 Many manufacturers sell home battery systems to enable homeowners to store power collected from the grid, or renewable sources, to use at times when electricity demand is higher. However almost all of these home battery systems charge a high cost for every kilowatt hour (kWh) of capacity you buy.
