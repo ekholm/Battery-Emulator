@@ -102,5 +102,43 @@ CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 # work on every target. Leave commented until you've tested it.
 # # CONFIG_LWIP_IPV6 is not set
 
+# -----------------------------------------------------------------------------
+# LATENCY (not size) - CAN loss across flash writes
+# -----------------------------------------------------------------------------
 
-
+# Erase in 4 KB sectors, never in 64 KB blocks.
+#
+# A flash erase is ATOMIC: the cache is off for the whole command, both cores
+# are parked and nothing drains the CAN controllers' receive FIFOs. The unit is
+# therefore the unit of CAN loss, and the two units are an order of magnitude
+# apart - a sector erase is tens of milliseconds, a 64 KB block erase is
+# hundreds. Nothing on this chip can shorten a command once it is issued
+# (SPI_FLASH_AUTO_SUSPEND does not exist on the ESP32/LX6), so the only lever is
+# which command gets issued.
+#
+# It matters because the OTA path takes the block branch by default: Arduino's
+# UpdateClass calls partitionEraseRange() on 64 KB boundaries whenever a whole
+# block is left (Updater.cpp, `block_erase`), so a firmware upload is a train of
+# multi-hundred-millisecond stalls, not the sector-sized ones the flash-write
+# broker was sized against. With this set, esp_flash_erase_region() takes the
+# sector branch (esp_flash_api.c), and CONFIG_SPI_FLASH_YIELD_DURING_ERASE - on
+# by default, 10 ms - re-enables the cache BETWEEN those sectors, which is where
+# the CAN drain gets to run.
+#
+# MEASURED, LilyGo T-CAN485 #2 (classic ESP32, 4 MB), OTA upload with the
+# flash-write broker in place, longest gap between two CAN drains:
+#
+#   64 KB block erases (this option off):  319 / 332 / 330 ms   (three runs)
+#   4 KB sector erases (this option on) :   82.5 / 81.0 / 81.6 ms
+#
+# So the starvation a CAN receiver has to survive drops about fourfold, and the
+# cost is real rather than slight: the upload runs about half as fast, because
+# erasing 64 KB as sixteen sector commands takes ~1.1 s where one block command
+# takes ~0.33 s. A full 1.88 MB OTA still completes and verifies (40 s).
+#
+# That is the trade this firmware wants - it is a battery emulator on a live
+# bus, and a dropped frame outranks a faster upload - but note what it does NOT
+# buy: 81-82 ms is one sector erase on this part, and no ESP32 CAN controller
+# has a receive FIFO that deep. Zero loss across an OTA needs a driver-side RAM
+# ring sized for 85+ ms, not for the ~50 ms an erase was assumed to cost.
+CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE=y
