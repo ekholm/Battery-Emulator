@@ -758,10 +758,19 @@ bool MCP2515_Lite::enterMode(uint8_t reqop) {
  *
  * With the drain enabled the received frames leave the chip here, before the
  * task is involved at all - that is what survives a flash write, during which
- * every task on both cores is frozen but an IRAM interrupt still runs. The task
- * is still notified, because transmit completions, errors and speed changes are
- * its work; it no longer re-checks the pin, because the pin is level triggered
- * and holds the request itself.
+ * every task on both cores is frozen but an IRAM interrupt still runs. It no
+ * longer re-checks the pin either, because the pin is level triggered and holds
+ * the request itself.
+ *
+ * And it is no longer woken on every frame. Once CANINTE is receive-only this
+ * interrupt fires for exactly one reason, and the drain finishes that reason
+ * before returning - the consumer takes the frames from the ring, not from the
+ * task. Waking it anyway would make it read two registers over the SPI bus for
+ * nothing, and that bus hold is what makes the NEXT interrupt defer: an RX
+ * interrupt scheduling the task's TX work is what turns a quiet drain into the
+ * contention the handover exists to survive. The task's own work arrives with
+ * its own wakes - sendFrame(), changeSpeed(), pause() - and the poll timeout is
+ * the backstop for errors, which never reached the pin in the first place.
  *
  * vTaskNotifyGiveFromISR() is itself IRAM-resident in this build
  * (CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH is off), which is what makes it
@@ -771,21 +780,30 @@ void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg) {
   MCP2515_Lite* instance = static_cast<MCP2515_Lite*>(arg);
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
+  // Without the drain the task has all of the work: the frames are still in
+  // the chip and only it can read them out.
+  bool wake_task = true;
+
   if (instance->_isr_drain_enabled) {
+    wake_task = false;
     if (instance->busTryAcquireIsr()) {
       const bool drained = instance->drainRx();
       instance->busReleaseIsr();
       if (!drained) {
         instance->maskIsrPin();
+        // The pin is off until a task transaction re-arms it, so the
+        // task is the one thing that can undo this.
+        wake_task = true;
       }
     } else {
       instance->_isr_bus_deferrals = instance->_isr_bus_deferrals + 1;
       instance->maskIsrPin();
+      wake_task = true;
     }
   }
 
   // Notify task that there's an interrupt to handle
-  if (instance->_can_task_handle) {
+  if (wake_task && instance->_can_task_handle) {
     vTaskNotifyGiveFromISR(instance->_can_task_handle, &xHigherPriorityTaskWoken);
   }
 

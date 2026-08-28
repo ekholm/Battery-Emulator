@@ -520,6 +520,52 @@ TEST(Mcp2515IsrDrain, AnInterruptThatCouldNotDrainMasksItsOwnPin) {
   }
 }
 
+/* A clean drain is the whole event, so it wakes nobody.
+ *
+ * Once CANINTE is receive-only the interrupt fires for exactly one reason, and
+ * the drain finishes that reason before returning - the consumer takes frames
+ * from the ring, not from the task. Waking the task anyway costs two SPI
+ * transactions per received frame, and while it holds the bus for those the
+ * NEXT interrupt has to defer: an RX interrupt scheduling the task's TX work is
+ * what manufactures the contention the handover exists to survive, and it is
+ * also what leaves a flash window likelier to start with the task holding the
+ * bus - the one case the drain cannot help with.
+ *
+ * The two exceptions are the two that leave work only the task can do: the
+ * drain is off, so the frames are still in the chip; or the pin was masked, and
+ * only a task transaction re-arms it.
+ */
+TEST(Mcp2515IsrDrain, ADrainThatFinishedItsWorkWakesNobody) {
+  const std::string handler = body_of(driver_source(), "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
+
+  const size_t notify = handler.find("vTaskNotifyGiveFromISR(");
+  ASSERT_NE(notify, std::string::npos) << "the interrupt can no longer wake the task at all";
+  EXPECT_NE(handler.find("wake_task &&"), std::string::npos)
+      << "the task is woken on every interrupt - with a receive-only CANINTE that is once per frame, for work it "
+         "does not have, and the bus hold it costs is what makes the next interrupt defer";
+
+  // The default is to wake: only the drain being live may turn it off.
+  EXPECT_NE(handler.find("bool wake_task = true;"), std::string::npos)
+      << "the fallback path no longer wakes the task, and there the frames are still in the chip with only the task "
+         "able to read them out";
+  const size_t off = handler.find("wake_task = false;");
+  ASSERT_NE(off, std::string::npos) << "nothing suppresses the wake, so the drain still pays for a task it does not "
+                                       "need";
+  EXPECT_LT(handler.find("_isr_drain_enabled"), off) << "the wake is suppressed without checking that the drain is "
+                                                        "live";
+
+  // And both paths that mask must turn it back on, or the pin stays off until
+  // the poll timeout.
+  size_t restored = 0;
+  for (size_t at = handler.find("wake_task = true;", off); at != std::string::npos;
+       at = handler.find("wake_task = true;", at + 1)) {
+    restored++;
+  }
+  EXPECT_EQ(restored, 2u) << "the interrupt has two paths that mask the pin and " << restored
+                          << " that ask for the task that re-arms it - a mask nobody re-arms waits for the poll "
+                             "timeout, which is the backstop this item exists to stop relying on";
+}
+
 TEST(Mcp2515IsrDrain, TheTaskRearmsThePinWhenItReleasesTheBus) {
   const std::string release = body_of(driver_source(), "void MCP2515_Lite::busReleaseTask()");
 
