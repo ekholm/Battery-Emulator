@@ -32,7 +32,12 @@ void BydModbusInverter::handle_static_data() {
   static uint16_t* data_array_pointers[] = {si_data, byd_data, battery_data, volt_data, serial_data, static_data};
   static uint16_t data_sizes[] = {sizeof(si_data),   sizeof(byd_data),    sizeof(battery_data),
                                   sizeof(volt_data), sizeof(serial_data), sizeof(static_data)};
-  static uint16_t i = 100;
+  // Plain local, NOT static: a static cursor survives the call, so any
+  // instantiation after the first resumes where the previous one stopped and
+  // writes the identity strings at the wrong addresses. setup() runs once per
+  // boot today, but the drivers-from-store replace-live path re-instantiates
+  // inverter drivers at runtime.
+  uint16_t i = 100;
   for (uint8_t arr_idx = 0; arr_idx < sizeof(data_array_pointers) / sizeof(uint16_t*); arr_idx++) {
     uint16_t data_size = data_sizes[arr_idx];
     for (int j = 0; j < data_size / sizeof(uint16_t); j++) {
