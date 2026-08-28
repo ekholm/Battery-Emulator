@@ -87,6 +87,7 @@ list(FILTER TEST_SOURCES EXCLUDE REGEX "/build/")
 # silently change what is under test whenever upstream adds a driver.
 add_executable(tests
     ${TEST_SOURCES}
+    ../Software/src/devboard/utils/pin_exclusions.cpp
     ../Software/src/devboard/safety/parallel_safety.cpp
     ../Software/src/communication/contactorcontrol/comm_contactorcontrol.cpp
     ../Software/src/communication/precharge_control/precharge_control.cpp
