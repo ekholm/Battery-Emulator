@@ -107,3 +107,26 @@ CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 #   Nano printf drops %f support. This firmware has ~32 float format specifiers
 #   in log/printf calls, so nano format would silently corrupt those lines.
 #   Only revisit after converting those sites to integer/fixed-point formatting.
+
+# -----------------------------------------------------------------------------
+# Keep GPIO interrupt dispatch alive while the flash cache is disabled (wq295).
+#
+# With this OFF, the Arduino GPIO ISR service is not IRAM-resident, so every INT
+# arriving during an NVS commit or an OTA write is MASKED until the window ends
+# - silent CAN FIFO loss. With it ON the dispatcher runs through those windows,
+# which is only safe if every registered handler AND everything it calls is
+# IRAM-resident; otherwise the masked interrupt becomes a cache-off fetch, i.e.
+# a crash instead of data loss.
+#
+# MERGE GATE - this flag must NOT ship ahead of the CAN-FD polled drain
+# (wq243a). On this base there are exactly TWO attachInterrupt registration
+# sites, both vendored, zero project-level users:
+#   - mcp2515_lite's mcp2515_isr_handler: IRAM_ATTR, safe.
+#   - ACAN2517FD: comm_can.cpp hands begin() a flash-resident lambda and the
+#     library's whole isr() chain is flash-resident. With this flag ON, an FD
+#     interrupt during a flash write is a cache-off CRASH on every FD-equipped
+#     board. The polled drain removes that registration entirely; until it is
+#     in the same image, this line stays on this branch only.
+# Re-run that audit before carrying this flag anywhere else.
+# -----------------------------------------------------------------------------
+CONFIG_ARDUINO_ISR_IRAM=y
