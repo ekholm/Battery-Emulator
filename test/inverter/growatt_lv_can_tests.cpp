@@ -13,13 +13,12 @@
 // second, and that triggers the BMS to burst all data frames.  transmit_can()
 // is a no-op; there is no periodic self-initiated TX.
 //
-// NOTE on capacity calculation: the driver computes Ah remaining as
-//   (Wh / voltage_dV) * 100   [integer division]
-// and then stores it in the frame as ampere_hours * 100.  The combined formula
-// is (Wh / voltage_dV) * 10000, which is 10× larger than the correct 10 mAh
-// unit value of Wh * 1000 / voltage_dV.  This appears to be a scaling defect
-// (GROWATT-LV-CAN.cpp lines 18-22 and 72-76), but the tests pin the current
-// behaviour rather than the intended one.
+// NOTE on capacity calculation: since fix/growatt-lv-capacity (wq298) the
+// driver computes ampere-hours as 100 * Wh / voltage_dV (multiply before
+// divide, uint32 intermediate) and packs the frame field as ampere_hours * 10,
+// giving the 10 mAh unit the format wants. The old order of operations was
+// both 10x too large and truncating; growatt_lv_capacity_tests.cpp carries the
+// unit-boundary and saturation coverage that came with the fix.
 
 namespace {
 
@@ -179,24 +178,20 @@ TEST_F(GrowattLvCanInverterTest, Frame313EncodesSocAndSohAsIntegerPercent) {
 
 // ---- Payload: 0x314 (capacity, delta V) ------------------------------------
 
-TEST_F(GrowattLvCanInverterTest, Frame314EncodesCapacityWithCurrentBehaviour) {
-  // NOTE: The formula used is (Wh / voltage_dV) * 100 * 100 for the 16-bit
-  // frame field.  This is 10× larger than the 10 mAh unit value.  The test
-  // pins current behaviour; the bug is noted in the file-level comment.
-  datalayer.battery.status.voltage_dV = 3600;                      // must be >10 to update
-  datalayer.battery.status.reported_remaining_capacity_Wh = 3600;  // /3600 = 1, *100 = 100
-  datalayer.battery.info.reported_total_capacity_Wh = 36000;       // /3600 = 10, *100 = 1000
-  //   frame value: remaining = 100 * 100 = 10000, full = 1000 * 100 = 100000 (overflows uint16?)
-  // Let's keep it in range:
-  datalayer.battery.info.reported_total_capacity_Wh = 3600;  // full = 100 * 100 = 10000
+TEST_F(GrowattLvCanInverterTest, Frame314EncodesCapacityIn10mAhUnits) {
+  // Post-fix (wq298): ampere_hours = 100 * Wh / voltage_dV, packed * 10.
+  // 3600 Wh at 360.0 V is 10.0 Ah -> 1000 in the 10 mAh field.
+  datalayer.battery.status.voltage_dV = 3600;  // must be >10 to update
+  datalayer.battery.status.reported_remaining_capacity_Wh = 3600;
+  datalayer.battery.info.reported_total_capacity_Wh = 3600;
 
   growatt_lv->update_values();
   inverter_poll();
 
   const CAN_frame* f = find_frame_with_id(0x314);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(u16_be(f->data.u8[0], f->data.u8[1]), 10000u);  // remaining
-  EXPECT_EQ(u16_be(f->data.u8[2], f->data.u8[3]), 10000u);  // full
+  EXPECT_EQ(u16_be(f->data.u8[0], f->data.u8[1]), 1000u);  // remaining, 10.00 Ah
+  EXPECT_EQ(u16_be(f->data.u8[2], f->data.u8[3]), 1000u);  // full, 10.00 Ah
 }
 
 TEST_F(GrowattLvCanInverterTest, Frame314EncodesCellDeltaVoltage) {
