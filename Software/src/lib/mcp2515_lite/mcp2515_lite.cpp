@@ -2,7 +2,9 @@
 #include <Arduino.h>
 #include <driver/gpio.h>
 #include <esp_intr_alloc.h>
+#include <hal/gpio_ll.h>
 
+#include "mcp2515_tx_status.h"
 #include "src/devboard/utils/logging.h"
 
 // MCP2515 Opcodes and Registers
@@ -38,6 +40,11 @@
 #define CANINTF_TX1IF 0x08
 #define CANINTF_TX2IF 0x10
 #define CANINTF_ERRIF 0x20
+
+// CANINTE has CANINTF's layout: one enable per flag, same bit.
+#define CANINTE_RX0IE 0x01
+#define CANINTE_RX1IE 0x02
+#define CANINTE_TX0IE 0x04
 
 #define EFLG_TXBO 0x20
 #define EFLG_EWARN 0x01
@@ -75,6 +82,9 @@ void MCP2515_Lite::detachIsrPin() {
   } else {
     detachInterrupt(digitalPinToInterrupt(_int_pin));
   }
+  // Removing the handler disables the pin, so a pending mask has nothing left
+  // to re-arm; leaving the flag set would re-arm a pin nobody handles.
+  _isr_pin_masked = false;
 }
 
 static bool calculateMCP2515Config(uint32_t f_osc, uint32_t can_rate, uint8_t* cnf) {
@@ -186,8 +196,18 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   writeRegister(REG_RXB0CTRL, 0x64);  // enable rollover for double-buffered rx
   writeRegister(REG_RXB1CTRL, 0x60);
 
-  // Enable interrupts for TX2, TX1, TX0, RX1 and RX0
-  modifyRegister(REG_CANINTE, 0x07, 0b00011111);
+  /* Receive interrupts only. The mask names TX0IE because clearing
+     * it is the point, not because it survives.
+     *
+     * Every source that can pull /INT low has to clear itself, or the level
+     * trigger below never releases. READ RX BUFFER clears RXnIF on the chip
+     * select's rising edge, so a receive flag is gone before the interrupt
+     * returns; TXnIF and ERRIF need a register write, which only the task makes
+     * - and the task is frozen for the whole of a flash write, which is the one
+     * window this path exists for. Transmit liveness does not need the pin: the
+     * task asks READ STATUS which buffers are free, and sendFrame() wakes it.
+     */
+  modifyRegister(REG_CANINTE, CANINTE_RX0IE | CANINTE_RX1IE | CANINTE_TX0IE, CANINTE_RX0IE | CANINTE_RX1IE);
 
   // Baudrate setup
   applySpeedConfig(speed);
@@ -204,6 +224,23 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
     readRegister(REG_CANSTAT);
     if (_iram_spi.bind(_isr_spi_bus, _cs)) {
       _isr_drain_enabled = true;
+      /* Level triggering, and only now.
+             *
+             * An edge is a one-shot: a frame that arrives while the interrupt
+             * is deferring to the task pulls /INT low once, and if that fall is
+             * not acted on nothing brings it back. Inside a flash window the
+             * task cannot act on it, so the frames waited for the 1000 ms
+             * backstop - a second of traffic, which is the loss this item
+             * exists to remove. A level is not consumed by being read: it
+             * states that the chip still holds frames, and it releases itself
+             * when the drain reads them out.
+             *
+             * The interrupt has to be draining for that to hold, which is why
+             * this waits for the register-level SPI to bind. Where the task
+             * drains, the level would simply be re-entered until the task got
+             * to run.
+             */
+      gpio_set_intr_type((gpio_num_t)_int_pin, GPIO_INTR_LOW_LEVEL);
     } else {
       DEBUG_PRINTF("MCP2515: no register-level SPI for bus %u, draining in the task\n", _isr_spi_bus);
     }
@@ -248,6 +285,11 @@ bool MCP2515_Lite::installIsrDrainInterrupt() {
     // autodetected, and the second install would report it already there.
     _isr_service_owned = true;
   }
+  /* An edge until the drain is actually live: autodetection installs the
+     * interrupt too, and binding the register-level SPI can still fail, and a
+     * level nobody drains is a level nobody clears. begin() switches the pin to
+     * GPIO_INTR_LOW_LEVEL at the point where there is a drain behind it.
+     */
   if (gpio_set_intr_type((gpio_num_t)_int_pin, GPIO_INTR_NEGEDGE) != ESP_OK) {
     return false;
   }
@@ -339,6 +381,39 @@ void MCP2515_Lite::busReleaseTask() {
   }
   __sync_synchronize();
   _task_wants_bus = false;
+  /* Give the pin back to an interrupt that had to defer to this transaction
+     *. /INT is still low, so enabling it re-enters the interrupt at
+     * once and the frames leave the chip - which is what makes the level
+     * trigger a retry rather than a lost edge, and why the task needs no drain
+     * of its own.
+     *
+     * The flag is cleared BEFORE the pin is enabled: the interrupt that fires
+     * the instant it comes back may have to mask again, and it must be able to
+     * leave the flag set behind us.
+     */
+  if (_isr_pin_masked) {
+    _isr_pin_masked = false;
+    gpio_ll_intr_enable_on_core(&GPIO, _isr_pin_core, _int_pin);
+  }
+}
+
+/* Hold the interrupt off until the task next releases the SPI bus.
+ *
+ * The pin is level triggered, so an interrupt that returns without having
+ * drained returns to a pin that is still low, and is entered again immediately
+ * - a storm that would starve the very task it is waiting for. Masking turns
+ * "I could not drain" into "drain again the moment the reason is gone": every
+ * task transaction ends in busReleaseTask(), and the task takes the bus at
+ * least once per MCP2515_LITE_POLL_TIMEOUT_MS even with nothing else to do.
+ *
+ * gpio_ll_intr_disable() is an always_inline register write, so this is legal
+ * with the flash cache off. The core is read rather than assumed: the mask is
+ * per core, and this runs on whichever one the GPIO interrupt was allocated on.
+ */
+void IRAM_ATTR MCP2515_Lite::maskIsrPin() {
+  _isr_pin_core = xPortGetCoreID();
+  gpio_ll_intr_disable(&GPIO, _int_pin);
+  _isr_pin_masked = true;
 }
 
 bool IRAM_ATTR MCP2515_Lite::busTryAcquireIsr() {
@@ -363,15 +438,19 @@ void IRAM_ATTR MCP2515_Lite::busReleaseIsr() {
 
 /* Read every frame the chip is holding into the ring.
 *
-* Runs in the interrupt, and in the task when the interrupt deferred to it -
-* never in both at once, because whoever calls it holds the bus, so the ring
-* keeps its single producer.
+* Runs in the interrupt and nowhere else - the task's copy is gone - so
+* the ring has exactly one producer for as long as the drain is live.
+*
+* Returns false when it gave up on a transfer that never completed. The caller
+* needs to know because the receive flags are then still set and the pin is
+* still low: with the level trigger, returning without either draining or
+* masking is an interrupt that fires again immediately and forever.
 *
 * Everything reachable from here must be resident when the flash cache is off:
 * the register-level SPI service, the ring and the decode are all headers or
 * IRAM_ATTR for that reason, and nothing here logs.
 */
-void IRAM_ATTR MCP2515_Lite::drainRx() {
+bool IRAM_ATTR MCP2515_Lite::drainRx() {
   uint8_t cmd_frame[MCP2515_RXB_LENGTH + 1];
   uint8_t rx_frame[MCP2515_RXB_LENGTH + 1];
   MCP2515_Lite_Frame can_frame;
@@ -384,18 +463,20 @@ void IRAM_ATTR MCP2515_Lite::drainRx() {
     * there, and acting on it is worse than not draining: a
     * fabricated CANINTF claims receive flags that are not set, and the
     * buffer reads below then publish frames that were never on the wire.
-    * Give up instead - the pin is still low, so the task's level check
-    * picks the real frames up.
+         * Give up instead, and say so: the chip still holds the frames and the
+         * pin is still low, so the caller masks and the next interrupt after
+         * the task's transaction tries again.
     */
     if (!_iram_spi.transfer(cmd_frame, rx_frame, 3)) {
-      return;
+      return false;
     }
     const uint8_t intf = rx_frame[2];
 
     if ((intf & (CANINTF_RX0IF | CANINTF_RX1IF)) == 0) {
       // Nothing received. Transmit completions and errors are the task's
-      // work, and the interrupt notifies it for those.
-      return;
+      // work, and the interrupt notifies it for those. They no longer
+      // reach the pin, so this is the chip's own "I am done".
+      return true;
     }
 
     for (uint8_t buffer = 0; buffer < 2; buffer++) {
@@ -406,7 +487,7 @@ void IRAM_ATTR MCP2515_Lite::drainRx() {
       // released, so the drain needs no follow-up write to clear it.
       cmd_frame[0] = CMD_READ_RX_BUFFER | (buffer * 4);
       if (!_iram_spi.transfer(cmd_frame, rx_frame, MCP2515_RXB_LENGTH + 1)) {
-        return;
+        return false;
       }
       mcp2515_decode_rx_buffer(&rx_frame[1], can_frame);
       if (_isr_ring.push(can_frame)) {
@@ -414,14 +495,16 @@ void IRAM_ATTR MCP2515_Lite::drainRx() {
       }
     }
   }
+  /* The pass bound was reached with frames still arriving. Every pass read a
+     * buffer out, so this is progress rather than a stuck flag, and the pin is
+     * low because the chip has more - which the next interrupt takes.
+     */
+  return true;
 }
 
 void MCP2515_Lite::canTask(void* pvParameters) {
   MCP2515_Lite* self = static_cast<MCP2515_Lite*>(pvParameters);
   MCP2515_Lite_Frame can_frame;
-
-  // Bits 0, 1, 2 represent TXB0, TXB1, TXB2. Start with all 3 free (0x07)
-  uint8_t tx_free_mask = 0x07;
 
   // Reusable buffers for SPI payloads
   uint8_t cmd_frame[16];
@@ -458,9 +541,14 @@ void MCP2515_Lite::canTask(void* pvParameters) {
 
       // 2. Read the status register to see which interrupts are active
 
-      // cmd_frame[0] = CMD_READ_STATUS;
-      // self->spiTransactionBlocking(cmd_frame, rx_frame, 2);
-      // const uint8_t status = rx_frame[1];
+      /* Which transmit buffers are free is the chip's answer, not a flag
+             * history: READ STATUS carries all three TXREQ bits, and
+             * asking each pass is what a driver that no longer sees transmit
+             * interrupts has instead of a shadow that nothing refreshes.
+             */
+      cmd_frame[0] = CMD_READ_STATUS;
+      self->spiTransactionBlocking(cmd_frame, rx_frame, 2);
+      uint8_t tx_free_mask = mcp2515_tx_free_mask(rx_frame[1]);
 
       cmd_frame[0] = CMD_READ;
       cmd_frame[1] = REG_CANINTF;
@@ -492,21 +580,12 @@ void MCP2515_Lite::canTask(void* pvParameters) {
         }
       }
 
-      // 4. Check for free transmit buffers or errors, and clear interrupt flags if needed
+      // 4. Check for errors, and clear the interrupt flags if needed
 
-      int int_clear_mask = 0;
-      if (intf & CANINTF_TX0IF) {
-        int_clear_mask |= CANINTF_TX0IF;
-        tx_free_mask |= 0x01;
-      }  // TXB0 free
-      if (intf & CANINTF_TX1IF) {
-        int_clear_mask |= CANINTF_TX1IF;
-        tx_free_mask |= 0x02;
-      }  // TXB1 free
-      if (intf & CANINTF_TX2IF) {
-        int_clear_mask |= CANINTF_TX2IF;
-        tx_free_mask |= 0x04;
-      }  // TXB2 free
+      // The transmit flags are acknowledged, not acted on: a completion
+      // says a frame left, while TXREQ above says the buffer can be
+      // loaded again, and only the second question is being asked here.
+      int int_clear_mask = intf & (CANINTF_TX0IF | CANINTF_TX1IF | CANINTF_TX2IF);
 
       if (intf & CANINTF_ERRIF) {  // ERRIF
         if (eflag & (EFLG_TXBO | EFLG_EWARN)) {
@@ -523,7 +602,7 @@ void MCP2515_Lite::canTask(void* pvParameters) {
       // 5. Perform a speed change if requested
 
       if (self->_speed_change_pending) {
-        if (tx_free_mask != 0x07) {
+        if (tx_free_mask != MCP2515_TX_ALL_FREE) {
           // There's still something being sent. If we're at the wrong
           // speed, it probably won't ever send, so wait long enough
           // to give a chance and then change speed anyway.
@@ -551,7 +630,7 @@ void MCP2515_Lite::canTask(void* pvParameters) {
       uint8_t rts_mask = 0;
       if (tx_free_mask > 0) {
         // We have free tx buffers, do we have anything to send?
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < MCP2515_TX_BUFFERS; i++) {
           if ((tx_free_mask & (1 << i)) && xQueueReceive(self->_tx_queue, &can_frame, 0)) {
             // This slot is no longer free
             tx_free_mask &= ~(1 << i);
@@ -584,15 +663,14 @@ void MCP2515_Lite::canTask(void* pvParameters) {
       }
     } while (work_done);
 
-    // The interrupt is edge triggered, so anything that arrived while it was
-    // deferring to this task sits behind a /INT that has already fallen and
-    // will not fall again. Reading the level here is what collects it; the
-    // 1000 ms wake above is only a backstop.
-    if (self->_isr_drain_enabled && digitalRead(self->_int_pin) == LOW) {
-      self->busAcquireTask();
-      self->drainRx();
-      self->busReleaseTask();
-    }
+    /* Nothing re-checks the pin here any more. It is level
+         * triggered, so a frame that arrived while the interrupt was deferring
+         * is still holding /INT low, and the transactions above have each
+         * ended in busReleaseTask() - which re-arms the pin and lets the
+         * interrupt collect it. Doing it from this task was the weak version
+         * of exactly that: task context is frozen for the whole flash window,
+         * which is when the frames need collecting.
+         */
   }
 }
 
@@ -682,7 +760,8 @@ bool MCP2515_Lite::enterMode(uint8_t reqop) {
  * task is involved at all - that is what survives a flash write, during which
  * every task on both cores is frozen but an IRAM interrupt still runs. The task
  * is still notified, because transmit completions, errors and speed changes are
- * its work, and because it is what re-checks the pin level afterwards.
+ * its work; it no longer re-checks the pin, because the pin is level triggered
+ * and holds the request itself.
  *
  * vTaskNotifyGiveFromISR() is itself IRAM-resident in this build
  * (CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH is off), which is what makes it
@@ -694,10 +773,14 @@ void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg) {
 
   if (instance->_isr_drain_enabled) {
     if (instance->busTryAcquireIsr()) {
-      instance->drainRx();
+      const bool drained = instance->drainRx();
       instance->busReleaseIsr();
+      if (!drained) {
+        instance->maskIsrPin();
+      }
     } else {
       instance->_isr_bus_deferrals = instance->_isr_bus_deferrals + 1;
+      instance->maskIsrPin();
     }
   }
 
