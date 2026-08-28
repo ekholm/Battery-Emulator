@@ -144,6 +144,13 @@ class MCP2515_Lite {
   volatile bool _isr_owns_bus = false;
   uint32_t _task_bus_depth = 0;
 
+  // Set when the interrupt had to leave frames on the chip and masked its own
+  // pin to avoid re-entering on the level it did not clear. The task
+  // clears it when it releases the bus, which is the moment the reason is
+  // gone. The core is the one the interrupt runs on; the mask is per core.
+  volatile bool _isr_pin_masked = false;
+  volatile uint32_t _isr_pin_core = 0;
+
   // Background task for handling sequential blocking transfers
 
  private:
@@ -187,10 +194,19 @@ class MCP2515_Lite {
   bool busTryAcquireIsr();
   void busReleaseIsr();
 
-  // Read every frame the chip is holding into the ring. Runs in the
-  // interrupt, and in the task when the interrupt had to defer to it - never
-  // in both at once, because the caller holds the bus.
-  void drainRx();
+  // Mask the level-triggered interrupt pin from inside the interrupt, when it
+  // could not drain and would otherwise be re-entered on the same level for
+  // as long as the reason lasts. busReleaseTask() re-arms it.
+  void maskIsrPin();
+
+  /* Read every frame the chip is holding into the ring. Runs in the interrupt
+     * and nowhere else, so the ring has one producer.
+     *
+     * False means it gave up on a transfer that never completed and the chip is
+     * still holding frames - the caller must mask the pin, or the level it did
+     * not clear brings it straight back.
+     */
+  bool drainRx();
 
   // Install the interrupt with ESP_INTR_FLAG_IRAM. Returns false if the GPIO
   // interrupt service is already installed by someone else, since then its

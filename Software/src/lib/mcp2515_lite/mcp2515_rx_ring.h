@@ -74,9 +74,9 @@ static MCP2515_ISR_INLINE void mcp2515_decode_rx_buffer(const uint8_t* rxb, Fram
 
 /* Single-producer single-consumer ring, sized in frames.
  *
- * The producer is whoever holds the SPI bus - the ISR, or the driver task when
- * the ISR deferred to it - and those two never hold it at once, so there is
- * exactly one writer of `_head` at a time. The consumer is receiveFrame()'s
+ * The producer is the ISR, and only the ISR: the task's copy was removed
+ * of the drain once the pin became level triggered, so there is one writer of
+ * `_head` rather than two that take turns. The consumer is receiveFrame()'s
  * caller and the only writer of `_tail`. No lock: a lock taken in an ISR that a
  * frozen task holds is a spin through the whole flash window, which is the one
  * thing this path must not do.
