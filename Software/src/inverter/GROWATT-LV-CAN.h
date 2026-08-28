@@ -17,8 +17,8 @@ class GrowattLvInverter : public CanInverterProtocol {
   static const int MIN_VOLTAGE_DV = 410;
 
   uint16_t cell_delta_mV = 0;
-  uint16_t ampere_hours_remaining = 0;
-  uint16_t ampere_hours_full = 0;
+  uint32_t remaining_capacity_dAh = 0;  //0.1 Ah
+  uint32_t total_capacity_dAh = 0;      //0.1 Ah
 
   CAN_frame GROWATT_311 = {.FD = false,  //Voltage and charge limits and status
                            .ext_ID = false,
