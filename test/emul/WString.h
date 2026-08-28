@@ -57,6 +57,14 @@ class String {
 
   String operator+(const char* rhs) const { return String(data + std::string(rhs)); }
 
+  // Bounded append and substring search (lets the /log page processor
+  // compile on the host; both match the Arduino String API surface used there).
+  void concat(const char* src, unsigned int n) { data.append(src, n); }
+  int indexOf(const char* needle) const {
+    auto at = data.find(needle);
+    return at == std::string::npos ? -1 : (int)at;
+  }
+
   // Append
   bool concat(const char* rhs) {
     if (!rhs) {

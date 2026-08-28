@@ -48,6 +48,7 @@ static MyTimer ota_progress_timer = MyTimer(1000);
 #include "can_logging_html.h"
 #include "can_replay_html.h"
 #include "cellmonitor_html.h"
+#include "debug_log_status.h"
 #include "debug_logging_html.h"
 #include "events_html.h"
 #include "index_html.h"
@@ -416,7 +417,12 @@ void init_webserver() {
     server.on("/export_log", HTTP_GET, [](AsyncWebServerRequest* request) {
       String logs = String(datalayer.system.info.logged_can_messages);
       if (logs.length() == 0) {
-        logs = "No logs available.";
+        // "Web logging is off", "the CAN logger owns the buffer" and "nothing
+        // was printed" are different claims; rendering them identically is the
+        // same defect the CAN-log readout had, arriving on the debug path.
+        logs = String(debug_log_empty_explanation(datalayer.system.info.web_logging_active,
+                                                  datalayer.system.info.can_logging_active)
+                          .c_str());
       }
 
       String filename = "log_" + format_ms_stamp(millis64()) + ".txt";

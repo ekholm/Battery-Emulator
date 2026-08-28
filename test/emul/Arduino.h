@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "WString.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>

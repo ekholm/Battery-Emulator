@@ -1,6 +1,7 @@
 #include "debug_logging_html.h"
 #include <Arduino.h>
 #include "../../datalayer/datalayer.h"
+#include "debug_log_status.h"
 #include "index_html.h"
 
 char* strnchr(const char* s, int c, size_t n) {
@@ -94,6 +95,12 @@ String debug_logger_processor(void) {
   // Append the first part of the buffer up to the current write offset (which
   // points to the first \0).
   content.concat(datalayer.system.info.logged_can_messages, offset);
+  if (offset == 0 && datalayer.system.info.logged_can_messages[0] == '\0') {
+    // An empty box is as ambiguous as the old export text - say WHY it is empty.
+    content += String(
+        debug_log_empty_explanation(datalayer.system.info.web_logging_active, datalayer.system.info.can_logging_active)
+            .c_str());
+  }
   content += "</PRE>";
 
   // Add JavaScript for navigation

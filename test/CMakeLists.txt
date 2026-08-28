@@ -88,6 +88,7 @@ list(FILTER TEST_SOURCES EXCLUDE REGEX "/build/")
 add_executable(tests
     ${TEST_SOURCES}
     ../Software/src/devboard/safety/parallel_safety.cpp
+    ../Software/src/devboard/webserver/debug_logging_html.cpp
     ../Software/src/communication/contactorcontrol/comm_contactorcontrol.cpp
     ../Software/src/communication/precharge_control/precharge_control.cpp
     ../Software/src/communication/rs485/comm_rs485.cpp
@@ -98,6 +99,7 @@ add_executable(tests
     ../Software/src/devboard/utils/time_format.cpp
     ../Software/src/devboard/utils/common_functions.cpp
     ../Software/src/devboard/utils/ota_confirm_gate.cpp
+    ../Software/src/devboard/webserver/debug_log_status.cpp
     ../Software/src/devboard/utils/led_handler.cpp
     ../Software/src/lib/adafruit-Adafruit_NeoPixel/Adafruit_NeoPixel.cpp
     ../Software/src/datalayer/datalayer.cpp
