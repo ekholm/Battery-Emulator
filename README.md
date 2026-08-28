@@ -261,8 +261,7 @@ Note: drafted with AI assistance, reviewed by me.
 
 ---
 
-*More is in preparation. Ask if it would help to know what is coming; equally, say so if you would
-rather nothing further appeared here.*
+*More is in preparation. Ask if it would help to know what is coming.*
 
 ---
 
