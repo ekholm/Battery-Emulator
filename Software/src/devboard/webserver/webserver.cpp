@@ -21,6 +21,7 @@
 #include "../utils/events.h"
 #include "../utils/led_handler.h"
 #include "../utils/millis64.h"
+#include "../utils/pin_exclusions.h"
 #include "../utils/time_format.h"
 #include "../utils/timer.h"
 #include "../utils/version.h"
@@ -517,6 +518,25 @@ void init_webserver() {
                 request->send(400, "text/plain",
                               "Set a username and password before enabling web interface password protection.");
                 return;
+              }
+
+              // A pin-role pair this board wires to one GPIO must be refused HERE,
+              // where the user can still act on it - stored anyway, it only
+              // surfaces at boot as EVENT_GPIO_CONFLICT out of alloc_pins().
+              // The candidate state is the request's value where present, else
+              // what is already stored.
+              {
+                auto requested_inverter = static_cast<InverterProtocolType>(
+                    request->hasParam("inverter", true) ? atoi(request->getParam("inverter", true)->value().c_str())
+                                                        : (int)settings.getUInt("INVTYPE", 0));
+                auto requested_stop = static_cast<STOP_BUTTON_BEHAVIOR>(
+                    request->hasParam("EQSTOP", true)
+                        ? atoi(request->getParam("EQSTOP", true)->value().c_str())
+                        : (int)settings.getUInt("EQSTOP", (int)STOP_BUTTON_BEHAVIOR::NOT_CONNECTED));
+                if (const char* conflict = pin_exclusion_conflict(requested_inverter, requested_stop)) {
+                  request->send(400, "text/plain", conflict);
+                  return;
+                }
               }
 
               int numParams = request->params();
