@@ -153,7 +153,9 @@ TEST_F(SolaxCanInverterTest, ClosePayloadAdvancesStateMachineToWaitingAndContact
   clear_transmitted_frames();
 
   // Now in CONTACTOR_CLOSED — inverter_allows_contactor_closing must be set.
-  rx1871(PAYLOAD_ANNOUNCE);
+  // Hold the state with PAYLOAD_CLOSE: since the wq297 fix, a byte4=0 frame in
+  // CONTACTOR_CLOSED reads as the open request and revokes in the same frame.
+  rx1871(PAYLOAD_CLOSE);
   EXPECT_TRUE(datalayer.system.status.inverter_allows_contactor_closing);
 }
 
@@ -162,7 +164,7 @@ TEST_F(SolaxCanInverterTest, ContractorStatus1In1875WhenClosed) {
   rx1871(PAYLOAD_CLOSE);     // → WAITING_FOR_CONTACTOR
   rx1871(PAYLOAD_ANNOUNCE);  // → CONTACTOR_CLOSED
   clear_transmitted_frames();
-  rx1871(PAYLOAD_ANNOUNCE);  // stay in CONTACTOR_CLOSED, re-transmit
+  rx1871(PAYLOAD_CLOSE);  // stay in CONTACTOR_CLOSED, re-transmit (byte4=0 would now read as open)
 
   const CAN_frame* status = find_last_frame_with_id(0x1875);
   ASSERT_NE(status, nullptr);
@@ -175,19 +177,16 @@ TEST_F(SolaxCanInverterTest, OpenPayloadInClosedStateResetsToAnnounce) {
   rx1871(PAYLOAD_ANNOUNCE);
   clear_transmitted_frames();
 
-  // Inject open payload. The driver sets allows=true at the top of the
-  // CONTACTOR_CLOSED case, then resets STATE to BATTERY_ANNOUNCE when it
-  // sees the open payload. The allow flag is not revoked within this same
-  // function call — it will be cleared the next time an RX frame drives
-  // through the BATTERY_ANNOUNCE case.
-  // SUSPECTED PRODUCTION DEFECT: there is a one-frame window where STATE
-  // is BATTERY_ANNOUNCE but inverter_allows_contactor_closing is still true
-  // (SOLAX-CAN.cpp, lines ~220-240). We pin current behaviour here.
+  // Inject open payload. The open request must revoke the closing permission
+  // in the same frame (fix/solax-contactor-permission, wq297): the inverter
+  // that just asked to disconnect cannot be relied on to send another frame.
   rx1871(PAYLOAD_OPEN);
-  // After one more ANNOUNCE-state RX, the flag should be cleared.
+  EXPECT_FALSE(datalayer.system.status.inverter_allows_contactor_closing)
+      << "closing permission must not survive the frame carrying the open request";
+  // And the BATTERY_ANNOUNCE pass on the next frame agrees.
   rx1871(PAYLOAD_ANNOUNCE);
   EXPECT_FALSE(datalayer.system.status.inverter_allows_contactor_closing)
-      << "Contactor must be disallowed after open request clears on next ANNOUNCE RX";
+      << "Contactor must stay disallowed once back in ANNOUNCE";
 }
 
 TEST_F(SolaxCanInverterTest, AlwaysClosedModeSkipsStateMachine) {

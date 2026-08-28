@@ -236,6 +236,11 @@ void SolaxInverter::map_can_frame_to_variable(CAN_frame rx_frame) {
           if (rx_frame.data.u64 == Contactor_Open_Payload &&
               configured_contactor_mode == inverter_contactor_mode_enum::NoWorkaround) {
             set_event(EVENT_INVERTER_OPEN_CONTACTOR, 0);
+            // Revoke the closing permission here, not in BATTERY_ANNOUNCE: that case only
+            // runs on the next received frame, so leaving the flag set here keeps the
+            // permission true after the inverter asked to open - indefinitely, if the
+            // inverter goes quiet after asking.
+            datalayer.system.status.inverter_allows_contactor_closing = false;
             STATE = BATTERY_ANNOUNCE;
           }
           break;
