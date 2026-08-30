@@ -242,8 +242,12 @@ class Esp32Hal {
     }
   }
 
-  String failed_allocator() { return allocator_name; }
-  String conflicting_allocator() { return allocated_name; }
+  /* By reference: these are read to build the two GPIO-conflict event messages, and both
+   * readers want the bytes. Returning by value copied a String that the object already owns
+   * and that outlives every caller - the names are set from a string literal and from the
+   * pin map's own std::string, so there is nothing here that a caller can outlive. */
+  const String& failed_allocator() const { return allocator_name; }
+  const String& conflicting_allocator() const { return allocated_name; }
 
  private:
   std::unordered_map<gpio_num_t, std::string> allocated_pins;

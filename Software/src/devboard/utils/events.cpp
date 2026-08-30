@@ -1,6 +1,7 @@
 #include "events.h"
 #include <Arduino.h>
 #include <string.h>  // memchr, for the notice_events lookup
+#include <vector>
 #include "../../datalayer/datalayer.h"
 #include "../../devboard/hal/hal.h"
 #include "../../devboard/utils/logging.h"
@@ -413,9 +414,24 @@ void set_event_MQTTpublished(EVENTS_ENUM_TYPE event) {
   events.entries[event].MQTTpublished = true;
 }
 
-static String get_event_base_message(EVENTS_ENUM_TYPE event) {
+/* The message TEXT, and nothing else: no allocation, no composition. Two callers build on
+ * it - get_event_message() writes bytes into a caller's buffer, get_event_message_string()
+ * builds a String for the HTML page - and they must agree, which a test over every event id
+ * enforces rather than trusting.
+ *
+ * The two GPIO messages are the only composed ones. Their FORMAT lives here so the text stays
+ * in one table with the other 168, and the two builders below fill it in; a third composed
+ * message has to be added to both, and the equivalence test is what will say so. */
+static constexpr const char* GPIO_CONFLICT_FORMAT =
+    "GPIO Pin Conflict: The pin used by '%s' is already allocated by '%s'. Please check your "
+    "configuration and assign different pins.";
+static constexpr const char* GPIO_NOT_DEFINED_FORMAT =
+    "Missing GPIO Assignment: The component '%s' requires a GPIO pin that isn't configured. "
+    "Please define a valid pin number in your settings.";
+
+static const char* get_event_base_message(EVENTS_ENUM_TYPE event) {
   // One label per event: the 2/3 variants share their base's text, the pack number is
-  // appended by get_event_message_string().
+  // appended by get_event_message().
   event = battery_event_base(event);
   switch (event) {
     case EVENT_CANMCP2518FD_INIT_FAILURE:
@@ -678,18 +694,56 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_BMS_RESET_REQ_FAIL:
       return "BMS reset request failed - check contactors are open.";
     case EVENT_GPIO_CONFLICT:
-      return "GPIO Pin Conflict: The pin used by '" + esp32hal->failed_allocator() + "' is already allocated by '" +
-             esp32hal->conflicting_allocator() + "'. Please check your configuration and assign different pins.";
+      return GPIO_CONFLICT_FORMAT;
     case EVENT_GPIO_NOT_DEFINED:
-      return "Missing GPIO Assignment: The component '" + esp32hal->failed_allocator() +
-             "' requires a GPIO pin that isn't configured. Please define a valid pin number in your settings.";
+      return GPIO_NOT_DEFINED_FORMAT;
     default:
       return "";
   }
 }
 
-String get_event_message_string(EVENTS_ENUM_TYPE event) {
-  String message = get_event_base_message(event);
+/* The composed body, without the pack suffix, into a caller-owned buffer. Only the two GPIO
+ * messages have anything to compose; everything else is a straight copy of the table entry.
+ * "%s" rather than the text as a format, because a message is data - a future one containing
+ * a stray '%' must not become a format-string bug. */
+static size_t event_body_into(EVENTS_ENUM_TYPE event, char* buf, size_t len) {
+  const char* text = get_event_base_message(event);
+  int written;
+  switch (event) {
+    case EVENT_GPIO_CONFLICT:
+      written =
+          snprintf(buf, len, text, esp32hal->failed_allocator().c_str(), esp32hal->conflicting_allocator().c_str());
+      break;
+    case EVENT_GPIO_NOT_DEFINED:
+      written = snprintf(buf, len, text, esp32hal->failed_allocator().c_str());
+      break;
+    default:
+      written = snprintf(buf, len, "%s", text);
+      break;
+  }
+  return written > 0 ? (size_t)written : 0;
+}
+
+/* Bytes into a caller-owned buffer, on the snprintf contract: writes at most `len - 1` bytes
+ * plus a NUL and returns the FULL length the message would have taken, so a return >= len
+ * means the caller saw a truncated copy. Returns 0 and writes nothing if `buf` is null or
+ * `len` is 0.
+ *
+ * This exists because most callers want the bytes, not a String: the MQTT publisher, the
+ * ESP-NOW frame and set_event()'s own debug line all took `.c_str()` off the value form on the
+ * next token, paying a heap allocation and a copy for a message that is always well over the
+ * 13-character line below which an Arduino String stays inline.
+ *
+ * The body length and the write offset are deliberately the same variable and NOT clamped:
+ * clamping it to fit the buffer made the suffix land in the right place but the RETURN come
+ * out as "what was written" rather than "what it would have taken", which is precisely the
+ * distinction a caller sizes its next buffer from. */
+size_t get_event_message(EVENTS_ENUM_TYPE event, char* buf, size_t len) {
+  if (buf == nullptr || len == 0) {
+    return 0;
+  }
+  const size_t body = event_body_into(event, buf, len);
+
   /* The three variants of a battery event share one message string, so name the pack here
      rather than storing three near-identical literals each in flash. 0 = not battery specific.
 
@@ -698,15 +752,31 @@ String get_event_message_string(EVENTS_ENUM_TYPE event) {
      always name themselves - their events cannot fire unless that pack exists - so only the
      pack 1 suffix is conditional. */
   const uint8_t battery = event_battery_number(event);
-  if (battery > 1 || (battery == 1 && datalayer.system.info.configured_batteries > 1)) {
-    // Built into a plain buffer and appended as const char*. The native unit-test build
-    // (test/emul/WString.h) only provides String::operator+=(const String&/std::string/const char*),
-    // and has no F() macro, so the Arduino-only integer and char overloads cannot be used here.
-    char suffix[16];
-    snprintf(suffix, sizeof(suffix), " (Battery %u)", (unsigned)battery);
-    message += suffix;
+  if (battery == 0 || (battery == 1 && datalayer.system.info.configured_batteries <= 1)) {
+    return body;
   }
-  return message;
+  char suffix[16];
+  const int suffix_len = snprintf(suffix, sizeof(suffix), " (Battery %u)", (unsigned)battery);
+  if (body + 1 < len) {
+    // The body left room; anything less and snprintf already terminated at the buffer's end.
+    snprintf(buf + body, len - body, "%s", suffix);
+  }
+  return body + (suffix_len > 0 ? (size_t)suffix_len : 0);
+}
+
+String get_event_message_string(EVENTS_ENUM_TYPE event) {
+  char buf[EVENT_MESSAGE_BUF_SIZE];
+  const size_t length = get_event_message(event, buf, sizeof(buf));
+  if (length < sizeof(buf)) {
+    return String(buf);
+  }
+  /* Longer than the stack buffer: ask again with room, rather than truncating a message a
+   * user is meant to act on. Nothing in the table reaches here today - the longest measures
+   * 173 bytes against a 256-byte buffer - so this keeps a future long message honest rather
+   * than being a path that runs. */
+  std::vector<char> heap(length + 1);
+  get_event_message(event, heap.data(), heap.size());
+  return String(heap.data());
 }
 
 const char* get_event_enum_string(EVENTS_ENUM_TYPE event) {
@@ -784,6 +854,21 @@ static bool can_error_ignored(EVENTS_ENUM_TYPE event) {
   return false;
 }
 
+/* Deliberately its own function, and deliberately not inlined.
+ *
+ * The message buffer is 256 bytes, and set_event() is called from every driver and safety
+ * check in the firmware - often deep in a parse. Left inside set_event_internal() it lands in
+ * that function's frame unconditionally, so every set_event() on every path pays it whether or
+ * not anything is logging: measured, 48 bytes of frame became 320. Here the cost is only on
+ * the stack while a NEWLY active event is being logged, which is a state transition, not the
+ * common path. DEBUG_PRINTF is gated at runtime rather than compiled out, so the buffer cannot
+ * simply disappear in a release build. */
+static __attribute__((noinline)) void log_event_message(EVENTS_ENUM_TYPE event) {
+  char message[EVENT_MESSAGE_BUF_SIZE];
+  get_event_message(event, message, sizeof(message));
+  DEBUG_PRINTF("%s (event)\n", message);
+}
+
 static void set_event_internal(EVENTS_ENUM_TYPE event, int16_t data, bool latched) {
   // Just some defensive stuff if someone sets an unknown event
   if (event >= EVENT_NOF_EVENTS) {
@@ -805,7 +890,7 @@ static void set_event_internal(EVENTS_ENUM_TYPE event, int16_t data, bool latche
     events.entries[event].MQTTpublished = false;
 
     LOG_SET_NEXT_SEVERITY(event_syslog_severity(event));
-    DEBUG_PRINTF("%s (event)\n", get_event_message_string(event).c_str());
+    log_event_message(event);
   }
 
   // We should set the event, update event info
