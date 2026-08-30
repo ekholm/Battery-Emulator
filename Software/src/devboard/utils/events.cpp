@@ -166,6 +166,9 @@ void init_events(void) {
   events.entries[EVENT_CANMCP2515_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_2_BUS_ERROR].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CANMCP2515_NOT_INITIALIZED].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CANFD_NOT_INITIALIZED].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CANFD_2_NOT_INITIALIZED].level = EVENT_LEVEL_WARNING;
   /* Use set_battery_event_level() when all battery variants have the same severity.
      Use events.entries[] directly when the severity differs between battery 1/2/3,
      or when the event has no per-battery variants. */
@@ -438,6 +441,23 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_CANFD_BUS_ERROR:
     case EVENT_CANFD_2_BUS_ERROR:
       return "Multiple CAN TX/RX errors. Check wiring!";
+    // One string for the three, the way the buffer-full family shares one: which interface it
+    // was is in the event's own name, which is what the events page, MQTT and ESP-NOW publish.
+    //
+    // Deliberately does NOT promise that this chip raised an error, or that it did so at boot.
+    // Both are reachable and false. init_CAN() abandons the whole function on the first failure,
+    // and three of those exits are in the native branch ABOVE where can2515 is created, so a pin
+    // conflict on the native pins leaves the MCP2515 null having never been initialised at all -
+    // no event of its own to go and read. And begin_canfd()/begin_canfd_2() null their pointer on
+    // failure, and restart_can() calls them, so an add-on can go null on an emulator RESUME after
+    // a boot that worked: it did start, and its init event is not from boot. Sending someone to
+    // look for an error that is not there, or is not where we said, is the same defect this event
+    // exists to end. The native twin's wording is the one to match.
+    case EVENT_CANMCP2515_NOT_INITIALIZED:
+    case EVENT_CANFD_NOT_INITIALIZED:
+    case EVENT_CANFD_2_NOT_INITIALIZED:
+      return "Frames dropped: this CAN chip is not initialized. Check the CAN startup errors, not "
+             "the bus wiring";
     case EVENT_CAN_BATTERY_DETECTED:
       return "Successfully communicating with battery. Battery detected!";
     case EVENT_CAN_BATTERY_MISSING:
