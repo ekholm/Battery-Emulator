@@ -65,8 +65,7 @@ class BatteryEmulatorSettingsStore {
     if (readOnly) {
       return;
     }
-    settings.clear();
-    settingsUpdated = true;
+    noteWrite(settings.clear());
   }
 
   int32_t getInt(const char* name, int32_t defaultValue) {
@@ -80,8 +79,7 @@ class BatteryEmulatorSettingsStore {
     // isKey() check instead of a sentinel default: saving a value equal to the
     // sentinel into a missing key must not be skipped.
     if (!settings.isKey(name) || getInt(name, 0) != value) {
-      settings.putInt(name, value);
-      settingsUpdated = true;
+      noteWrite(settings.putInt(name, value) != 0);
     }
   }
 
@@ -96,8 +94,7 @@ class BatteryEmulatorSettingsStore {
     // isKey() check instead of a sentinel default: saving a value equal to the
     // sentinel into a missing key must not be skipped.
     if (!settings.isKey(name) || getUInt(name, 0) != value) {
-      settings.putUInt(name, value);
-      settingsUpdated = true;
+      noteWrite(settings.putUInt(name, value) != 0);
     }
   }
 
@@ -108,8 +105,7 @@ class BatteryEmulatorSettingsStore {
       return;
     }
     if (settings.isKey(name)) {
-      settings.remove(name);
-      settingsUpdated = true;
+      noteWrite(settings.remove(name));
     }
   }
 
@@ -124,8 +120,7 @@ class BatteryEmulatorSettingsStore {
     // isKey() check: a stored 'false' must not be mistaken for a missing key,
     // or the first save of a false value would be skipped and never persisted.
     if (!settings.isKey(name) || getBool(name, false) != value) {
-      settings.putBool(name, value);
-      settingsUpdated = true;
+      noteWrite(settings.putBool(name, value) != 0);
     }
   }
 
@@ -142,8 +137,14 @@ class BatteryEmulatorSettingsStore {
     // isKey() check: a stored empty string must not be mistaken for a missing
     // key, or the first save of an empty value would be skipped.
     if (!settings.isKey(name) || getString(name, "") != String(value)) {
-      settings.putString(name, value);
-      settingsUpdated = true;
+      // putString() returns the number of bytes written, so the empty string reports 0 on
+      // success - the same value every put reports on failure. That one case is settled by
+      // reading the key back; every other length is conclusive on its own. The read-back is
+      // gated on what is being WRITTEN, not on what the key holds: consulting it for a
+      // non-empty value would report success for a failed write whenever the key already
+      // held an empty string, which is the same silent loss this whole class is here to end.
+      const bool writing_empty_string = String(value).length() == 0;
+      noteWrite(settings.putString(name, value) != 0 || (writing_empty_string && storesEmptyString(name)));
     }
   }
 
@@ -159,6 +160,33 @@ class BatteryEmulatorSettingsStore {
   bool were_settings_updated() const { return settingsUpdated; }
 
  private:
+  /* Records the outcome of one write to the store.
+   *
+   * Preferences::putX() returns 0 and Preferences::remove()/clear() return false when the
+   * underlying NVS call fails, and a full partition is the ordinary way that happens: NVS is
+   * log-structured, so an update appends a new entry and marks the old one erased, and
+   * reclaiming the erased entries needs a free page to compact into. Once there is none, every
+   * save fails. That return used to be discarded and settingsUpdated set regardless, so the
+   * firmware told the user the setting was stored and to reboot to apply it - and the reboot
+   * brought back the old value with nothing reported anywhere.
+   *
+   * EVENT_PERSISTENT_SAVE_INFO does not cover this: it is raised where settings.begin() fails,
+   * and a full store opens perfectly well.
+   */
+  void noteWrite(bool succeeded) {
+    if (succeeded) {
+      settingsUpdated = true;
+    } else {
+      set_event(EVENT_PERSISTENT_SAVE_FAILURE, 0);
+    }
+  }
+
+  // True when the key is present AND holds an empty string, which distinguishes a stored ""
+  // from a key that was never written - the two cases putString() reports identically.
+  bool storesEmptyString(const char* name) {
+    return settings.isKey(name) && settings.getString(name, "").length() == 0;
+  }
+
   Preferences settings;
   const bool readOnly;
 

@@ -247,6 +247,10 @@ void init_events(void) {
   events.entries[EVENT_DUMMY_WARNING].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_DUMMY_ERROR].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_PERSISTENT_SAVE_INFO].level = EVENT_LEVEL_INFO;
+  // Warning, not error: the emulator keeps running the battery correctly, it is only the
+  // persistence that failed. Warning is still enough to colour the LED and the status page,
+  // which is what a silently discarded setting was missing.
+  events.entries[EVENT_PERSISTENT_SAVE_FAILURE].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_SERIAL_RX_WARNING].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_SERIAL_RX_FAILURE].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_SERIAL_TX_FAILURE].level = EVENT_LEVEL_ERROR;
@@ -587,7 +591,13 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_DUMMY_ERROR:
       return "The dummy error event was set!";  // Don't change this event message!
     case EVENT_PERSISTENT_SAVE_INFO:
-      return "Failed to save user settings. Namespace full?";
+      // This one is raised where the settings store will not open at all. It used to say
+      // "Namespace full?", which is the one cause it cannot detect - a full namespace opens
+      // fine and fails at the write, which is EVENT_PERSISTENT_SAVE_FAILURE below.
+      return "Could not open the settings storage. Settings cannot be read or written!";
+    case EVENT_PERSISTENT_SAVE_FAILURE:
+      return "A setting could not be written to flash and was NOT saved. Storage full? Back up "
+             "and reset your settings.";
     case EVENT_SERIAL_RX_WARNING:
       return "Error in serial function: No data received for some time, see data for minutes";
     case EVENT_SERIAL_RX_FAILURE:
