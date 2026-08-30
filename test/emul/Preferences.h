@@ -35,6 +35,18 @@ inline std::map<std::string, std::map<std::string, Value>>& store() {
   return s;
 }
 
+// Whether the partition has run out of room for another entry.
+inline bool& full() {
+  static bool f = false;
+  return f;
+}
+
+// Whether the erase path (nvs_erase_key / nvs_erase_all) is failing.
+inline bool& erase_fails() {
+  static bool f = false;
+  return f;
+}
+
 }  // namespace emul_nvs
 
 // NVS keys are capped at 15 characters plus a terminator; a longer one is
@@ -49,6 +61,28 @@ inline bool emul_nvs_key_is_valid(const char* key) {
 // Wipes every namespace, as if the device had never been written to.
 inline void emul_nvs_reset() {
   emul_nvs::store().clear();
+  emul_nvs::full() = false;
+  emul_nvs::erase_fails() = false;
+}
+
+/* Models a partition with no room left for another entry.
+ *
+ * NVS is log-structured: an update appends a new entry and marks the old one erased, and
+ * reclaiming those erased entries needs one free page to compact into. Once no page is free,
+ * nvs_set_* returns ESP_ERR_NVS_NOT_ENOUGH_SPACE and Preferences::putX() turns that into a 0
+ * return - for an update to an existing key just as much as for a brand new one, which is why
+ * the puts below refuse before touching the map and the old value survives. Erasing still
+ * works, because that is what frees space.
+ */
+inline void emul_nvs_set_full(bool full) {
+  emul_nvs::full() = full;
+}
+
+// Models nvs_erase_key()/nvs_erase_all() failing, which Preferences reports as a false return
+// from remove()/clear(). Nothing makes that happen on a healthy partition, but the callers
+// discard the result either way, so the failing path needs to be reachable to be tested.
+inline void emul_nvs_set_erase_fails(bool fails) {
+  emul_nvs::erase_fails() = fails;
 }
 
 // Number of keys held in a namespace, for asserting that a save actually wrote.
@@ -71,12 +105,15 @@ class Preferences {
   void end() { open_ = false; }
 
   bool clear() {
+    if (emul_nvs::erase_fails()) {
+      return false;
+    }
     emul_nvs::store()[ns_].clear();
     return true;
   }
 
   size_t putInt(const char* key, int32_t value) {
-    if (read_only_ || !emul_nvs_key_is_valid(key)) {
+    if (read_only_ || emul_nvs::full() || !emul_nvs_key_is_valid(key)) {
       return 0;
     }
     emul_nvs::Value v;
@@ -87,7 +124,7 @@ class Preferences {
   }
 
   size_t putUInt(const char* key, uint32_t value) {
-    if (read_only_ || !emul_nvs_key_is_valid(key)) {
+    if (read_only_ || emul_nvs::full() || !emul_nvs_key_is_valid(key)) {
       return 0;
     }
     emul_nvs::Value v;
@@ -98,7 +135,7 @@ class Preferences {
   }
 
   size_t putBool(const char* key, bool value) {
-    if (read_only_ || !emul_nvs_key_is_valid(key)) {
+    if (read_only_ || emul_nvs::full() || !emul_nvs_key_is_valid(key)) {
       return 0;
     }
     emul_nvs::Value v;
@@ -111,7 +148,7 @@ class Preferences {
   size_t putString(const char* key, const char* value) { return putString(key, String(value)); }
 
   size_t putString(const char* key, String value) {
-    if (read_only_ || !emul_nvs_key_is_valid(key)) {
+    if (read_only_ || emul_nvs::full() || !emul_nvs_key_is_valid(key)) {
       return 0;
     }
     emul_nvs::Value v;
@@ -127,6 +164,9 @@ class Preferences {
   }
 
   bool remove(const char* key) {
+    if (emul_nvs::erase_fails()) {
+      return false;
+    }
     auto ns = emul_nvs::store().find(ns_);
     if (ns == emul_nvs::store().end()) {
       return false;
