@@ -310,6 +310,22 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
 
   switch (interface) {
     case CAN_NATIVE: {
+      if (!native_can_initialized) {
+        /* The TWAI peripheral was never taken out of reset, so its registers must not be
+         * touched. tryToSend() writes them from inside portENTER_CRITICAL, which turns the
+         * resulting exception into a DOUBLE exception - taken with interrupts off, so it
+         * cannot be handled - and the watchdog reboots straight back into the same transmit.
+         * Measured: roughly 45 resets a minute, indefinitely, and on S3 boards every one of
+         * those boots is another chance to lose the USB port.
+         *
+         * Every other interface below already refuses this way; they hold a driver pointer
+         * and short-circuit on null, while this one has a flag, and the flag was only ever
+         * read by receive_can(). Dropping the frame and reporting it is what the null checks
+         * do, so a dead native interface is now inert in both directions.
+         */
+        datalayer.system.info.can_native_not_initialized = true;
+        break;
+      }
       if (tx_frame->DLC > sizeof(CANMessage::data)) {
         // An FD-length frame cannot be sent on a classic CAN interface (a CAN-FD
         // battery configured on it produces these), and copying it below would
@@ -638,7 +654,12 @@ size_t format_can_frame(char* buffer, size_t len, const CAN_frame& frame, CAN_In
 }
 
 void stop_can() {
-  if (can_receivers.find(CAN_NATIVE) != can_receivers.end()) {
+  /* Registration is not initialization. A driver registers on CAN_NATIVE before init_CAN()
+   * runs, so on a board where the native init failed this condition is TRUE while the TWAI
+   * peripheral was never enabled - the same state the transmit guard above exists for, and
+   * end() writes TWAI_CMD_REG and TWAI_INT_ENA_REG before it disables the module.
+   */
+  if (native_can_initialized) {
     ACAN_ESP32::can.end();
   }
 
@@ -656,7 +677,12 @@ void stop_can() {
 }
 
 void restart_can() {
-  if (can_receivers.find(CAN_NATIVE) != can_receivers.end()) {
+  /* Same as stop_can(), plus a null dereference: settingsespcan is only ever assigned inside
+   * init_native_can(), which the alloc_pins() failures return before reaching. So on exactly
+   * the boards this item is about - a pin conflict on the CAN pins - the old condition was
+   * true, settingsespcan was still nullptr, and resuming a paused emulator dereferenced it.
+   */
+  if (native_can_initialized) {
     ACAN_ESP32::can.begin(*settingsespcan);
   }
 
