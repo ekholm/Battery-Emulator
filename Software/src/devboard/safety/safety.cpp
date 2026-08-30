@@ -140,6 +140,12 @@ void update_machineryprotection() {
   } else {
     clear_event(EVENT_CAN_NATIVE_BUFFER_FULL);
   }
+  if (datalayer.system.info.can_native_not_initialized) {
+    set_event(EVENT_CAN_NATIVE_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_native_not_initialized = false;
+  } else {
+    clear_event(EVENT_CAN_NATIVE_NOT_INITIALIZED);
+  }
   if (datalayer.system.info.can_native_bus_error) {
     set_event(EVENT_CAN_NATIVE_BUS_ERROR, 0);
     datalayer.system.info.can_native_bus_error = false;
