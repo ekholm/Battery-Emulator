@@ -354,10 +354,14 @@ struct DATALAYER_SYSTEM_INFO_TYPE {
   bool can_native_send_fail = false;
   /** bool, Native CAN experienced repeated tx/rx errors flag */
   bool can_native_bus_error = false;
+  /** bool, a frame longer than classic CAN carries was handed to the native interface */
+  bool can_native_frame_too_long = false;
   /** bool, MCP2515 CAN failed to send flag */
   bool can_2515_send_fail = false;
   /** bool, MCP2515 CAN experienced repeated tx/rx errors flag */
   bool can_2515_bus_error = false;
+  /** bool, a frame longer than classic CAN carries was handed to the MCP2515 */
+  bool can_2515_frame_too_long = false;
   /** bool, MCP2518 CANFD failed to send flag */
   bool can_2518_send_fail = false;
   /** bool, MCP2518 CANFD experienced repeated tx/rx errors flag */

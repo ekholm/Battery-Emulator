@@ -166,6 +166,30 @@ void init_events(void) {
   events.entries[EVENT_CANMCP2515_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_2_BUS_ERROR].level = EVENT_LEVEL_WARNING;
+  /* WARNING, not ERROR, and the "it never recovers" argument is the reason to look rather than
+     the reason to escalate. ERROR is not a loudness knob here: it puts events.level at
+     EVENT_LEVEL_ERROR, which update_bms_status() turns into system_status = FAULT, which
+     comm_contactorcontrol.cpp counts into MAX_ALLOWED_FAULT_TICKS and answers with
+     SHUTDOWN_REQUESTED - it OPENS THE CONTACTORS, ten seconds later.
+
+     The reason is not that another event delivers that shutdown instead. It was written that
+     way first, and it is wrong: EVENT_CAN_BATTERY_MISSING is driven by
+     CAN_battery_still_alive, which every battery driver refreshes from RECEIVED frames. Losing
+     our TRANSMIT frames silences the pack only if the pack is purely request/response. It is
+     not, on the driver this condition is most reachable through: KIA-E-GMP refreshes that
+     counter on 0x055, 0x150, 0x1F5, 0x215, 0x21A and 0x235, none of which it ever transmits -
+     they are unsolicited pack broadcasts. So with every one of its frames dropped, the pack
+     keeps talking, the counter keeps being refreshed, and BATTERY_MISSING never fires. There
+     is no 60-second backstop.
+
+     WARNING is right for a better reason. The frames being dropped are the ones that would
+     bring the pack online - KIA-E-GMP's whole 63-message contactor-closing table is DLC 32 -
+     so the contactors never close in the first place and there is nothing to shut down.
+     Escalating would take a diagnostic event and make it a contactor actuator, and would put
+     the inverter protocols that read system_status into FAULT behaviour over a pack that is
+     already inert. */
+  events.entries[EVENT_CAN_NATIVE_FRAME_TOO_LONG].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CANMCP2515_FRAME_TOO_LONG].level = EVENT_LEVEL_WARNING;
   /* Use set_battery_event_level() when all battery variants have the same severity.
      Use events.entries[] directly when the severity differs between battery 1/2/3,
      or when the event has no per-battery variants. */
@@ -427,6 +451,12 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_CANFD_BUFFER_FULL:
     case EVENT_CANFD_2_BUFFER_FULL:
       return "CAN failed to send. Buffer full or no one on the bus to ACK the message!";
+    // One string for the pair, the way the buffer-full family shares one: which interface it was
+    // is in the event's own name, which is what the events page, MQTT and ESP-NOW publish.
+    case EVENT_CAN_NATIVE_FRAME_TOO_LONG:
+    case EVENT_CANMCP2515_FRAME_TOO_LONG:
+      return "Frames dropped: a CAN-FD battery is configured on a classic CAN interface. Move it "
+             "to a CAN-FD interface - this is a settings problem, not the bus";
     case EVENT_TASK_OVERRUN:
       return "Task took too long to complete. CPU load might be too high. Info message, no action required.";
     case EVENT_THERMAL_RUNAWAY:
