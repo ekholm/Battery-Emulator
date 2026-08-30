@@ -332,6 +332,17 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
       }
     } break;
     case CAN_ADDON_MCP2515: {
+      if (can2515 == nullptr) {
+        // The chip never came up - init_CAN() nulled the pointer after begin() failed, or the
+        // add-on was never configured. Dropping the frame here is what the null short-circuit
+        // below already did; what changes is what the user is told. Folding it into the send
+        // check reported EVENT_CANMCP2515_BUFFER_FULL, whose message is "Buffer full or no one
+        // on the bus to ACK the message!", and sent someone looking at bus wiring for a chip
+        // that is not there. The boot-time init failure already said what happened; this says
+        // the same thing in the language of the frame that just went nowhere.
+        datalayer.system.info.can_2515_not_initialized = true;
+        break;
+      }
       if (tx_frame->DLC > sizeof(MCP2515_Lite_Frame::data)) {
         // Same as CAN_NATIVE: an FD-length frame cannot travel over the MCP2515.
         datalayer.system.info.can_2515_send_fail = true;
@@ -340,12 +351,17 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
       MCP2515_Lite_Frame mcp2515_frame;
       copy_can_frame_to_mcp2515_lite_frame(*tx_frame, mcp2515_frame);
 
-      if (can2515 == nullptr || !can2515->sendFrame(mcp2515_frame)) {
+      if (!can2515->sendFrame(mcp2515_frame)) {
         datalayer.system.info.can_2515_send_fail = true;
       }
     } break;
     case CANFD_NATIVE:
     case CANFD_ADDON_MCP2518: {
+      if (canfd == nullptr) {
+        // See the MCP2515 case: same drop, honest diagnosis instead of "buffer full".
+        datalayer.system.info.can_2518_not_initialized = true;
+        break;
+      }
       CANFDMessage MCP2518Frame;
       if (tx_frame->FD) {
         MCP2518Frame.type = CANFDMessage::CANFD_WITH_BIT_RATE_SWITCH;
@@ -357,11 +373,16 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
       MCP2518Frame.len = tx_frame->DLC;
       memcpy(MCP2518Frame.data, tx_frame->data.u8, std::min(tx_frame->DLC, (uint8_t)sizeof(MCP2518Frame.data)));
 
-      if (canfd == nullptr || !canfd->tryToSend(MCP2518Frame)) {
+      if (!canfd->tryToSend(MCP2518Frame)) {
         datalayer.system.info.can_2518_send_fail = true;
       }
     } break;
     case CANFD_ADDON_MCP2518_2: {
+      if (canfd_2 == nullptr) {
+        // See the MCP2515 case: same drop, honest diagnosis instead of "buffer full".
+        datalayer.system.info.can_2518_2_not_initialized = true;
+        break;
+      }
       CANFDMessage MCP2518Frame;
       if (tx_frame->FD) {
         MCP2518Frame.type = CANFDMessage::CANFD_WITH_BIT_RATE_SWITCH;
@@ -373,7 +394,7 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
       MCP2518Frame.len = tx_frame->DLC;
       memcpy(MCP2518Frame.data, tx_frame->data.u8, std::min(tx_frame->DLC, (uint8_t)sizeof(MCP2518Frame.data)));
 
-      if (canfd_2 == nullptr || !canfd_2->tryToSend(MCP2518Frame)) {
+      if (!canfd_2->tryToSend(MCP2518Frame)) {
         datalayer.system.info.can_2518_2_send_fail = true;
       }
     } break;

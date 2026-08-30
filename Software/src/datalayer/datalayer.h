@@ -341,14 +341,20 @@ struct DATALAYER_SYSTEM_INFO_TYPE {
   bool can_2515_send_fail = false;
   /** bool, MCP2515 CAN experienced repeated tx/rx errors flag */
   bool can_2515_bus_error = false;
+  /** bool, a frame was handed to the MCP2515 while its driver was never created */
+  bool can_2515_not_initialized = false;
   /** bool, MCP2518 CANFD failed to send flag */
   bool can_2518_send_fail = false;
   /** bool, MCP2518 CANFD experienced repeated tx/rx errors flag */
   bool can_2518_bus_error = false;
+  /** bool, a frame was handed to the MCP2518FD while its driver was never created */
+  bool can_2518_not_initialized = false;
   /** bool, MCP2518 CANFD 2nd interface failed to send flag */
   bool can_2518_2_send_fail = false;
   /** bool, MCP2518 CANFD 2nd interface experienced repeated tx/rx errors flag */
   bool can_2518_2_bus_error = false;
+  /** bool, a frame was handed to the 2nd MCP2518FD while its driver was never created */
+  bool can_2518_2_not_initialized = false;
   /** bool, determines if detailed performance measurement should be shown on webserver */
   bool performance_measurement_active = false;
   bool equipment_stop_active = false;  //Has user enabled equipment stop?

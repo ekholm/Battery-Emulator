@@ -155,6 +155,9 @@ void init_events(void) {
   events.entries[EVENT_CANMCP2515_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_2_BUS_ERROR].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CANMCP2515_NOT_INITIALIZED].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CANFD_NOT_INITIALIZED].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CANFD_2_NOT_INITIALIZED].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CAN_BATTERY_DETECTED].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_CAN_BATTERY2_DETECTED].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_CAN_BATTERY3_DETECTED].level = EVENT_LEVEL_INFO;
@@ -437,6 +440,13 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_CANFD_BUS_ERROR:
     case EVENT_CANFD_2_BUS_ERROR:
       return "Multiple CAN TX/RX errors. Check wiring!";
+    // One string for the three, the way the buffer-full family shares one: which interface it
+    // was is in the event's own name, which is what the events page, MQTT and ESP-NOW publish.
+    case EVENT_CANMCP2515_NOT_INITIALIZED:
+    case EVENT_CANFD_NOT_INITIALIZED:
+    case EVENT_CANFD_2_NOT_INITIALIZED:
+      return "Frames dropped: this CAN chip never started. Check the initialization error it "
+             "raised at boot, not the bus wiring";
     case EVENT_CAN_BATTERY_DETECTED:
       return "Successfully communicating with battery. Battery detected!";
     case EVENT_CAN_BATTERY2_DETECTED:
