@@ -678,7 +678,12 @@ void dump_can_frame(CAN_frame& frame, CAN_Interface interface, frameDirection ms
 }
 
 void stop_can() {
-  if (can_receivers.find(CAN_NATIVE) != can_receivers.end()) {
+  /* Registration is not initialization. A driver registers on CAN_NATIVE before init_CAN()
+   * runs, so on a board where the native init failed this condition is TRUE while the TWAI
+   * peripheral was never enabled - the same state the transmit guard above exists for, and
+   * end() writes TWAI_CMD_REG and TWAI_INT_ENA_REG before it disables the module.
+   */
+  if (native_can_initialized) {
     ACAN_ESP32::can.end();
   }
 
@@ -696,7 +701,12 @@ void stop_can() {
 }
 
 void restart_can() {
-  if (can_receivers.find(CAN_NATIVE) != can_receivers.end()) {
+  /* Same as stop_can(), plus a null dereference: settingsespcan is only ever assigned inside
+   * init_native_can(), which the alloc_pins() failures return before reaching. So on exactly
+   * the boards this item is about - a pin conflict on the CAN pins - the old condition was
+   * true, settingsespcan was still nullptr, and resuming a paused emulator dereferenced it.
+   */
+  if (native_can_initialized) {
     ACAN_ESP32::can.begin(*settingsespcan);
   }
 

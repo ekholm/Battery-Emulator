@@ -71,6 +71,24 @@ std::string native_case_before_driver(const std::string& src) {
   return src.substr(at, driver - at);
 }
 
+// Everything inside `function` that runs before it calls `driver_call`. Same idea as
+// native_case_before_driver() above, for the functions that reach the native driver outside
+// the transmit switch.
+std::string body_before_call(const std::string& src, const std::string& function, const std::string& driver_call) {
+  const size_t fn = src.find(function);
+  EXPECT_NE(fn, std::string::npos) << function << " is not where this test looks";
+  if (fn == std::string::npos) {
+    return "";
+  }
+  const std::string body = brace_block(src, fn);
+  const size_t call = body.find(driver_call);
+  EXPECT_NE(call, std::string::npos) << function << " no longer calls " << driver_call << " - re-check this test";
+  if (call == std::string::npos) {
+    return "";
+  }
+  return body.substr(0, call);
+}
+
 class CanNativeGuardTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -149,4 +167,35 @@ TEST_F(CanNativeGuardTest, NothingIsRaisedWhileTheInterfaceIsUp) {
 
   EXPECT_EQ(get_event_pointer(EVENT_CAN_NATIVE_NOT_INITIALIZED)->occurences, 0);
   EXPECT_EQ(get_event_pointer(EVENT_CAN_NATIVE_NOT_INITIALIZED)->state, EVENT_STATE_INACTIVE);
+}
+
+/* The transmit switch was not the only place that reaches the native driver, and the other two
+ * were guarded on the WRONG condition.
+ *
+ * stop_can() and restart_can() - the emulator's CAN pause/resume, reachable from the webserver -
+ * gated on `can_receivers.find(CAN_NATIVE) != can_receivers.end()`. A driver REGISTERS on
+ * CAN_NATIVE before init_CAN() ever runs, so on exactly the board this item is about - native
+ * init failed, a driver bound to it - that condition is true while the peripheral was never
+ * enabled. ACAN_ESP32::end() writes TWAI_CMD_REG and TWAI_INT_ENA_REG before disabling the
+ * module, which is the same register-access-on-a-dead-peripheral fault as tryToSend().
+ *
+ * restart_can() was worse than that and needs no assumption about peripheral behaviour to see:
+ * settingsespcan is assigned only inside init_native_can(), and both alloc_pins() failures -
+ * the pin-conflict class this item names as the trigger - return before reaching it. So the
+ * pointer was still nullptr and `*settingsespcan` dereferenced it.
+ */
+TEST(CanNativeTransmitGuardSource, StoppingCanDoesNotEndAnInterfaceThatNeverStarted) {
+  const std::string before = body_before_call(comm_can_source(), "void stop_can()", "ACAN_ESP32::can.end");
+  EXPECT_NE(before.find("if (native_can_initialized)"), std::string::npos)
+      << "stop_can() must gate on initialization, not on registration - a driver registers on "
+         "CAN_NATIVE before init_CAN() runs, so registration is true on a board whose native "
+         "interface never came up, and end() writes TWAI registers before disabling the module";
+}
+
+TEST(CanNativeTransmitGuardSource, RestartingCanDoesNotDereferenceSettingsThatWereNeverAllocated) {
+  const std::string before = body_before_call(comm_can_source(), "void restart_can()", "ACAN_ESP32::can.begin");
+  EXPECT_NE(before.find("if (native_can_initialized)"), std::string::npos)
+      << "restart_can() must gate on initialization: settingsespcan is only assigned inside "
+         "init_native_can(), which the alloc_pins() failure paths return before reaching, so "
+         "resuming a paused emulator dereferenced a null pointer";
 }
