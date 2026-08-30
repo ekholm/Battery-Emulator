@@ -146,6 +146,12 @@ void update_machineryprotection() {
   } else {
     clear_event(EVENT_CAN_NATIVE_BUS_ERROR);
   }
+  if (datalayer.system.info.can_native_frame_too_long) {
+    set_event(EVENT_CAN_NATIVE_FRAME_TOO_LONG, 0);
+    datalayer.system.info.can_native_frame_too_long = false;
+  } else {
+    clear_event(EVENT_CAN_NATIVE_FRAME_TOO_LONG);
+  }
   if (datalayer.system.info.can_2515_send_fail) {
     set_event(EVENT_CANMCP2515_BUFFER_FULL, 0);
     datalayer.system.info.can_2515_send_fail = false;
@@ -157,6 +163,12 @@ void update_machineryprotection() {
     datalayer.system.info.can_2515_bus_error = false;
   } else {
     clear_event(EVENT_CANMCP2515_BUS_ERROR);
+  }
+  if (datalayer.system.info.can_2515_frame_too_long) {
+    set_event(EVENT_CANMCP2515_FRAME_TOO_LONG, 0);
+    datalayer.system.info.can_2515_frame_too_long = false;
+  } else {
+    clear_event(EVENT_CANMCP2515_FRAME_TOO_LONG);
   }
   if (datalayer.system.info.can_2518_send_fail) {
     set_event(EVENT_CANFD_BUFFER_FULL, 0);

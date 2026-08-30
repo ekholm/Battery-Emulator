@@ -311,10 +311,18 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
   switch (interface) {
     case CAN_NATIVE: {
       if (tx_frame->DLC > sizeof(CANMessage::data)) {
-        // An FD-length frame cannot be sent on a classic CAN interface (a CAN-FD
-        // battery configured on it produces these), and copying it below would
-        // overflow frame.data on the stack.
-        datalayer.system.info.can_native_send_fail = true;
+        /* An FD-length frame cannot be sent on a classic CAN interface (a CAN-FD
+         * battery configured on it produces these), and copying it below would
+         * overflow frame.data on the stack.
+         *
+         * Reported as itself rather than as can_native_send_fail. That flag becomes
+         * EVENT_CAN_NATIVE_BUFFER_FULL - "Buffer full or no one on the bus to ACK the
+         * message!" - which is wrong three times over: it is not a buffer, not the bus, and
+         * not transient. A CAN-FD battery on a classic interface drops EVERY frame that
+         * driver emits, for as long as the setting stands, and sends the user to check
+         * wiring for a fault that lives in the settings page.
+         */
+        datalayer.system.info.can_native_frame_too_long = true;
         break;
       }
       CANMessage frame;
@@ -331,8 +339,9 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
     } break;
     case CAN_ADDON_MCP2515: {
       if (tx_frame->DLC > sizeof(MCP2515_Lite_Frame::data)) {
-        // Same as CAN_NATIVE: an FD-length frame cannot travel over the MCP2515.
-        datalayer.system.info.can_2515_send_fail = true;
+        // Same as CAN_NATIVE: an FD-length frame cannot travel over the MCP2515, and is
+        // reported as the configuration error it is rather than as a full buffer.
+        datalayer.system.info.can_2515_frame_too_long = true;
         break;
       }
       MCP2515_Lite_Frame mcp2515_frame;
