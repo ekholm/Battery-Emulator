@@ -152,6 +152,7 @@ void init_events(void) {
   events.entries[EVENT_THERMAL_RUNAWAY].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_CAN_CORRUPTED_WARNING].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CAN_NATIVE_BUS_ERROR].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CAN_NATIVE_NOT_INITIALIZED].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANMCP2515_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_2_BUS_ERROR].level = EVENT_LEVEL_WARNING;
@@ -437,6 +438,8 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_CANFD_BUS_ERROR:
     case EVENT_CANFD_2_BUS_ERROR:
       return "Multiple CAN TX/RX errors. Check wiring!";
+    case EVENT_CAN_NATIVE_NOT_INITIALIZED:
+      return "Frames dropped: native CAN never started. Check the earlier CAN startup errors";
     case EVENT_CAN_BATTERY_DETECTED:
       return "Successfully communicating with battery. Battery detected!";
     case EVENT_CAN_BATTERY2_DETECTED:

@@ -337,6 +337,8 @@ struct DATALAYER_SYSTEM_INFO_TYPE {
   bool can_native_send_fail = false;
   /** bool, Native CAN experienced repeated tx/rx errors flag */
   bool can_native_bus_error = false;
+  /** bool, a frame was handed to the native CAN interface while it was not initialized */
+  bool can_native_not_initialized = false;
   /** bool, MCP2515 CAN failed to send flag */
   bool can_2515_send_fail = false;
   /** bool, MCP2515 CAN experienced repeated tx/rx errors flag */

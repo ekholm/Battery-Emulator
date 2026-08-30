@@ -312,6 +312,22 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
 
   switch (interface) {
     case CAN_NATIVE: {
+      if (!native_can_initialized) {
+        /* The TWAI peripheral was never taken out of reset, so its registers must not be
+         * touched. tryToSend() writes them from inside portENTER_CRITICAL, which turns the
+         * resulting exception into a DOUBLE exception - taken with interrupts off, so it
+         * cannot be handled - and the watchdog reboots straight back into the same transmit.
+         * Measured: roughly 45 resets a minute, indefinitely, and on S3 boards every one of
+         * those boots is another chance to lose the USB port.
+         *
+         * Every other interface below already refuses this way; they hold a driver pointer
+         * and short-circuit on null, while this one has a flag, and the flag was only ever
+         * read by receive_can(). Dropping the frame and reporting it is what the null checks
+         * do, so a dead native interface is now inert in both directions.
+         */
+        datalayer.system.info.can_native_not_initialized = true;
+        break;
+      }
       if (tx_frame->DLC > sizeof(CANMessage::data)) {
         // An FD-length frame cannot be sent on a classic CAN interface (a CAN-FD
         // battery configured on it produces these), and copying it below would
