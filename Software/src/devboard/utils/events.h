@@ -2,6 +2,7 @@
 #define __EVENTS_H__
 
 #include <WString.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "millis64.h"
 #include "types.h"
@@ -300,6 +301,22 @@ struct EventData {
 };
 
 const char* get_event_enum_string(EVENTS_ENUM_TYPE event);
+
+/* Enough for any message the table can produce. Measured, not guessed: the longest of the 170
+ * is 173 bytes, the two composed GPIO messages reach 166 with the longest component name in
+ * the tree ("Equipment stop button", 21), and a pack suffix adds 12. */
+#define EVENT_MESSAGE_BUF_SIZE 256
+
+/* The message as BYTES, on the snprintf contract: at most `len - 1` bytes plus a NUL, and the
+ * return is the FULL length the message would have taken, so a return >= len means the copy
+ * was truncated. Returns 0 and writes nothing if `buf` is null or `len` is 0.
+ *
+ * This is the form to reach for. Event text runs well over the 13 characters an Arduino String
+ * keeps inline, so the value form below costs a heap allocation and a copy - which the MQTT,
+ * ESP-NOW and debug-log callers paid only to take `.c_str()` off it on the next token. */
+size_t get_event_message(EVENTS_ENUM_TYPE event, char* buf, size_t len);
+
+// The same message as a String, for the one caller that wants one. Built on the form above.
 String get_event_message_string(EVENTS_ENUM_TYPE event);
 const char* get_event_level_string(EVENTS_ENUM_TYPE event);
 const char* get_event_level_string(EVENTS_LEVEL_TYPE event_level);

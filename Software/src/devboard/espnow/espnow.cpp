@@ -564,7 +564,9 @@ static void send_event_frame(EVENTS_ENUM_TYPE handle, const EVENTS_STRUCT_TYPE* 
   put_u8_field(ESPNOW_KEY_EVENT_COUNT, ev->occurences);
   put_i16_field(ESPNOW_KEY_EVENT_DATA_I16, ev->data);
   put_int(ESPNOW_KEY_EVENT_MILLIS, ESPNOW_TYPE_UINT, ev->timestamp, 8);
-  put_str_field(ESPNOW_KEY_EVENT_MESSAGE, get_event_message_string(handle).c_str());
+  char message[EVENT_MESSAGE_BUF_SIZE];
+  get_event_message(handle, message, sizeof(message));
+  put_str_field(ESPNOW_KEY_EVENT_MESSAGE, message);
 
   end_frame();
 }

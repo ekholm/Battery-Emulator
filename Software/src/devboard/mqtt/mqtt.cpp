@@ -989,7 +989,11 @@ bool publish_events() {
       doc["severity"] = get_event_level_string(event_handle);
       doc["count"] = String(event_pointer->occurences);
       doc["data"] = String(event_pointer->data);
-      doc["message"] = get_event_message_string(event_handle);
+      /* char[] rather than a String: ArduinoJson copies a non-const char* into the
+         document, and `message` outlives the serializeJson() below in any case. */
+      char message[EVENT_MESSAGE_BUF_SIZE];
+      get_event_message(event_handle, message, sizeof(message));
+      doc["message"] = message;
       doc["millis"] = String(event_pointer->timestamp);
 
       serializeJson(doc, mqtt_msg, sizeof(mqtt_msg));
