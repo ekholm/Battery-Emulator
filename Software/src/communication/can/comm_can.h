@@ -76,4 +76,9 @@ void restart_can();
 // Change the speed of the CAN interface. Returns true if successful.
 bool change_can_speed(CAN_Interface interface, CAN_Speed speed);
 
+#ifdef UNIT_TEST
+// Host-test hook: drops every registered receiver and every initialized chip.
+void comm_can_reset_for_test();
+#endif
+
 #endif
