@@ -1,6 +1,8 @@
 #ifndef CAN_REPLAY_VALIDATION_H
 #define CAN_REPLAY_VALIDATION_H
 
+#include <stddef.h>
+
 #include <string>
 
 /* Validates a requested CAN-replay interface number BEFORE it is stored or
@@ -23,5 +25,27 @@
    the HTTP response, which names the valid numbering so the dialect trap is
    visible to the person who typed the wrong one. */
 std::string can_replay_interface_rejection(int requested, bool (*ready)(int));
+
+/* Validates the DLC a replay log line DECLARES, before any of its data bytes
+   are copied.
+
+   The parser read `[n]` straight out of the uploaded line into CAN_frame's
+   uint8_t DLC and then copied that many space-separated tokens into a 64-byte
+   array. uint8_t admits 0..255, so a line declaring 200 bytes and supplying
+   200 tokens wrote 136 bytes past the end of a FILE-SCOPE frame - into .bss,
+   from content that arrives entirely through the log upload.
+
+   Two failures are separated deliberately. A value that does not fit the frame
+   is a bad line and the line is refused; TRUNCATING it would replay a frame the
+   file did not describe, which is worse than skipping one. And the check is on
+   the value as PARSED, not after it is narrowed - `[300]` narrows to 44 in a
+   uint8_t, so a check after the assignment would accept a line the file never
+   meant and silently change its length.
+
+   `capacity` is sizeof(CAN_frame::data.u8), passed in so this stays free of
+   the firmware's types and the bound cannot drift from the array it protects.
+
+   Returns "" when the DLC is usable; otherwise why the line was refused. */
+std::string can_replay_dlc_rejection(long declared, size_t capacity);
 
 #endif  // CAN_REPLAY_VALIDATION_H

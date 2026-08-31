@@ -159,7 +159,21 @@ void canReplayTask(void* param) {
         String dataBytes = line.substring(dataStart);
 
         currentFrame.ID = strtol(messageID.c_str(), NULL, 16);
-        currentFrame.DLC = dlc.toInt();
+
+        /* Check the declared length BEFORE it is narrowed into DLC. The copy
+         * below is bounded only by this value and by how many tokens the line
+         * supplies, and currentFrame is file-scope - so an oversized line wrote
+         * past the frame into .bss, from content that arrives through the log
+         * upload. A line that does not fit is skipped rather than truncated:
+         * replaying a frame the file did not describe is worse than replaying
+         * one fewer. */
+        const long declared_dlc = dlc.toInt();
+        const std::string dlc_rejection = can_replay_dlc_rejection(declared_dlc, sizeof(currentFrame.data.u8));
+        if (!dlc_rejection.empty()) {
+          logging.printf("CAN replay: skipping line - %s\n", dlc_rejection.c_str());
+          continue;
+        }
+        currentFrame.DLC = (uint8_t)declared_dlc;
 
         int byteIndex = 0;
         char* token = strtok((char*)dataBytes.c_str(), " ");
