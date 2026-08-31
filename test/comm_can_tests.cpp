@@ -334,6 +334,28 @@ TEST_F(CommCanTest, StoppingCanTakesEveryInterfaceOutOfService) {
   EXPECT_EQ(emul_can::end_count(Chip::Mcp2518fd2), 1);
 }
 
+/* stop_can() gates the native end() on there being a receiver, and nothing
+ * exercised the gate: every test starts with all four interfaces up, so
+ * deleting the gate entirely passed the whole suite. end() writes TWAI
+ * registers, which is why it must not run for an interface that was never set
+ * up. This asserts the gate from the side that stays true when the gate is
+ * later tightened from "registered" to "initialized".
+ */
+TEST_F(CommCanTest, StoppingCanLeavesAnInterfaceWithNoReceiverAlone) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  ASSERT_TRUE(emul_can_init_on_full_board());
+  const int native_ends_before = emul_can::end_count(Chip::Native);
+
+  stop_can();
+
+  EXPECT_EQ(emul_can::end_count(Chip::Native), native_ends_before)
+      << "the native controller was ended although nothing ever registered on it";
+}
+
 TEST_F(CommCanTest, RestartingCanBringsEveryInterfaceBack) {
   stop_can();
 
@@ -452,4 +474,24 @@ TEST_F(CommCanTest, TheCutoffFilterKeepsLowIdentifiersOutOfTheLog) {
   const std::string log(datalayer.system.info.logged_can_messages);
   EXPECT_EQ(log.find(" 100 "), std::string::npos) << log;
   EXPECT_NE(log.find(" 300 "), std::string::npos) << log;
+}
+
+/* The identifier EQUAL to the cutoff is the one case the setting's own wording
+ * leaves open - it says "messages below this ID will not be logged", and the
+ * code excludes the boundary too. Whichever it should be, nothing pinned it:
+ * the case above uses 0x100 and 0x300 against a cutoff of 0x200, so mutating
+ * the comparison to `>=` passed the entire suite. Pinned as the code behaves.
+ */
+TEST_F(CommCanTest, AnIdentifierEqualToTheCutoffIsAlsoKeptOut) {
+  datalayer.system.info.can_logging_active = true;
+  user_selected_CAN_ID_cutoff_filter = 0x200;
+  const CAN_frame at_cutoff = make_frame(0x200, 1);
+  const CAN_frame just_above = make_frame(0x201, 1);
+
+  transmit_can_frame_to_interface(&at_cutoff, CAN_NATIVE);
+  transmit_can_frame_to_interface(&just_above, CAN_NATIVE);
+
+  const std::string log(datalayer.system.info.logged_can_messages);
+  EXPECT_EQ(log.find(" 200 "), std::string::npos) << "the cutoff itself is excluded: " << log;
+  EXPECT_NE(log.find(" 201 "), std::string::npos) << "the next identifier up is logged: " << log;
 }

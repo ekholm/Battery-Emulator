@@ -23,6 +23,28 @@
 #include <algorithm>
 #include <map>
 
+/* What this file assumes about the three drivers, checked by the compiler in
+ * both builds - against the vendored headers when the firmware is built, and
+ * against test/emul/src/lib/... when the host suite is.
+ *
+ * The two payload lengths are load-bearing twice over: the FD-length refusals
+ * on the classic paths below are written as `DLC > sizeof(...::data)`, so a
+ * wrong size here does not fail to compile, it silently changes which frames
+ * get refused - and the host suite would agree with itself while testing a
+ * different rule from the one that ships.
+ */
+static_assert(sizeof(CANMessage::data) == 8,
+              "classic CAN carries 8 bytes - the FD-length refusal is written against this");
+static_assert(sizeof(CANFDMessage::data) == 64, "CAN FD carries 64 bytes");
+static_assert(sizeof(MCP2515_Lite_Frame::data) == 8, "the MCP2515 is a classic controller");
+/* hal.h hands MCP2517_CLKODIV() to mCLKOPin as a raw integer (0b11 for the
+ * divide-by-10 default, 0b00 on BECom), so the enumerator ordinals are part of
+ * that contract and not an implementation detail of the driver header. */
+static_assert(static_cast<int>(ACAN2517FDSettings::CLKO_DIVIDED_BY_1) == 0b00,
+              "hal.h's MCP2517_CLKODIV() encodes this ordinal");
+static_assert(static_cast<int>(ACAN2517FDSettings::CLKO_DIVIDED_BY_10) == 0b11,
+              "hal.h's MCP2517_CLKODIV() default encodes this ordinal");
+
 volatile CAN_Configuration can_config = {.battery = CAN_NATIVE,
                                          .inverter = CAN_NATIVE,
                                          .battery_double = CAN_ADDON_MCP2515,
