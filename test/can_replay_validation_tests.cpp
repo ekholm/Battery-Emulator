@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <fstream>
+#include <string>
+
 #include "../Software/src/devboard/webserver/can_replay_validation.h"
 
 // A CAN replay that cannot reach any wire must be refused up front - stored
@@ -122,4 +125,46 @@ TEST(CanReplayDlcBound, ANegativeLengthIsRefusedRatherThanWrappingHuge) {
       << "the wrapped value must not reach the log: " << rejection;
 
   EXPECT_EQ(can_replay_dlc_rejection(0, kFrameCapacity), "") << "an empty frame is a frame";
+}
+
+/* The bound is only worth anything if the CALL SITE hands it the value as parsed.
+ *
+ * Narrowing before the check is the second half of the defect this fix exists to
+ * close: `[300]` becomes 44 in a uint8_t, the bound then sees a length that fits,
+ * and the replay sends a 44-byte frame the file never described. The helper above
+ * refuses 300 correctly - but nothing above pins that the caller passes 300 rather
+ * than 44, and `webserver.cpp` is not part of this binary, so a cast added at the
+ * call site restores the bug with the whole suite still green. Verified: it does.
+ *
+ * So this reads the call site, the way the other tests over that file do. It is a
+ * weaker instrument than running the code and it is here because the code cannot be
+ * run; the shape that would retire it is a helper that parses the token itself, so
+ * no caller ever holds a wide value to narrow.
+ */
+namespace {
+
+std::string webserver_source() {
+  const std::string self = __FILE__;
+  const std::string dir = self.substr(0, self.find_last_of('/'));
+  std::ifstream src(dir + "/../Software/src/devboard/webserver/webserver.cpp");
+  EXPECT_TRUE(src.is_open()) << "webserver.cpp is not where this test looks";
+  return std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+}
+
+}  // namespace
+
+TEST(CanReplayDlcBound, TheCallSiteChecksTheParsedValueNotTheNarrowedOne) {
+  const std::string src = webserver_source();
+
+  const size_t call = src.find("can_replay_dlc_rejection(");
+  ASSERT_NE(call, std::string::npos) << "the replay parser no longer calls the bound - re-check this test";
+  const std::string args = src.substr(call, src.find(')', call) - call);
+  EXPECT_EQ(args.find("uint8_t"), std::string::npos)
+      << "the declared length is narrowed before it is checked, which is the exact bug the check "
+         "exists to close: a line declaring 300 becomes 44 and passes. Pass the parsed value.\n  "
+      << args;
+
+  const size_t assign = src.find("currentFrame.DLC =");
+  ASSERT_NE(assign, std::string::npos) << "the DLC assignment moved - re-check this test";
+  EXPECT_LT(call, assign) << "the bound must run BEFORE the value reaches the uint8_t field";
 }
