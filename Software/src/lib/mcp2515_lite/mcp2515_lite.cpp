@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <driver/gpio.h>
 #include <esp_intr_alloc.h>
+#include <esp_memory_utils.h>
 #include <hal/gpio_ll.h>
 
 #include "mcp2515_tx_status.h"
@@ -76,12 +77,8 @@ MCP2515_Lite::~MCP2515_Lite() {
 }
 
 void MCP2515_Lite::detachIsrPin() {
-  if (_isr_interrupt_installed) {
-    gpio_isr_handler_remove((gpio_num_t)_int_pin);
-    _isr_interrupt_installed = false;
-  } else {
     detachInterrupt(digitalPinToInterrupt(_int_pin));
-  }
+    _isr_interrupt_installed = false;
   // Removing the handler disables the pin, so a pending mask has nothing left
   // to re-arm; leaving the flag set would re-arm a pin nobody handles.
   _isr_pin_masked = false;
@@ -171,16 +168,25 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   digitalWrite(_cs, HIGH);
 
   pinMode(_int_pin, INPUT_PULLUP);
-  /* Autodetection calls begin() first, and it must take the SAME path: the
-   * GPIO interrupt service is installed once for the whole system, so an
-   * attachInterrupt() here would install it WITHOUT ESP_INTR_FLAG_IRAM and
-   * the real begin() would then find it installed and decline the drain
-   * for good. On the boards where MCP2515_FREQ() is 0 - the devkit and the
-   * 3LB - that is every boot.
+    /* One registration path for every caller (wq295). CONFIG_ARDUINO_ISR_IRAM=y
+     * makes Arduino's GPIO service and its dispatcher IRAM-resident, so the
+     * bespoke IDF-level service allocation this drain used to carry is gone:
+     * ESP_INTR_FLAG_IRAM is a property of the interrupt SOURCE, and allocating
+     * the service here bound every later attachInterrupt() caller to it
+     * silently. What the flag cannot make safe is the callback itself - a
+     * flash-resident handler on an IRAM-resident service is a cache-off fetch
+     * in exactly the window the flag exists to keep serviced. That is the
+     * boot-time half of the audit, below: a handler that is not IRAM-resident
+     * is not registered at all, and the task drains on its notify backstop -
+     * degraded but safe. The deep call chain (drainRx, the register-level SPI,
+     * the ring) is audited per linked image by mcp2515_isr_iram_audit.py.
    */
-  _isr_interrupt_installed = _isr_drain_requested && installIsrDrainInterrupt();
-  if (!_isr_interrupt_installed) {
+    if (esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler))) {
     attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING);
+        _isr_interrupt_installed = _isr_drain_requested;
+    } else {
+        DEBUG_PRINTF("MCP2515: ISR handler is not IRAM-resident, not attaching the interrupt\n");
+        _isr_interrupt_installed = false;
   }
 
   // 1. Reset and configure the MCP2515
@@ -258,45 +264,6 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
 void MCP2515_Lite::useIsrDrain(uint8_t spi_bus) {
   _isr_drain_requested = true;
   _isr_spi_bus = spi_bus;
-}
-
-/* Arduino's attachInterrupt() installs the GPIO interrupt service without
- * ESP_INTR_FLAG_IRAM (CONFIG_ARDUINO_ISR_IRAM is off in this build), and a
- * service allocated that way is masked for the whole of a flash write - which
- * is the one window the drain exists to keep working through. So install the
- * service here with the flag instead, and register through the IDF rather than
- * through Arduino's dispatcher, which is itself flash-resident.
- */
-bool MCP2515_Lite::installIsrDrainInterrupt() {
-  if (!_isr_service_owned) {
-    const esp_err_t installed = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
-    if (installed == ESP_ERR_INVALID_STATE) {
-      // Someone installed the service first and its allocation flags are
-      // not ours to know. Claiming the drain would claim a window it may
-      // not have.
-      DEBUG_PRINTF("MCP2515: GPIO interrupt service already installed, draining in the task\n");
-      return false;
-    }
-    if (installed != ESP_OK) {
-      DEBUG_PRINTF("MCP2515: GPIO interrupt service install failed (0x%x)\n", installed);
-      return false;
-    }
-    // The service is a singleton: begin() runs twice when the oscillator is
-    // autodetected, and the second install would report it already there.
-    _isr_service_owned = true;
-  }
-  /* An edge until the drain is actually live: autodetection installs the
-     * interrupt too, and binding the register-level SPI can still fail, and a
-     * level nobody drains is a level nobody clears. begin() switches the pin to
-     * GPIO_INTR_LOW_LEVEL at the point where there is a drain behind it.
-     */
-  if (gpio_set_intr_type((gpio_num_t)_int_pin, GPIO_INTR_NEGEDGE) != ESP_OK) {
-    return false;
-  }
-  if (gpio_isr_handler_add((gpio_num_t)_int_pin, mcp2515_isr_handler, this) != ESP_OK) {
-    return false;
-  }
-  return true;
 }
 
 bool MCP2515_Lite::sendFrame(const MCP2515_Lite_Frame& msg) {
