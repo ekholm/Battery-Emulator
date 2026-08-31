@@ -17,3 +17,14 @@ std::string can_replay_interface_rejection(int requested, bool (*ready)(int)) {
   }
   return "";
 }
+
+std::string can_replay_dlc_rejection(long declared, size_t capacity) {
+  if (declared < 0) {
+    return "negative frame length";
+  }
+  if ((unsigned long)declared > (unsigned long)capacity) {
+    return "frame length " + std::to_string(declared) + " exceeds the " + std::to_string(capacity) +
+           " byte maximum a CAN frame can carry";
+  }
+  return "";
+}
