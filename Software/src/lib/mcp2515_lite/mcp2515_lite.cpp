@@ -403,8 +403,12 @@ void MCP2515_Lite::busReleaseTask() {
  * drained returns to a pin that is still low, and is entered again immediately
  * - a storm that would starve the very task it is waiting for. Masking turns
  * "I could not drain" into "drain again the moment the reason is gone": every
- * task transaction ends in busReleaseTask(), and the task takes the bus at
- * least once per MCP2515_LITE_POLL_TIMEOUT_MS even with nothing else to do.
+ * task transaction ends in busReleaseTask(), the handler wakes the task after
+ * masking, and the task takes the bus at least once per
+ * MCP2515_LITE_POLL_TIMEOUT_MS even with nothing else to do - except while
+ * paused, when it makes no transactions at all. A paused chip is in config
+ * mode and receives nothing, so a mask then only delays frames the chip
+ * already holds until the unpause transaction re-arms the pin.
  *
  * gpio_ll_intr_disable() is an always_inline register write, so this is legal
  * with the flash cache off. The core is read rather than assumed: the mask is
@@ -513,8 +517,12 @@ void MCP2515_Lite::canTask(void* pvParameters) {
   while (true) {
     // Sleep the task until ISR or `sendFrame` wakes us up. We also wake
     // after a timeout just in case we've missed an interrupt and there's
-    // something pending to do.
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(MCP2515_LITE_POLL_TIMEOUT_MS));
+        // something pending to do - and sooner while the interrupt drains,
+        // because then this poll is the only backstop left for everything that
+        // is not receive.
+        const uint32_t poll_timeout_ms =
+            self->_isr_drain_enabled ? MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS : MCP2515_LITE_POLL_TIMEOUT_MS;
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(poll_timeout_ms));
 
     // 1. Pause/unpause if requested
 
