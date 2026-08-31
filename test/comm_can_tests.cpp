@@ -87,6 +87,50 @@ TEST_F(CommCanTest, AnInterfaceNobodyAskedForIsNeverTouched) {
   EXPECT_EQ(emul_can::begin_count(Chip::Mcp2518fd2), 0);
 }
 
+/* comm_can_reset_for_test() names every file static by hand, so a line left out
+ * of it is only as visible as some other test's dependence on that particular
+ * static. Measured, one line at a time, each in a clean build directory:
+ * dropping the driver pointers or the native flag fails several cases, but
+ * dropping `user_selected_CAN_ID_cutoff_filter = 0` failed NOTHING, and
+ * dropping `settingsespcan = nullptr` still fails nothing - the reset is
+ * trusted rather than checked.
+ *
+ * So the hook is pinned from outside: what it claims is that the CAN layer is
+ * back to power-on, and this asserts that directly. A new file static still has
+ * to be added to the hook by hand - only gathering the statics into one struct
+ * and assigning a fresh instance would remove that step - but a forgotten line
+ * is now a named failure rather than a silent order dependence.
+ */
+TEST_F(CommCanTest, ResettingTheCanLayerLeavesNothingBehind) {
+  // Start from a known registry rather than from whatever the previous test
+  // left: the whole point is to observe what the reset removes, so what went in
+  // has to be this test's own.
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+
+  RecordingReceiver native_receiver;
+  register_can_receiver(&native_receiver, CAN_NATIVE);
+  user_selected_CAN_ID_cutoff_filter = 0x400;
+  ASSERT_TRUE(emul_can_init_on_full_board());
+
+  comm_can_reset_for_test();
+  emul_can::reset();
+
+  EXPECT_EQ(user_selected_CAN_ID_cutoff_filter, 0) << "the log cutoff survived the reset";
+
+  // Ask for ONE interface that is not the one registered above. A registry the
+  // reset failed to empty still holds the native receiver, and init_CAN() would
+  // bring the native controller up alongside the add-on.
+  RecordingReceiver addon_receiver;
+  register_can_receiver(&addon_receiver, CAN_ADDON_MCP2515);
+  ASSERT_TRUE(emul_can_init_on_full_board());
+
+  EXPECT_EQ(emul_can::begin_count(Chip::Mcp2515), 1) << "the interface this test did ask for";
+  EXPECT_EQ(emul_can::begin_count(Chip::Native), 0) << "a receiver survived the reset and asked for native CAN";
+  EXPECT_EQ(emul_can::begin_count(Chip::Mcp2518fd), 0);
+  EXPECT_EQ(emul_can::begin_count(Chip::Mcp2518fd2), 0);
+}
+
 TEST_F(CommCanTest, AChipThatFailsToStartRaisesItsOwnEvent) {
   emul_can_tear_down_all_interfaces();
   emul_can::reset();
