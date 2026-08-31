@@ -135,15 +135,15 @@ class MCP2515_Lite {
     return ret;
   }
 
-  // Interrupt drain. Requested by useIsrDrain(), enabled by begin()
-  // only once the register-level SPI is bound and the interrupt is installed
-  // with ESP_INTR_FLAG_IRAM.
+  // Interrupt drain. Requested by useIsrDrain(), enabled by begin() only once
+  // the register-level SPI is bound. The interrupt survives flash windows
+  // because CONFIG_ARDUINO_ISR_IRAM=y keeps Arduino's GPIO service
+  // IRAM-resident; the handler's own residency is checked at boot.
   Mcp2515IramSpi _iram_spi;
   Mcp2515RxRing<MCP2515_Lite_Frame, MCP2515_LITE_ISR_RING_DEPTH> _isr_ring;
   bool _isr_drain_requested = false;
   uint8_t _isr_spi_bus = 0;
   bool _isr_interrupt_installed = false;
-  bool _isr_service_owned = false;
   volatile bool _isr_drain_enabled = false;
   volatile uint32_t _isr_frames = 0;
   volatile uint32_t _isr_bus_deferrals = 0;
@@ -221,13 +221,6 @@ class MCP2515_Lite {
      */
   bool drainRx();
 
-  // Install the interrupt with ESP_INTR_FLAG_IRAM. Returns false if the GPIO
-  // interrupt service is already installed by someone else, since then its
-  // allocation flags are not ours to know.
-  bool installIsrDrainInterrupt();
-
-  // ISR handler for the CAN interrupt pin
-
-  // Undo whichever of the two interrupt paths begin() took.
+  // Undo begin()'s interrupt registration.
   void detachIsrPin();
 };

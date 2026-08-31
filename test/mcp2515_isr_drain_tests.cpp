@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "../Software/src/lib/mcp2515_lite/mcp2515_rx_ring.h"
 #include "../Software/src/lib/mcp2515_lite/mcp2515_tx_status.h"
@@ -361,41 +363,108 @@ TEST(Mcp2515IsrDrain, AnIncompleteTransferIsDroppedRatherThanDecoded) {
                              "reporting success would leave the level trigger with nothing to clear it";
 }
 
-TEST(Mcp2515IsrDrain, TheInterruptIsInstalledWithTheFlagThatSurvivesAFlashWrite) {
+TEST(Mcp2515IsrDrain, TheInterruptSurvivesAFlashWriteThroughTheGlobalFlag) {
+  const std::string src = driver_source();
+  const std::string config = source("sdkconfig.be_size.defaults");
+
+  // Without ESP_INTR_FLAG_IRAM on the GPIO service the source is masked for
+  // the duration of every flash operation, and an IRAM handler behind a masked
+  // source never runs - the drain would be pinned code that is switched off
+  // exactly when it matters. The build now supplies the flag through
+  // CONFIG_ARDUINO_ISR_IRAM=y in the shipping config instead of a bespoke
+  // service allocation here: the flag is a property of the interrupt SOURCE,
+  // and a service this driver allocated with it would bind every later
+  // attachInterrupt() caller to it silently.
+  EXPECT_NE(config.find("\nCONFIG_ARDUINO_ISR_IRAM=y"), std::string::npos)
+      << "the shipping config does not carry CONFIG_ARDUINO_ISR_IRAM=y - without it Arduino's GPIO service "
+         "is flash-resident and the drain is masked for exactly the windows it exists to cover";
+  EXPECT_NE(src.find("attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING)"),
+            std::string::npos)
+      << "the handler does not register through Arduino's dispatcher";
+  EXPECT_EQ(src.find("gpio_install_isr_service"), std::string::npos)
+      << "the bespoke service allocation is back - it makes ESP_INTR_FLAG_IRAM a property every later "
+         "attachInterrupt() caller inherits silently";
+  EXPECT_EQ(src.find("gpio_isr_handler_add"), std::string::npos)
+      << "the handler bypasses Arduino's dispatcher - with the global flag on, the dispatcher is IRAM and "
+         "the bypass buys nothing but a second registration path";
+}
+
+TEST(Mcp2515IsrDrain, AFlashResidentHandlerIsRefusedAtBoot) {
   const std::string src = driver_source();
 
-  // Without ESP_INTR_FLAG_IRAM the source is masked for the duration of every
-  // flash operation, and an IRAM handler behind a masked source never runs -
-  // the drain would be pinned code that is switched off exactly when it matters.
-  EXPECT_NE(src.find("gpio_install_isr_service(ESP_INTR_FLAG_IRAM)"), std::string::npos)
-      << "the GPIO interrupt service is installed without ESP_INTR_FLAG_IRAM";
-  EXPECT_NE(src.find("gpio_isr_handler_add((gpio_num_t)_int_pin, mcp2515_isr_handler, this)"), std::string::npos)
-      << "the handler goes back through Arduino's dispatcher, which is not IRAM in this build";
+  // The flag makes Arduino's DISPATCHER IRAM-resident, not the callbacks it
+  // dispatches: a flash-resident callback on an IRAM service is a cache-off
+  // fetch in exactly the window the flag keeps serviced - a crash where the
+  // old arrangement merely lost frames. The boot-time check refuses to
+  // register such a handler at all; the deep call chain is audited per linked
+  // image by mcp2515_isr_iram_audit.py, which a source test cannot see.
+  const size_t check = src.find("esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler))");
+  ASSERT_NE(check, std::string::npos) << "the boot-time IRAM check on the handler is gone";
+  const size_t attach = src.find("attachInterruptArg(digitalPinToInterrupt(_int_pin)");
+  ASSERT_NE(attach, std::string::npos);
+  EXPECT_LT(check, attach) << "the handler is registered before its residency is checked - a flash-resident "
+                              "handler would be live on the IRAM service until the check runs";
+}
 
-  // And when someone else installed the service first, its flags are unknown,
-  // so the drain must decline rather than assume.
-  const std::string install = body_of(src, "bool MCP2515_Lite::installIsrDrainInterrupt()");
-  EXPECT_NE(install.find("ESP_ERR_INVALID_STATE"), std::string::npos)
-      << "an already-installed interrupt service is treated as if it were ours";
-  EXPECT_NE(install.find("return false"), std::string::npos);
+TEST(Mcp2515IsrDrain, NoProjectLevelInterruptRegistrationGrowsUnaudited) {
+  // The boot-time residency check above covers only THIS driver's handler.
+  // With CONFIG_ARDUINO_ISR_IRAM=y the dispatcher services every registered
+  // GPIO handler through flash windows, so any NEW attachInterrupt() caller
+  // with a flash-resident handler is a cache-off crash the moment its pin
+  // fires during a write. Today the project registers no GPIO interrupt
+  // outside the vendored libs (mcp2515_lite checks itself; ACAN2517FD's
+  // registration is gone - comm_can.cpp passes nullptr with INT at 255, and
+  // the library skips attachInterrupt entirely). A new caller must join the
+  // per-image audit (mcp2515_isr_iram_audit.py) before this census grows.
+  const std::string self = __FILE__;
+  const std::string root = self.substr(0, self.find_last_of('/')) + "/../Software/src";
+  const std::string lib_dir = "/lib/";
+  std::vector<std::string> hits;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    const std::string path = entry.path().string();
+    if (!entry.is_regular_file() || path.find(lib_dir) != std::string::npos) {
+      continue;
+    }
+    const std::string ext = entry.path().extension().string();
+    if (ext != ".cpp" && ext != ".h") {
+      continue;
+    }
+    std::ifstream file(path);
+    std::string line;
+    while (std::getline(file, line)) {
+      const std::string code = line.substr(0, line.find("//"));
+      for (const char* call :
+           {"attachInterrupt(", "attachInterruptArg(", "gpio_isr_handler_add(", "gpio_install_isr_service("}) {
+        if (code.find(call) != std::string::npos) {
+          hits.push_back(path + ": " + line);
+        }
+      }
+    }
+  }
+  EXPECT_TRUE(hits.empty()) << "a project-level GPIO interrupt registration site appeared - with "
+                               "CONFIG_ARDUINO_ISR_IRAM=y its handler runs during flash windows and must be "
+                               "IRAM-resident and covered by mcp2515_isr_iram_audit.py:\n" +
+                                   [&hits] {
+                                     std::string all;
+                                     for (const auto& hit : hits) {
+                                       all += hit + "\n";
+                                     }
+                                     return all;
+                                   }();
 }
 
 TEST(Mcp2515IsrDrain, OscillatorAutodetectionCannotLockTheDrainOut) {
   const std::string src = driver_source();
 
   // begin() runs twice when MCP2515_FREQ() is 0 - the devkit and the 3LB, i.e.
-  // every boot on the boards where the drain is otherwise live. The GPIO
-  // interrupt service is installed once for the whole system, so if the first
-  // pass reaches for attachInterrupt() the service is installed WITHOUT
-  // ESP_INTR_FLAG_IRAM and the second pass can only decline. Both passes have
-  // to take the same path.
-  EXPECT_NE(src.find("_isr_interrupt_installed = _isr_drain_requested && installIsrDrainInterrupt();"),
-            std::string::npos)
-      << "the interrupt path is chosen on something other than whether the drain was requested - if "
-         "autodetection is excluded, it installs Arduino's service first and the drain never runs";
-  EXPECT_EQ(src.find("detachInterrupt(digitalPinToInterrupt(_int_pin));\n    reset();"), std::string::npos)
-      << "autodetection tears the pin down with detachInterrupt() directly, which does not remove an "
-         "IDF-registered handler";
+  // every boot on the boards where the drain is otherwise live. With the flag
+  // there is exactly ONE registration path, so the second pass cannot find
+  // state the first pass poisoned; this pins that a second path does not grow
+  // back.
+  const size_t first = src.find("attachInterruptArg(");
+  ASSERT_NE(first, std::string::npos);
+  EXPECT_EQ(src.find("attachInterruptArg(", first + 1), std::string::npos)
+      << "a second registration path is back - autodetection and the real begin() can then diverge again";
 
   // The drain itself must still stay out of autodetection, which runs the chip
   // in loopback and would otherwise leave its test frame in the ring.
@@ -485,14 +554,12 @@ TEST(Mcp2515IsrDrain, ThePinIsLevelTriggeredOnlyOnceThereIsADrainBehindIt) {
   EXPECT_EQ(src.rfind("GPIO_INTR_LOW_LEVEL", enabled), std::string::npos)
       << "the pin is level triggered before the drain is known to be live - nothing would clear that level";
 
-  // The install-time type stays an edge, and the fallback path - where the task
-  // drains - stays an edge too.
-  EXPECT_NE(body_of(src, "bool MCP2515_Lite::installIsrDrainInterrupt()").find("GPIO_INTR_NEGEDGE"), std::string::npos)
-      << "the interrupt is installed level triggered, before there is anything behind it to clear the level";
+  // The install-time type stays an edge: attachInterruptArg registers FALLING,
+  // and only the point where the drain is known live switches to a level. A
+  // level nobody drains is a level nobody clears.
   EXPECT_NE(src.find("attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING)"),
             std::string::npos)
-      << "the fallback interrupt is level triggered, but its drain runs in the task - it would be re-entered until "
-         "the task it is starving gets to run";
+      << "the interrupt is installed level triggered, before there is anything behind it to clear the level";
 }
 
 /*(d): an interrupt that could not drain must mask its own pin.
