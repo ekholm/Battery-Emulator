@@ -130,8 +130,26 @@ void KostalInverterProtocol::update_values() {
 
   //Only perform this operation when Shunt is in used and set to BMW SBOX
   if (user_selected_shunt_type == ShuntType::BmwSbox) {
-    float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_amperage_mA / 100) / 10, 18);
-    float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_avg1S_amperage_mA / 100) / 10, 22);
+    if (datalayer.shunt.available) {
+      float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_amperage_mA / 100) / 10, 18);
+      float2frame(CYCLIC_DATA, (float)(datalayer.shunt.measured_avg1S_amperage_mA / 100) / 10, 22);
+    } else {
+      /* The S-BOX has gone quiet - it stops being seen 1000 ms after its last frame. Its last
+       * readings stay in the datalayer forever, so continuing to send them would tell the inverter
+       * a dead shunt is a steady one, with no bound on how long the lie lasts.
+       *
+       * The fallback is the battery's own reported current, which is what the else branch below
+       * already sends into these two byte offsets for every installation without an S-BOX. So this
+       * is not a new mapping being invented for an error path: it is the value the protocol already
+       * uses when no shunt is measuring, which is exactly the situation. It is also live rather
+       * than frozen, and it returns to the shunt's own reading the moment frames resume.
+       *
+       * Sending 0.0 A was the alternative and is worse: it is equally untrue and it reads as a
+       * healthy idle battery, which is the one state that invites the inverter to act.
+       */
+      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 18);
+      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 22);
+    }
 
     if (datalayer.shunt.contactors_engaged) {
       CYCLIC_DATA[59] = 0;
