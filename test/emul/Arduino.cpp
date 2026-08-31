@@ -1,13 +1,9 @@
 #include "Arduino.h"
 
-#include "../../Software/src/communication/can/comm_can.h"
-
-// Provide the definition that was previously in USER_SETTINGS.cpp
-volatile CAN_Configuration can_config = {.battery = CAN_Interface::CAN_NATIVE,
-                                         .inverter = CAN_Interface::CAN_NATIVE,
-                                         .battery_double = CAN_Interface::CAN_NATIVE,
-                                         .charger = CAN_Interface::CAN_NATIVE,
-                                         .shunt = CAN_Interface::CAN_NATIVE};
+// can_config used to be defined here, standing in for USER_SETTINGS.cpp. It now
+// comes from comm_can.cpp, which this binary compiles - with the firmware's own
+// defaults, which put the second and third battery on the MCP2515 add-on rather
+// than on native CAN.
 
 void delay(unsigned long ms) {}
 void delayMicroseconds(unsigned long us) {}

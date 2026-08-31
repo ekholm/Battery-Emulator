@@ -92,6 +92,16 @@ class Logging {
     (void)base;
   }
 
+  static void println(int32_t num, int base) {
+    (void)num;
+    (void)base;
+  }
+
+  static void println(uint32_t num, int base) {
+    (void)num;
+    (void)base;
+  }
+
   static void println(const char* str) { (void)str; }
   static void println(char c) { (void)c; }
   static void println(int8_t num) { (void)num; }
