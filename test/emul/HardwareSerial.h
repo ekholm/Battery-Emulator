@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <cstddef>
 #include <string>
+#include <vector>
 #include "Print.h"
 #include "Stream.h"
 
@@ -48,8 +49,11 @@ class HardwareSerial : public Stream {
     return byte;
   }
   int peek() override { return rx_buffer.empty() ? -1 : static_cast<unsigned char>(rx_buffer.front()); }
-  void flush() override {}                      // Implement flush from Print
-  size_t write(uint8_t) override { return 0; }  // Implement write from Print
+  void flush() override {}               // Implement flush from Print
+  size_t write(uint8_t byte) override {  // Implement write from Print
+    tx_buffer.push_back(static_cast<char>(byte));
+    return 1;
+  }
 
   // Your existing methods
   uint32_t baudRate() { return 9600; }
@@ -63,6 +67,17 @@ class HardwareSerial : public Stream {
   size_t write(const uint8_t* buffer, size_t size) override {
     tx_buffer.append(reinterpret_cast<const char*>(buffer), size);
     return size;
+  }
+
+  // Test control. The port is a real queue in both directions so a protocol can
+  // be driven end to end: feed_rx() plays what the peer sent, sent() is what the
+  // firmware actually put on the wire.
+  void feed_rx(const uint8_t* data, size_t size) { rx_buffer.append(reinterpret_cast<const char*>(data), size); }
+  std::vector<uint8_t> sent() const { return std::vector<uint8_t>(tx_buffer.begin(), tx_buffer.end()); }
+  void clear_sent() { tx_buffer.clear(); }
+  void reset() {
+    rx_buffer.clear();
+    tx_buffer.clear();
   }
 };
 extern HardwareSerial Serial;
