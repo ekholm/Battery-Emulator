@@ -36,6 +36,19 @@ Features:
 #define MCP2515_LITE_MODE_CHANGE_ATTEMPTS 5
 #define MCP2515_LITE_MODE_CHANGE_POLL_MS 2
 
+/* And this often while the interrupt drains.
+ *
+ * The interrupt then answers receive entirely, and does not wake the task for
+ * it - so this poll is the ONLY backstop left for everything else: an ERRIF the
+ * chip cannot raise on a receive-only pin, a transmit buffer that freed with
+ * nothing sending to notice, and the remote case of a pin the interrupt masked
+ * with no task transaction following to re-arm it. At 1000 ms each of those is
+ * a second of blindness on a driver whose whole point is not losing a
+ * millisecond. Each wake costs two SPI transactions, and ten of them a second
+ * is about three percent of the per-frame wake this replaced - a bus hold small
+ * enough not to reintroduce the contention that wake was removed for.
+ */
+#define MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS 100
 // Frames the interrupt drain can hold while no task is running to take them.
 // A flash erase parks every task for tens of milliseconds, so the depth is what
 // decides whether frames survive one; 64 covers 128 ms at 500 frames/s and

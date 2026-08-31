@@ -70,6 +70,17 @@ std::string body_of(const std::string& src, const std::string& signature) {
   return src.substr(start, end - start);
 }
 
+// The integer behind a `#define NAME value`, for headers the host cannot
+// include (mcp2515_lite.h pulls in SPI and FreeRTOS).
+long defined_value(const std::string& src, const std::string& name) {
+  const size_t at = src.find("#define " + name + " ");
+  EXPECT_NE(at, std::string::npos) << name << " is gone";
+  if (at == std::string::npos) {
+    return -1;
+  }
+  return strtol(src.c_str() + at + name.size() + 9, nullptr, 10);
+}
+
 }  // namespace
 
 TEST(Mcp2515RxRing, FramesComeBackInTheOrderTheyWentIn) {
@@ -566,6 +577,40 @@ TEST(Mcp2515IsrDrain, ADrainThatFinishedItsWorkWakesNobody) {
                              "timeout, which is the backstop this item exists to stop relying on";
 }
 
+/* The poll that is now the only backstop has to be worth waking for.
+ *
+ * ADrainThatFinishedItsWorkWakesNobody took receive out of the task's reasons
+ * to run, which leaves this poll as the sole recovery for everything else: an
+ * ERRIF the chip cannot raise on a receive-only pin, a transmit buffer that
+ * freed with nothing sending to notice it, and the remote case of a pin the
+ * interrupt masked with no task transaction following to re-arm it. At 1000 ms
+ * each of those is a second of blindness in a driver whose point is not losing
+ * a millisecond, so the drain shortens it - and only the drain does, because
+ * without it the task is woken per frame anyway and the extra polls would be
+ * pure bus traffic.
+ */
+TEST(Mcp2515IsrDrain, TheDrainShortensThePollThatIsNowItsOnlyBackstop) {
+  const std::string header = source("Software/src/lib/mcp2515_lite/mcp2515_lite.h");
+  const long plain = defined_value(header, "MCP2515_LITE_POLL_TIMEOUT_MS");
+  const long drained = defined_value(header, "MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS");
+
+  ASSERT_GT(plain, 0) << "the poll timeout is not a positive number of milliseconds";
+  ASSERT_GT(drained, 0) << "a zero or negative drain poll timeout is a busy loop holding the SPI bus, which is the "
+                           "one thing the interrupt cannot survive";
+  EXPECT_LT(drained, plain) << "the drain's poll is " << drained << " ms against the plain " << plain
+                            << " ms - it is meant to be SHORTER, because with receive answered by the interrupt "
+                               "this poll is the only thing left that finds an error or frees a transmit buffer";
+
+  const std::string task = body_of(driver_source(), "void MCP2515_Lite::canTask(void* pvParameters)");
+  EXPECT_NE(
+      task.find("self->_isr_drain_enabled ? MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS : MCP2515_LITE_POLL_TIMEOUT_MS"),
+      std::string::npos)
+      << "the task does not pick its wait on whether the drain is live, or picks it the wrong way round - the short "
+         "poll belongs to the drain, and only to it";
+  EXPECT_NE(task.find("ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(poll_timeout_ms))"), std::string::npos)
+      << "the chosen timeout is not what the task actually waits on";
+}
+
 TEST(Mcp2515IsrDrain, TheTaskRearmsThePinWhenItReleasesTheBus) {
   const std::string release = body_of(driver_source(), "void MCP2515_Lite::busReleaseTask()");
 
@@ -611,6 +656,95 @@ TEST(Mcp2515IsrDrain, TheDriverAsksTheChipWhichTransmitBuffersAreFree) {
   EXPECT_EQ(task.find("tx_free_mask |="), std::string::npos)
       << "the free-buffer mask is maintained from the transmit interrupt flags again - flags criterion (i) stops the "
          "chip raising";
+}
+
+/* A masked pin must come with a wake, or the re-arm waits for the
+ * backstop.
+ *
+ * Only busReleaseTask() re-arms a masked pin, so the mask's real ceiling is
+ * "when does the task next finish a transaction". The handler waking the task
+ * after any mask is what makes that one scheduling latency rather than
+ * MCP2515_LITE_POLL_TIMEOUT_MS: the notify wakes the task, the task's next
+ * pass takes and releases the bus, and the release re-arms. ca1073e5 made the
+ * wake conditional - a clean drain wakes nobody - and
+ * ADrainThatFinishedItsWorkWakesNobody owns that logic; what this test pins is
+ * the geometry it rests on: both masks happen before the notify point, and the
+ * notify sits after the whole drain branch, where every path that set
+ * wake_task can still reach it.
+ */
+TEST(Mcp2515IsrDrain, EveryMaskComesWithAWake) {
+  const std::string handler = body_of(driver_source(), "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
+
+  const size_t notify = handler.find("vTaskNotifyGiveFromISR(");
+  ASSERT_NE(notify, std::string::npos) << "the interrupt no longer wakes the task at all";
+
+  size_t masks = 0;
+  for (size_t at = handler.find("maskIsrPin()"); at != std::string::npos; at = handler.find("maskIsrPin()", at + 1)) {
+    EXPECT_LT(at, notify) << "the pin is masked after the task was notified - nothing wakes the task for THIS mask, "
+                             "so the re-arm waits for the 1000 ms backstop instead of a scheduling latency";
+    masks++;
+  }
+  EXPECT_EQ(masks, 2u) << "the handler has " << masks
+                       << " mask calls where its two could-not-drain paths need one each";
+
+  // The notify must not sit inside the drain-enabled branch, where a fallback
+  // build - or a masking path that runs before the branch ends - could never
+  // reach it.
+  const size_t drain_branch = handler.find("if (instance->_isr_drain_enabled)");
+  ASSERT_NE(drain_branch, std::string::npos);
+  const size_t branch_end = handler.find("\n    }", drain_branch);
+  ASSERT_NE(branch_end, std::string::npos);
+  EXPECT_GT(notify, branch_end) << "the task is only notified when the drain is enabled";
+}
+
+/* A torn-down handler must not leave a mask behind.
+ *
+ * detachIsrPin() removes the handler, which disables the pin on its own. A
+ * stale _isr_pin_masked would make the next busReleaseTask() re-arm a pin
+ * nobody handles - or, on a re-begin(), hand the fresh install a mask it never
+ * took. Autodetection detaches and re-begins on every autodetect boot, so this
+ * is a boot path, not a corner.
+ */
+TEST(Mcp2515IsrDrain, DetachingTheHandlerForgetsAPendingMask) {
+  const std::string detach = body_of(driver_source(), "void MCP2515_Lite::detachIsrPin()");
+
+  EXPECT_NE(detach.find("_isr_pin_masked = false;"), std::string::npos)
+      << "detachIsrPin() keeps a pending mask - the next busReleaseTask() re-arms a pin whose handler is gone";
+}
+
+/* Autodetection times the RECEIVE interrupt now, so it must receive.
+ *
+ * Criterion (i) took TX0IE out of CANINTE. Before it, autodetection's timed
+ * edge came from whichever raised first, and a transmit completion alone was
+ * enough; after it, the only thing that can pull the pin low is a received
+ * frame, and the only receiver of the test frame is the chip itself - in
+ * loopback mode. Flip that flag to false and nothing fails loudly: every
+ * autodetect times out at 100 ms and answers 8 MHz, on every 16 MHz board.
+ */
+TEST(Mcp2515IsrDrain, AutodetectionReceivesItsOwnTestFrame) {
+  const std::string autodetect = body_of(driver_source(), "uint32_t MCP2515_Lite::autodetectOscillatorFrequency()");
+
+  EXPECT_NE(autodetect.find("begin({7813, 8000000}, true, true)"), std::string::npos)
+      << "autodetection does not run the chip in loopback - with CANINTE receive-only, no interrupt ever fires and "
+         "the timeout answers 8 MHz regardless of the crystal";
+}
+
+/* The READ STATUS decode against the datasheet's bit numbers, all 256
+ * bytes.
+ *
+ * The named tests above pick the bits one at a time; this pins the whole
+ * layout to independent constants (TXREQ0 = 0x04, TXREQ1 = 0x10, TXREQ2 =
+ * 0x40, straight from the datasheet's READ STATUS figure) so a wrong base or a
+ * wrong stride cannot agree with them on any input.
+ */
+TEST(Mcp2515TxStatus, TheDecodeMatchesTheDatasheetOnEveryStatusByte) {
+  for (int status = 0; status < 256; status++) {
+    const uint8_t mask = mcp2515_tx_free_mask((uint8_t)status);
+    EXPECT_EQ((mask & 0x01) != 0, (status & 0x04) == 0) << "status " << status;
+    EXPECT_EQ((mask & 0x02) != 0, (status & 0x10) == 0) << "status " << status;
+    EXPECT_EQ((mask & 0x04) != 0, (status & 0x40) == 0) << "status " << status;
+    EXPECT_EQ(mask & ~MCP2515_TX_ALL_FREE, 0) << "status " << status << " frees a buffer the chip does not have";
+  }
 }
 
 TEST(Mcp2515IsrDrain, TheInterruptNeverWaitsForTheTask) {
