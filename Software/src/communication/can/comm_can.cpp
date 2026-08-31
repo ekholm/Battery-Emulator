@@ -66,7 +66,34 @@ static bool native_can_initialized = false;
 //CAN logging filter settings
 uint16_t user_selected_CAN_ID_cutoff_filter = 0;  //Messages below this ID will not be logged in webserver
 
-bool init_CAN() {
+/* One chip's failure stops at that chip.
+ *
+ * This function used to `return false` on any failure, which read as "fail
+ * loudly" but could not: the return is discarded at the only call site
+ * (Software.cpp), so the abort neither stopped the boot nor told anyone - it
+ * silently skipped every interface declared after the one that failed. It did
+ * not prevent a half-initialised set either; it only changed WHICH interfaces
+ * survived, and that was decided by the order they happen to be initialised in.
+ * Declaration order is not a safety property.
+ *
+ * Chip init failures are now per-interface: raise that interface's event, leave
+ * its pointer null, carry on. Null is what the rest of this file already treats
+ * as "not there" - receive_can() and the transmit paths all guard on it - so a
+ * failed chip is inert rather than absent-and-unmentioned.
+ *
+ * PIN ALLOCATION failures still stop everything, and that is deliberate rather
+ * than inherited. alloc_pins() fails when the board declaration is incoherent -
+ * two functions claiming one pad, or a pad that does not exist - which is a
+ * configuration error about the whole board, not a fault in one chip. Carrying
+ * on would hand the same pad to whichever interface asks next. It is also
+ * already loud on its own: alloc_pins() raises EVENT_GPIO_CONFLICT or
+ * EVENT_GPIO_NOT_DEFINED before returning.
+ *
+ * The return type is gone rather than made meaningful. Every failure now has an
+ * event, which is the channel the rest of the firmware already reads; a bool
+ * nobody examines was the thing that made "it fails loudly" look true.
+ */
+void init_CAN() {
   // Native CAN (onboard the ESP32)
 
   auto nativeIt = can_receivers.find(CAN_NATIVE);
@@ -78,14 +105,14 @@ bool init_CAN() {
 
     if (se_pin != GPIO_NUM_NC) {
       if (!esp32hal->alloc_pins("CAN", se_pin)) {
-        return false;
+        return;  // incoherent pin map - see the note on this function
       }
       pinMode(se_pin, OUTPUT);
       digitalWrite(se_pin, LOW);
     }
 
     if (!esp32hal->alloc_pins("CAN", tx_pin, rx_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     const uint32_t errorCode = init_native_can(nativeIt->second.speed, tx_pin, rx_pin);
@@ -113,7 +140,11 @@ bool init_CAN() {
     } else {
       logging.print("Error Native Can: 0x");
       logging.println(errorCode, HEX);
-      return false;
+      // This path had no event, only a log - and these boards log
+      // nothing unless USBENABLED is set, so the failure that aborted every
+      // other interface was also the only one nobody could see.
+      set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
+      native_can_initialized = false;
     }
   }
 
@@ -129,7 +160,7 @@ bool init_CAN() {
     auto rst_pin = esp32hal->MCP2515_RST();
 
     if (!esp32hal->alloc_pins("CAN", cs_pin, int_pin, sck_pin, miso_pin, mosi_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     logging.println("Dual CAN Bus (ESP32+MCP2515) selected");
@@ -158,9 +189,9 @@ bool init_CAN() {
     } else {
       logging.println("MCP2515 CAN init failed");
       set_event(EVENT_CANMCP2515_INIT_FAILURE, 1);
-      // This will leak, but we have failed and won't try to reinit.
+      // This will leak, but we have failed and won't try to reinit. Null is how
+      // the send and receive paths already read "this interface is not there".
       can2515 = nullptr;
-      return false;
     }
   }
 
@@ -177,7 +208,7 @@ bool init_CAN() {
     auto sdi_pin = esp32hal->MCP2517_SDI();
 
     if (!esp32hal->alloc_pins("CANFD", sck_pin, sdo_pin, sdi_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     SPI2517 = new SPIClass(esp32hal->MCP2517_BUS());
@@ -192,7 +223,7 @@ bool init_CAN() {
     auto int_pin = esp32hal->MCP2517_INT();
 
     if (!esp32hal->alloc_pins("CANFD", cs_pin, int_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     canfd = new ACAN2517FD(cs_pin, *SPI2517, int_pin);
@@ -214,7 +245,8 @@ bool init_CAN() {
         ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
 
     if (!begin_canfd()) {
-      return false;
+      // begin_canfd() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+      canfd = nullptr;
     }
   }
 
@@ -224,7 +256,7 @@ bool init_CAN() {
     auto int_pin = esp32hal->MCP2517_INT2();
 
     if (!esp32hal->alloc_pins("CANFD2", cs_pin, int_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     if (esp32hal->MCP2517_BUS() == esp32hal->MCP2517_BUS2()) {
@@ -238,7 +270,7 @@ bool init_CAN() {
       auto sdi_pin = esp32hal->MCP2517_SDI2();
 
       if (!esp32hal->alloc_pins("CANFD2", sck_pin, sdo_pin, sdi_pin)) {
-        return false;
+        return;  // incoherent pin map - see the note on this function
       }
 
       SPI2517_2->begin(sck_pin, sdo_pin, sdi_pin);
@@ -263,11 +295,10 @@ bool init_CAN() {
         ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
 
     if (!begin_canfd_2()) {
-      return false;
+      // begin_canfd_2() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+      canfd_2 = nullptr;
     }
   }
-
-  return true;
 }
 
 static bool begin_canfd() {

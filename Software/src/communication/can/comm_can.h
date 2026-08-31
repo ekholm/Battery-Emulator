@@ -49,11 +49,12 @@ void register_can_receiver(CanReceiver* receiver, CAN_Interface interface,
 /**
  * @brief Initializes all CAN interfaces requested earlier by other modules (see register_can_receiver)
  *
- * @param[in] void
- *
- * @return true if CAN interfaces were initialized successfully, false otherwise.
+ * A chip that fails to start raises its own event and is left inert; only an
+ * incoherent pin map stops the rest. There is no return value: the old bool was
+ * discarded at the only call site, which is what made "a failed chip stops the
+ * boot" look true. Failures are reported as events.
  */
-bool init_CAN();
+void init_CAN();
 
 /**
  * @brief Receive CAN messages from all interfaces. Respective CanReceivers are called.
