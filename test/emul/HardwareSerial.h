@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <cstddef>
+#include <deque>
+#include <vector>
 #include "Print.h"
 #include "Stream.h"
 
@@ -36,11 +38,24 @@ enum SerialConfig {
 class HardwareSerial : public Stream {
  public:
   // Implement ALL pure virtual functions from base classes
-  int available() override { return 0; }
-  int read() override { return -1; }
-  int peek() override { return -1; }
-  void flush() override {}                      // Implement flush from Print
-  size_t write(uint8_t) override { return 0; }  // Implement write from Print
+  int available() override { return (int)rx_.size(); }
+
+  int read() override {
+    if (rx_.empty()) {
+      return -1;
+    }
+    const uint8_t byte = rx_.front();
+    rx_.pop_front();
+    return byte;
+  }
+
+  int peek() override { return rx_.empty() ? -1 : rx_.front(); }
+  void flush() override {}  // Implement flush from Print
+
+  size_t write(uint8_t byte) override {  // Implement write from Print
+    tx_.push_back(byte);
+    return 1;
+  }
 
   // Your existing methods
   uint32_t baudRate() { return 9600; }
@@ -52,10 +67,24 @@ class HardwareSerial : public Stream {
 
   // Add the buffer write method
   size_t write(const uint8_t* buffer, size_t size) override {
-    (void)buffer;
-    (void)size;
-    return 0;
+    tx_.insert(tx_.end(), buffer, buffer + size);
+    return size;
   }
+
+  // Test control. The port is a real queue in both directions so a protocol can
+  // be driven end to end: feed_rx() plays what the peer sent, sent() is what the
+  // firmware actually put on the wire.
+  void feed_rx(const uint8_t* data, size_t size) { rx_.insert(rx_.end(), data, data + size); }
+  const std::vector<uint8_t>& sent() const { return tx_; }
+  void clear_sent() { tx_.clear(); }
+  void reset() {
+    rx_.clear();
+    tx_.clear();
+  }
+
+ private:
+  std::deque<uint8_t> rx_;
+  std::vector<uint8_t> tx_;
 };
 extern HardwareSerial Serial;
 extern HardwareSerial Serial1;
