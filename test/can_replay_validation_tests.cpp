@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <fstream>
+#include <string>
+
 #include "../Software/src/devboard/webserver/can_replay_validation.h"
 
 // A CAN replay that cannot reach any wire must be refused up front - stored
@@ -65,4 +68,103 @@ TEST(CanReplayValidationTest, ReadinessIsConsultedOnlyForInRangeValues) {
   std::string msg = can_replay_interface_rejection(5, none_ready);
   EXPECT_NE(msg.find("Invalid CAN interface"), std::string::npos);
   EXPECT_EQ(msg.find("not initialized"), std::string::npos);
+}
+
+/* The DLC bound.
+ *
+ * The parser copied `[n]` tokens into CAN_frame's 64-byte array with n read
+ * straight from the uploaded line into a uint8_t - so 0..255 against 64, and a
+ * line declaring 200 bytes with 200 tokens wrote 136 past the end of a
+ * file-scope frame. Every case below is a line an upload can contain.
+ */
+namespace {
+constexpr size_t kFrameCapacity = 64;  // sizeof(CAN_frame::data.u8)
+}
+
+TEST(CanReplayDlcBound, EveryLengthAFrameCanActuallyCarryIsAccepted) {
+  for (long n = 0; n <= (long)kFrameCapacity; n++) {
+    EXPECT_EQ(can_replay_dlc_rejection(n, kFrameCapacity), "") << "length " << n << " must be accepted";
+  }
+}
+
+TEST(CanReplayDlcBound, TheFirstLengthPastTheEndIsRefused) {
+  EXPECT_EQ(can_replay_dlc_rejection(64, kFrameCapacity), "") << "the last byte that fits";
+  EXPECT_NE(can_replay_dlc_rejection(65, kFrameCapacity), "") << "one past the end must not be copied";
+}
+
+// The reported overrun: 200 tokens into 64 bytes is 136 past the end of a
+// file-scope frame, so it corrupts .bss rather than smashing a return address.
+TEST(CanReplayDlcBound, TheReportedOverrunIsRefusedAndSaysWhy) {
+  const std::string rejection = can_replay_dlc_rejection(200, kFrameCapacity);
+  ASSERT_NE(rejection, "");
+  EXPECT_NE(rejection.find("200"), std::string::npos) << "name the length the line declared: " << rejection;
+  EXPECT_NE(rejection.find("64"), std::string::npos) << "and the length that would fit: " << rejection;
+}
+
+/* The check has to happen on the value as PARSED. `[300]` narrows to 44 in a
+ * uint8_t, so a bound applied after the assignment sees a value that fits and
+ * replays a 44-byte frame the file never described.
+ */
+TEST(CanReplayDlcBound, ALengthThatWouldNarrowIntoRangeIsStillRefused) {
+  EXPECT_NE(can_replay_dlc_rejection(300, kFrameCapacity), "") << "300 narrows to 44 in a uint8_t";
+  EXPECT_NE(can_replay_dlc_rejection(256, kFrameCapacity), "") << "256 narrows to 0";
+  EXPECT_NE(can_replay_dlc_rejection(320, kFrameCapacity), "") << "320 narrows to 64, exactly the capacity";
+}
+
+// toInt() yields 0 for text it cannot parse, which is a legal empty frame - but
+// an explicitly negative length is a malformed line, not an empty one.
+TEST(CanReplayDlcBound, ANegativeLengthIsRefusedRatherThanWrappingHuge) {
+  const std::string rejection = can_replay_dlc_rejection(-1, kFrameCapacity);
+  ASSERT_NE(rejection, "");
+  /* Pin the MESSAGE, not just the refusal. Without its own check a negative
+   * length is still refused - it becomes enormous when compared as unsigned -
+   * but the line it prints quotes that enormous number, which sends whoever
+   * reads the log looking for a frame length nothing in the file declared. */
+  EXPECT_NE(rejection.find("negative"), std::string::npos) << "say it was negative: " << rejection;
+  EXPECT_EQ(rejection.find("18446744073709551615"), std::string::npos)
+      << "the wrapped value must not reach the log: " << rejection;
+
+  EXPECT_EQ(can_replay_dlc_rejection(0, kFrameCapacity), "") << "an empty frame is a frame";
+}
+
+/* The bound is only worth anything if the CALL SITE hands it the value as parsed.
+ *
+ * Narrowing before the check is the second half of the defect this fix exists to
+ * close: `[300]` becomes 44 in a uint8_t, the bound then sees a length that fits,
+ * and the replay sends a 44-byte frame the file never described. The helper above
+ * refuses 300 correctly - but nothing above pins that the caller passes 300 rather
+ * than 44, and `webserver.cpp` is not part of this binary, so a cast added at the
+ * call site restores the bug with the whole suite still green. Verified: it does.
+ *
+ * So this reads the call site, the way the other tests over that file do. It is a
+ * weaker instrument than running the code and it is here because the code cannot be
+ * run; the shape that would retire it is a helper that parses the token itself, so
+ * no caller ever holds a wide value to narrow.
+ */
+namespace {
+
+std::string webserver_source() {
+  const std::string self = __FILE__;
+  const std::string dir = self.substr(0, self.find_last_of('/'));
+  std::ifstream src(dir + "/../Software/src/devboard/webserver/webserver.cpp");
+  EXPECT_TRUE(src.is_open()) << "webserver.cpp is not where this test looks";
+  return std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+}
+
+}  // namespace
+
+TEST(CanReplayDlcBound, TheCallSiteChecksTheParsedValueNotTheNarrowedOne) {
+  const std::string src = webserver_source();
+
+  const size_t call = src.find("can_replay_dlc_rejection(");
+  ASSERT_NE(call, std::string::npos) << "the replay parser no longer calls the bound - re-check this test";
+  const std::string args = src.substr(call, src.find(')', call) - call);
+  EXPECT_EQ(args.find("uint8_t"), std::string::npos)
+      << "the declared length is narrowed before it is checked, which is the exact bug the check "
+         "exists to close: a line declaring 300 becomes 44 and passes. Pass the parsed value.\n  "
+      << args;
+
+  const size_t assign = src.find("currentFrame.DLC =");
+  ASSERT_NE(assign, std::string::npos) << "the DLC assignment moved - re-check this test";
+  EXPECT_LT(call, assign) << "the bound must run BEFORE the value reaches the uint8_t field";
 }
