@@ -58,12 +58,21 @@ bool is_paused(Chip chip);
 
 }  // namespace emul_can
 
-// Brings all four CAN interfaces up through the real init_CAN(), against a HAL
-// that defines every CAN pin. This is the state each test starts in, so that a
-// driver test can transmit without arranging an interface first - the same
+// Runs the real init_CAN() against a HAL that defines every CAN pin, and returns
+// what it returned. Use this rather than calling init_CAN() directly: no real
+// board carries all four interfaces, and on a board HAL the add-ons either
+// collide over the SPI pins or are not defined at all, so init_CAN() gives up
+// early and a test can pass for a reason that has nothing to do with what it
+// asserts.
+bool emul_can_init_on_full_board();
+
+// Drops every interface: no receivers registered, no chip initialized. A test
+// that wants to watch an interface come up (or fail to) starts here, registers
+// the receivers it wants, and calls emul_can_init_on_full_board().
+void emul_can_tear_down_all_interfaces();
+
+// Tear-down, a receiver on each of the four interfaces, then
+// emul_can_init_on_full_board(). This is the state each test starts in, so that
+// a driver test can transmit without arranging an interface first - the same
 // unconditional capture the hand-written emulation used to provide.
 void emul_can_bring_up_all_interfaces();
-
-// Drops every interface again: no receivers registered, no chip initialized.
-// A test that wants to watch an interface come up (or fail to) starts here.
-void emul_can_tear_down_all_interfaces();
