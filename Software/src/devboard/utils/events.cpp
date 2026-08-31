@@ -151,6 +151,7 @@ void init_events(void) {
   events.entries[EVENT_TASK_OVERRUN].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_THERMAL_RUNAWAY].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_CAN_CORRUPTED_WARNING].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CAN_INTERFACE_UNAVAILABLE].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_CAN_NATIVE_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANMCP2515_BUS_ERROR].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_CANFD_BUS_ERROR].level = EVENT_LEVEL_WARNING;
@@ -432,6 +433,9 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
       return "THERMAL RUNAWAY! POTENTIAL FIRE OR EXPLOSION IMMINENT!";
     case EVENT_CAN_CORRUPTED_WARNING:
       return "High amount of corrupted CAN messages detected. Check CAN wire shielding!";
+    case EVENT_CAN_INTERFACE_UNAVAILABLE:
+      return "A CAN frame was sent to an interface that does not exist on this board - it reached no "
+             "wire. Check the CAN interface selection (replay page or battery/inverter comm settings).";
     case EVENT_CAN_NATIVE_BUS_ERROR:
     case EVENT_CANMCP2515_BUS_ERROR:
     case EVENT_CANFD_BUS_ERROR:
