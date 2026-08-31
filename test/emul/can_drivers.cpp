@@ -376,22 +376,27 @@ void emul_can_tear_down_all_interfaces() {
   emul_can::g_next_fd_chip = 0;
 }
 
-void emul_can_bring_up_all_interfaces() {
-  emul_can_tear_down_all_interfaces();
-
-  // The board HAL is borrowed only for the duration of the bring-up, so that the
-  // pins init_CAN() allocates land in a HAL nothing else will see and the caller
+bool emul_can_init_on_full_board() {
+  // The board HAL is swapped out only for the duration of init_CAN(), so that
+  // the pins it allocates land in a HAL nothing else will see and the caller
   // keeps whatever board it had selected.
   Esp32Hal* const board = esp32hal;
   esp32hal = new EmulCanHal();
+
+  const bool ok = init_CAN();
+
+  delete esp32hal;
+  esp32hal = board;
+  return ok;
+}
+
+void emul_can_bring_up_all_interfaces() {
+  emul_can_tear_down_all_interfaces();
 
   register_can_receiver(&g_null_receiver, CAN_NATIVE);
   register_can_receiver(&g_null_receiver, CAN_ADDON_MCP2515);
   register_can_receiver(&g_null_receiver, CANFD_ADDON_MCP2518);
   register_can_receiver(&g_null_receiver, CANFD_ADDON_MCP2518_2);
 
-  init_CAN();
-
-  delete esp32hal;
-  esp32hal = board;
+  emul_can_init_on_full_board();
 }
