@@ -50,12 +50,21 @@ class HardwareSerial : public Stream {
   void setRxBufferSize(uint16_t size) {}
   bool setRxFIFOFull(uint8_t fifoBytes) { return false; }
 
+  // Room left in the TX buffer. The CAN USB log writes a line only when the
+  // whole line fits, and counts a gap marker when it does not, so a test that
+  // wants to see that path shrinks this.
+  int availableForWrite() { return tx_room_; }
+  void set_available_for_write(int room) { tx_room_ = room; }
+
   // Add the buffer write method
   size_t write(const uint8_t* buffer, size_t size) override {
     (void)buffer;
     (void)size;
     return 0;
   }
+
+ private:
+  int tx_room_ = 4096;
 };
 extern HardwareSerial Serial;
 extern HardwareSerial Serial1;

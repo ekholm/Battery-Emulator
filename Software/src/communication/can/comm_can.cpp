@@ -1,7 +1,8 @@
 #include "comm_can.h"
-#include "../../lib/mcp2515_lite/mcp2515_lite.h"
-#include "../../lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
-#include "../../lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
+// The three CAN drivers are included through the src_dir root rather than by
+// relative path, so that the host test build can put emulated stand-ins in
+// front of them - a quoted relative include resolves against this file's own
+// directory and cannot be redirected. Everything else here already does this.
 #include "CanReceiver.h"
 #include "can_init_plan.h"
 #include "comm_can.h"
@@ -12,6 +13,9 @@
 #include "src/devboard/utils/events.h"
 #include "src/devboard/utils/logging.h"
 #include "src/devboard/webserver/webserver_can_streaming.h"
+#include "src/lib/mcp2515_lite/mcp2515_lite.h"
+#include "src/lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
+#include "src/lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
 #include "utils.h"
 
 #include <esp_private/periph_ctrl.h>
@@ -191,6 +195,32 @@ static void interface_unavailable(CAN_Interface interface) {
   can_receivers.erase(interface);
 }
 
+#ifdef UNIT_TEST
+// Puts the CAN layer back to "nothing registered, no chip initialized". The
+// state below is file-static and the host suite runs every case in one process,
+// so without this a test that brings an interface up decides what the next one
+// sees.
+void comm_can_reset_for_test() {
+  can_receivers.clear();
+  settingsespcan = nullptr;
+  native_can_initialized = false;
+  // The 2515's counterpart to native_can_initialized, added on this lane after
+  // this hook was written: the transmit path reads it, so a suite that leaves
+  // it standing lets one case's successful bring-up decide the next case's
+  // "is this interface usable".
+  can2515_initialized = false;
+  can2515 = nullptr;
+  SPI2515 = nullptr;
+  canfd = nullptr;
+  settings2517 = nullptr;
+  canfd_2 = nullptr;
+  settings2517_2 = nullptr;
+  SPI2517 = nullptr;
+  SPI2517_2 = nullptr;
+  user_selected_CAN_ID_cutoff_filter = 0;
+}
+#endif  // UNIT_TEST
+
 /* One chip's failure stops at that chip.
  *
  * This function used to `return false` on any failure, which read as "fail
@@ -240,6 +270,7 @@ static void interface_unavailable(CAN_Interface interface) {
  * than initialised - see the comment on that loop. That refusal, like every
  * failure below it, costs only the interface it names.
  */
+
 void init_CAN() {
   /* Refuse an interface this board does not have, rather than initialising it and failing
    * obscurely.

@@ -85,10 +85,17 @@ list(FILTER TEST_SOURCES EXCLUDE REGEX "/build/")
 # Software.cpp, the webserver and anything reaching for FS.h, ip_addr or the
 # async server are deliberately absent, and globbing here would drag them in and
 # silently change what is under test whenever upstream adds a driver.
+#
+# comm_can.cpp is here even though it reaches for the ESP32 CAN drivers: emul/
+# mirrors the three driver headers under the same src_dir-relative paths the file
+# includes them by, and emul/can_drivers.cpp supplies fake chips behind them.
+# Before that it was absent, and four defects in a row had to be pinned by tests
+# that read the file as TEXT because nothing could call it.
 add_executable(tests
     ${TEST_SOURCES}
     ../Software/src/devboard/safety/parallel_safety.cpp
     ../Software/src/devboard/webserver/can_replay_validation.cpp
+    ../Software/src/communication/can/comm_can.cpp
     ../Software/src/communication/contactorcontrol/comm_contactorcontrol.cpp
     ../Software/src/communication/precharge_control/precharge_control.cpp
     ../Software/src/communication/rs485/comm_rs485.cpp
