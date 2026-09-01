@@ -224,6 +224,8 @@ void init_events(void) {
   set_battery_event_level(EVENT_HVIL_FAILURE, EVENT_LEVEL_ERROR);
   events.entries[EVENT_LOW_HEAP_MEMORY].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_PRECHARGE_FAILURE].level = EVENT_LEVEL_INFO;
+  events.entries[EVENT_SHUNT_LOST_DURING_PRECHARGE].level = EVENT_LEVEL_ERROR;
+  events.entries[EVENT_SHUNT_LOST_WITH_BUS_LIVE].level = EVENT_LEVEL_WARNING;
   events.entries[EVENT_AUTOMATIC_PRECHARGE_FAILURE].level = EVENT_LEVEL_ERROR;
   set_battery_event_level(EVENT_INTERNAL_OPEN_FAULT, EVENT_LEVEL_ERROR);
   events.entries[EVENT_INVERTER_OPEN_CONTACTOR].level = EVENT_LEVEL_INFO;
@@ -546,6 +548,14 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
       return "Memory almost full. Inform developers.";
     case EVENT_PRECHARGE_FAILURE:
       return "Battery failed to precharge. Check that capacitor is seated on high voltage output.";
+    case EVENT_SHUNT_LOST_WITH_BUS_LIVE:
+      return "Shunt stopped reporting while the contactors are closed. The contactors are deliberately LEFT "
+             "CLOSED: opening them under load is the greater hazard. There is no current measurement until the "
+             "shunt returns. Check the shunt CAN wiring.";
+    case EVENT_SHUNT_LOST_DURING_PRECHARGE:
+      return "Shunt stopped reporting during the contactor sequence. Contactors opened and the sequence "
+             "abandoned: the voltages that decide precharge-complete come from the shunt, and a stale pair "
+             "can read as complete when it is not. Check the shunt CAN wiring.";
     case EVENT_AUTOMATIC_PRECHARGE_FAILURE:
       return "Automatic precharge FAILURE. Failed to reach target voltage or BMS timeout. Reboot emulator to retry!";
     case EVENT_INTERNAL_OPEN_FAULT:

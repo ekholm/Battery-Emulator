@@ -16,6 +16,19 @@ class DataLayerResetListener : public ::testing::EmptyTestEventListener {
  public:
   void OnTestStart(const ::testing::TestInfo& /*test_info*/) override {
     datalayer = DataLayer();
+    /* init_events() first, then reset_all_events(). The two do different halves
+       and the suite was only ever doing one of them: reset_all_events() clears
+       every entry's STATE but never touches its LEVEL, and init_events() - the
+       only thing that assigns the 171 levels - was never called at all. So for
+       the whole suite every event's configured level was 0, which reads as
+       INFO. That is not a cosmetic difference: update_bms_status() maps the
+       aggregate level onto datalayer.system.status.system_status, so an
+       ERROR-level event could not put the system into FAULT, and no test could
+       observe any consequence that follows from one. A shunt-loss abort that
+       latches SHUTDOWN_REQUESTED twenty seconds later was invisible for exactly
+       this reason. init_events() does not reset state and reset_all_events()
+       does not set levels, so both are needed, in this order. */
+    init_events();
     reset_all_events();
 
     // Every instance holds pointers into the datalayer we just replaced, so
