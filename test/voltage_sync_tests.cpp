@@ -8,7 +8,8 @@
 class VoltageSyncTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    init_events();
+    // No init_events() here - the listener does it before every test, and a
+    // fixture-local copy is what masked its removal (see offgrid_downgrade).
     // The drift counters in check_parallel_battery_safety() are function-local
     // statics, so a preceding run of the timeout tests leaves them latched at
     // 10 and the next run in the same process starts mid-fault - a plain

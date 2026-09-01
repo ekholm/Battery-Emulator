@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "../communication/can/comm_can.h"
 #include "../datalayer/datalayer.h"
+#include "../devboard/utils/events.h"
 #include "../devboard/utils/logging.h"
 
 uint8_t reverse_bits(uint8_t byte) {
@@ -105,7 +106,13 @@ void BmwSbox::transmit_can(unsigned long currentMillis) {
       datalayer.system.status.dc_bus_live = false;
       SBOX_100.data.u8[0] = 0x55;  // All open
 
-      if (datalayer.system.status.battery_allows_contactor_closing &&
+      // The voltage below arrives in frame 0x210 and is not cleared when the
+      // shunt stops sending - it simply keeps its last value forever. Starting
+      // the sequence on a frozen reading means starting it without knowing the
+      // battery voltage at all, so the shunt has to be live for the reading to
+      // mean anything. `available` is maintained a few lines up in this same
+      // function, from a one-second timeout on the last frame seen.
+      if (datalayer.shunt.available && datalayer.system.status.battery_allows_contactor_closing &&
           datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active &&
           (datalayer.shunt.measured_voltage_mV > MINIMUM_INPUT_VOLTAGE * 1000)) {
         contactorStatus = PRECHARGE;
@@ -118,6 +125,66 @@ void BmwSbox::transmit_can(unsigned long currentMillis) {
         contactorStatus = DISCONNECTED;
       }
     }
+    // The shunt going quiet PART WAY THROUGH is the dangerous case, and it is
+    // not the same as it being absent at the start.
+    //
+    // Precharge-complete is decided in POSITIVE below by comparing the input and
+    // output voltages, and both come from frames that freeze on their last value
+    // when the shunt stops sending. If the final pair happened to satisfy the
+    // inequality, the positive contactor closes on a measurement that is no
+    // longer being taken - on a shunt this code has already marked unavailable.
+    //
+    // Neither of the two obvious reactions is safe. Advancing closes the
+    // positive contactor across a voltage difference nobody is measuring.
+    // Latching where we are leaves the precharge resistor energised, and it is
+    // rated for the seconds a precharge takes, not for however long a CAN fault
+    // lasts. So do neither: open everything and abandon the sequence.
+    //
+    // DISCONNECTED rather than SHUTDOWN_REQUESTED, deliberately. This is
+    // recoverable in exactly the way the inverter-withdrew-permission path
+    // already is, and it cannot busy-loop: restarting requires `available`
+    // again, so a shunt that stays away leaves the machine sitting in
+    // DISCONNECTED with everything open, which is where it should sit.
+    //
+    // COMPLETED is deliberately NOT included. There the contactors are closed
+    // and the bus is live; opening the positive contactor under load to react
+    // to a lost sensor is a worse hazard than the one being avoided. That case
+    // wants reporting, not switching.
+    if (!datalayer.shunt.available && contactorStatus != DISCONNECTED && contactorStatus != COMPLETED &&
+        contactorStatus != SHUTDOWN_REQUESTED) {
+      SBOX_100.data.u8[0] = 0x55;  // All open
+      contactorStatus = DISCONNECTED;
+      datalayer.shunt.precharging = false;
+      datalayer.shunt.contactors_engaged = false;
+      datalayer.system.status.dc_bus_live = false;
+      set_event(EVENT_SHUNT_LOST_DURING_PRECHARGE, 0);
+      logging.println("S-BOX shunt lost during the contactor sequence - contactors opened");
+    }
+
+    // A shunt that came back clears the abandonment. Without this the ERROR
+    // raised above stands forever: events.level stays at ERROR, which holds
+    // system_status in FAULT, which this driver's own fault counter turns into
+    // SHUTDOWN_REQUESTED after MAX_ALLOWED_FAULT_TICKS - a latch this file
+    // documents as needing a power cycle. The abort is meant to be recoverable,
+    // and until the event is cleared it is not: a shunt that dropped out for one
+    // second and has been healthy ever since would still latch twenty seconds
+    // later, mid-sequence. A shunt that STAYS away keeps the event standing and
+    // still latches, which is the right outcome and the reason this clears on
+    // recovery rather than immediately after raising.
+    if (datalayer.shunt.available) {
+      clear_event(EVENT_SHUNT_LOST_DURING_PRECHARGE);
+      clear_event(EVENT_SHUNT_LOST_WITH_BUS_LIVE);
+    } else if (contactorStatus == COMPLETED) {
+      // The COMPLETED case deliberately does not switch: opening the positive
+      // contactor under load to react to a lost sensor is a worse hazard than
+      // running briefly without current measurement. It does need REPORTING,
+      // though, and it must not report at ERROR level - that would drive
+      // system_status into FAULT and latch SHUTDOWN_REQUESTED, opening those
+      // contactors under load after all, by the very path this case exists to
+      // avoid. WARNING says it without doing it.
+      set_event(EVENT_SHUNT_LOST_WITH_BUS_LIVE, 0);
+    }
+
     // Handle actual state machine. This first turns on Precharge, then Negative, then Positive, and finally turns OFF precharge
     switch (contactorStatus) {
       case PRECHARGE:

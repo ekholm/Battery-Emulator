@@ -10,8 +10,13 @@
 class OffgridDowngradeTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    // No init_events() here: the listener in tests.cpp assigns the production
+    // levels before every test. A second call in a fixture is not harmless
+    // duplication - because levels persist across tests, a fixture that sets
+    // them mid-suite hands every LATER test real levels too, and the listener
+    // line becomes unfalsifiable in default order: remove it and the suite
+    // stays green until a shuffle runs this suite late. One authority.
     user_selected_inverter_offgrid = false;
-    init_events();
   }
   void TearDown() override { user_selected_inverter_offgrid = false; }
 };
