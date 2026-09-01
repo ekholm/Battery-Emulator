@@ -402,6 +402,7 @@ bool battery_supports_triple(BatteryType type) {
   switch (type) {
     case BatteryType::NissanLeaf:
     case BatteryType::CmfaEv:
+    case BatteryType::CmpSmartCar:
     case BatteryType::StellantisEcmp:
     case BatteryType::RelionBattery:
     case BatteryType::TestFake:
