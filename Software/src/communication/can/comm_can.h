@@ -8,6 +8,11 @@ extern uint16_t user_selected_CAN_ID_cutoff_filter;
 void dump_can_frame(CAN_frame& frame, CAN_Interface interface, frameDirection msgDir);
 void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface interface);
 
+/* True when the interface's driver actually initialized on this build/board.
+   A registered receiver is not enough: an add-on whose begin() failed leaves a
+   null driver, and frames sent at it reach no wire. */
+bool can_interface_ready(int interface);
+
 // Format CAN logs to the given buffer. Returns the number of bytes written, or
 // 0 if the buffer is too small.
 // Null-terminates the buffer if len > 0, but the return value does not include the NUL.

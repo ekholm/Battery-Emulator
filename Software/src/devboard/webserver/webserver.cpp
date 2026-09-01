@@ -47,6 +47,7 @@ static MyTimer ota_progress_timer = MyTimer(1000);
 #include "advanced_battery_html.h"
 #include "can_logging_html.h"
 #include "can_replay_html.h"
+#include "can_replay_validation.h"
 #include "cellmonitor_html.h"
 #include "debug_logging_html.h"
 #include "events_html.h"
@@ -304,6 +305,16 @@ void init_webserver() {
       return;
     }
 
+    // The stored interface may predate validation (or its driver may have
+    // failed to initialize this boot): a replay at it would reach no wire and
+    // every page would still look healthy.
+    std::string rejection =
+        can_replay_interface_rejection(datalayer.system.info.can_replay_interface, can_interface_ready);
+    if (!rejection.empty()) {
+      request->send(400, "text/plain", rejection.c_str());
+      return;
+    }
+
     datalayer.system.info.loop_playback = request->hasParam("loop") && request->getParam("loop")->value().toInt() == 1;
     isReplayRunning = true;  // Set flag before starting task
 
@@ -326,6 +337,15 @@ void init_webserver() {
 
       // Convert the received value to an integer
       int interfaceValue = canInterface.toInt();
+
+      // Reject rather than store: an unvalidated value here made a replay at a
+      // nonexistent interface indistinguishable from a transmitting one, and
+      // the numbering is a cross-dialect trap.
+      std::string rejection = can_replay_interface_rejection(interfaceValue, can_interface_ready);
+      if (!rejection.empty()) {
+        request->send(400, "text/plain", rejection.c_str());
+        return;
+      }
 
       // Update the datalayer with the selected interface
       datalayer.system.info.can_replay_interface = interfaceValue;
