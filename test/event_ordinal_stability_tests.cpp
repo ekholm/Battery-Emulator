@@ -45,8 +45,8 @@ TEST(EventOrdinalStability, TheEventsThisLaneAddsAreAppendedNotInserted) {
    * against each other rather than against absolute numbers, because the numbers are
    * upstream's to change - it inserts mid-enum itself - and the POSITION is ours to keep. */
   const EVENTS_ENUM_TYPE added[] = {
-      EVENT_CAN_NATIVE_INIT_FAILURE,
-      EVENT_CAN_NATIVE_NOT_INITIALIZED,
+      EVENT_CAN_NATIVE_INIT_FAILURE, EVENT_CAN_NATIVE_NOT_INITIALIZED, EVENT_CANMCP2515_NOT_INITIALIZED,
+      EVENT_CANFD_NOT_INITIALIZED,   EVENT_CANFD_2_NOT_INITIALIZED,
   };
   const int count = static_cast<int>(sizeof(added) / sizeof(added[0]));
 
