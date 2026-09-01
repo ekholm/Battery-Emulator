@@ -84,6 +84,22 @@ class MCP2515_Lite {
     return ret;
   }
 
+  // True once if the last speed change the task enacted DID take. The mirror
+  // of speedChangeFailed(), and it exists so a caller that takes the interface
+  // out of service on a failure has something to bring it back with.
+  // Without it the gate is a one-way door: the caller stops polling the very
+  // path the verdict arrives on, and a later good change is never seen.
+  //
+  // The pair is mutually exclusive by construction: enacting a change
+  // retires the opposite verdict, so at most one of these two can be true and
+  // it is always the most recent answer. A caller may therefore read them in
+  // any order without acting on a stale one.
+  inline bool speedChangeSucceeded() {
+    auto ret = _speed_change_succeeded;
+    _speed_change_succeeded = false;
+    return ret;
+  }
+
   // Non-blocking: pauses all communication (and stops acknowledging messages)
   void pause(bool paused);
 
@@ -104,6 +120,11 @@ class MCP2515_Lite {
   MCP2515_Lite_Speed _next_speed;
   volatile bool _speed_change_pending = false;
   volatile bool _speed_change_failed = false;
+  volatile bool _speed_change_succeeded = false;
+  // The mode begin() put the chip in, remembered so a later speed change
+  // returns it to THAT mode. Without this a driver started in LOOPBACK came
+  // back in NORMAL and a test session silently became live on the bus.
+  bool _loopback = false;
   volatile bool _pause_requested = false;
   volatile bool _paused = false;
   volatile bool _rx_overflow = false;

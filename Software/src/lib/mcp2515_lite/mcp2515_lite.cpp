@@ -158,8 +158,18 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
     return false;
   }
 
-  // Enter config mpde
-  modifyRegister(REG_CANCTRL, 0xE0, CANCTRL_REQOP_CONFIG);
+  /* Enter config mode - and confirm it.
+     *
+     * This used to be a bare request, the same fire-and-forget shape this change
+     * removed from the speed-change path one function down. It matters more
+     * here than it looks: CNF1..3 are writable ONLY in configuration mode, so a
+     * chip that did not reach CONFIG takes none of the timing that follows and
+     * runs at whatever bitrate it was already using - while begin() returns
+     * true and the interface reports itself up.
+     */
+  if (!enterMode(CANCTRL_REQOP_CONFIG)) {
+    return false;
+  }
 
   // Turn off masks/filters to receive everything into both buffers
   writeRegister(REG_RXB0CTRL, 0x64);  // enable rollover for double-buffered rx
@@ -168,11 +178,22 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   // Enable interrupts for TX2, TX1, TX0, RX1 and RX0
   modifyRegister(REG_CANINTE, 0x07, 0b00011111);
 
-  // Baudrate setup
-  applySpeedConfig(speed);
+  // Baudrate setup. An unreachable bitrate writes no timing registers at all
+  //, which at boot is exactly as unusable as a chip that never left
+  // CONFIG - so it fails init here rather than reporting an interface that is
+  // silently running at the wrong speed.
+  if (!applySpeedConfig(speed)) {
+    return false;
+  }
 
-  // Leave config mode and enter normal mode
-  modifyRegister(REG_CANCTRL, 0xE0, loopback ? CANCTRL_REQOP_LOOPBACK : CANCTRL_REQOP_NORMAL);
+  // Remember the mode this driver was started in, so a later speed change can
+  // put the chip back into THAT mode rather than assuming NORMAL.
+  _loopback = loopback;
+
+  // Leave config mode, and confirm the chip actually took the running mode.
+  if (!enterMode(_loopback ? CANCTRL_REQOP_LOOPBACK : CANCTRL_REQOP_NORMAL)) {
+    return false;
+  }
 
   if (!skip_task_start) {
     // Start the background task
@@ -356,9 +377,35 @@ void MCP2515_Lite::canTask(void* pvParameters) {
         // The verdict is picked up by speedChangeFailed().
         bool changed = self->enterMode(CANCTRL_REQOP_CONFIG);
         changed = self->applySpeedConfig(self->_next_speed) && changed;
-        changed = self->enterMode(CANCTRL_REQOP_NORMAL) && changed;
+        // Back to the mode begin() started in, not an assumed NORMAL: a
+        // driver opened in LOOPBACK used to become live on the bus at
+        // the first speed change, silently.
+        changed = self->enterMode(self->_loopback ? CANCTRL_REQOP_LOOPBACK : CANCTRL_REQOP_NORMAL) && changed;
+        /* One verdict outstanding at a time, and it is the LATEST one
+                 * Two independent read-and-clear latches are not two
+                 * pieces of information: they are one, spread over two bools,
+                 * and a caller that reads them in priority order can act on the
+                 * older of the pair. Concretely, with a change that SUCCEEDED
+                 * and a later one that FAILED both landing between two polls,
+                 * the caller shuts the gate on the failure, clears only that
+                 * latch, and then reopens the interface on the success left
+                 * behind - putting a chip at an unknown bitrate back on the bus,
+                 * which is the one outcome the gate exists to prevent.
+                 *
+                 * Setting each verdict therefore retires the other. That makes
+                 * "last verdict wins" a property of the driver rather than of
+                 * the caller's polling discipline, which is the same guarantee a
+                 * single tri-state field would give.
+                 */
         if (!changed) {
+          self->_speed_change_succeeded = false;
           self->_speed_change_failed = true;
+        } else {
+          // Success is reported too, so a caller that took the
+          // interface out of service on a failure can put it back
+          //.
+          self->_speed_change_failed = false;
+          self->_speed_change_succeeded = true;
         }
         self->_speed_change_pending = false;
       }

@@ -36,6 +36,7 @@ static void receive_frame_can_native();
 static void receive_frame_can_addon();
 static void receive_frame_canfd_addon();
 static void receive_frame_canfd_addon_2();
+static void poll_can_addon_speed_change();
 static void map_can_frame_to_variable(CAN_frame* rx_frame, CAN_Interface interface);
 static void print_can_frame(CAN_frame frame, CAN_Interface interface, frameDirection msgDir);
 static uint32_t init_native_can(CAN_Speed speed, gpio_num_t tx_pin, gpio_num_t rx_pin);
@@ -53,6 +54,15 @@ static CAN_Speed native_can_speed;
 static uint32_t quartz_frequency;
 
 static MCP2515_Lite* can2515 = nullptr;
+/* Whether the 2515 is fit to use, the counterpart of native_can_initialized.
+ *
+ * A null can2515 already means "this interface is not there" - that is how a
+ * FAILED boot init reads. This is the other state the native path has and the
+ * 2515 did not: the chip is present and the object is alive, but its bitrate is
+ * unknown after a speed change that did not take, so it must not be polled or
+ * transmitted to until a later change succeeds.
+ */
+static bool can2515_initialized = false;
 static SPIClass* SPI2515;
 
 static SPIClass* SPI2517;
@@ -66,7 +76,7 @@ static bool native_can_initialized = false;
 //CAN logging filter settings
 uint16_t user_selected_CAN_ID_cutoff_filter = 0;  //Messages below this ID will not be logged in webserver
 
-/* One chip's failure stops at that chip.
+/* One chip's failure stops at that chip .
  *
  * This function used to `return false` on any failure, which read as "fail
  * loudly" but could not: the return is discarded at the only call site
@@ -140,7 +150,7 @@ void init_CAN() {
     } else {
       logging.print("Error Native Can: 0x");
       logging.println(errorCode, HEX);
-      // This path had no event, only a log - and these boards log
+      // this path had no event, only a log - and these boards log
       // nothing unless USBENABLED is set, so the failure that aborted every
       // other interface was also the only one nobody could see.
       set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
@@ -185,10 +195,12 @@ void init_CAN() {
     }
 
     if (can2515->begin({(int)addonIt->second.speed * 1000UL, quartz_frequency})) {
+      can2515_initialized = true;
       logging.println("MCP2515 CAN ok");
     } else {
       logging.println("MCP2515 CAN init failed");
       set_event(EVENT_CANMCP2515_INIT_FAILURE, 1);
+      can2515_initialized = false;
       // This will leak, but we have failed and won't try to reinit. Null is how
       // the send and receive paths already read "this interface is not there".
       can2515 = nullptr;
@@ -371,7 +383,10 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
       MCP2515_Lite_Frame mcp2515_frame;
       copy_can_frame_to_mcp2515_lite_frame(*tx_frame, mcp2515_frame);
 
-      if (can2515 == nullptr || !can2515->sendFrame(mcp2515_frame)) {
+      // Not merely "is the chip there" but "is it usable": after a speed change
+      // that did not take, the bitrate is unknown and transmitting onto a bus at
+      // the wrong speed is worse than not transmitting at all.
+      if (can2515 == nullptr || !can2515_initialized || !can2515->sendFrame(mcp2515_frame)) {
         datalayer.system.info.can_2515_send_fail = true;
       }
     } break;
@@ -421,7 +436,20 @@ void receive_can() {
   }
 
   if (can2515) {
-    receive_frame_can_addon();  // Receive CAN messages on add-on MCP2515 chip
+    /* The speed-change verdict is polled OUTSIDE the usability gate, and that
+     * ordering is load-bearing.
+     *
+     * The verdict arrives asynchronously on this path, so if it were read inside
+     * the gate the gate would be a one-way door: a failed change clears the
+     * flag, the poll stops running, and the success that would restore the
+     * interface is never seen. Polling first is also what makes recovery mean
+     * something - a later change that takes puts the interface straight back.
+     */
+    poll_can_addon_speed_change();
+
+    if (can2515_initialized) {
+      receive_frame_can_addon();  // Receive CAN messages on add-on MCP2515 chip
+    }
   }
 
   if (canfd) {
@@ -479,25 +507,30 @@ receive_frame_can_addon() {  // This section checks if we have a complete CAN me
   if (can2515->hasErrors()) {
     datalayer.system.info.can_2515_bus_error = true;
   }
+}
 
-  /* The 2515's speed-change verdict, asked for here because there is nowhere
-   * else to ask.
-   *
-   * change_can_speed() hands the request to the driver task and returns; the
-   * task enacts it milliseconds later, long after that caller is gone. So the
-   * status cannot go back the way the request came, and it is picked up on the
-   * receive path instead - which runs every cycle whether or not frames arrive,
-   * exactly like the hasErrors() poll above it.
-   *
-   * Reported as the chip's init failure, the same event the boot path raises,
-   * and for the same reason the native path reuses its own: an interface at an
-   * unknown bitrate is not usable, however it got there. Unlike the native path
-   * there is no flag to clear - nothing gates use of the 2515 on a "this
-   * interface is up" bool - so this reports without taking the interface out of
-   * service, and giving it such a gate is a larger change than this item.
-   */
+/* The 2515's speed-change verdict, asked for here because there is nowhere else
+ * to ask.
+ *
+ * change_can_speed() hands the request to the driver task and returns; the task
+ * enacts it milliseconds later, long after that caller is gone. So the status
+ * cannot go back the way the request came, and it is picked up on the receive
+ * path instead - which runs every cycle whether or not frames arrive.
+ *
+ * A failure is reported as the chip's init failure, the same event the boot path
+ * raises, and for the same reason the native path reuses its own: an interface at
+ * an unknown bitrate is not usable, however it got there. The readback change could only
+ * report it; the interface stayed in service because nothing gated its use.
+ * This change gives it that gate, so the report now also takes it OUT of service, and
+ * a later change that succeeds brings it back - the same way the native path
+ * recovers, where a good init sets native_can_initialized true again.
+ */
+static void poll_can_addon_speed_change() {
   if (can2515->speedChangeFailed()) {
+    can2515_initialized = false;
     set_event(EVENT_CANMCP2515_INIT_FAILURE, 0);
+  } else if (can2515->speedChangeSucceeded()) {
+    can2515_initialized = true;
   }
 }
 
