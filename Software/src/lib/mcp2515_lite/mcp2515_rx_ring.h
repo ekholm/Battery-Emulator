@@ -120,6 +120,7 @@ class Mcp2515RxRing {
   uint32_t size() const { return (uint32_t)(_head - _tail); }
   uint32_t capacity() const { return Capacity; }
   uint32_t dropped() const { return _dropped; }
+  void resetDropped() { _dropped = 0; }
 
  private:
   volatile uint32_t _head = 0;

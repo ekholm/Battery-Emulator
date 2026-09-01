@@ -991,6 +991,11 @@ void init_webserver() {
   def_route_with_auth("/debug", server, HTTP_GET,
                       [](AsyncWebServerRequest* request) { request->send(200, "text/plain", "Debug: all OK."); });
 
+  def_route_with_auth("/resetDrainCounters", server, HTTP_GET, [](AsyncWebServerRequest* request) {
+    reset_can_drain_counters();
+    request->send(200, "text/plain", "MCP2515 drain counters zeroed.");
+  });
+
   // Route to handle reboot command
   def_route_with_auth("/reboot", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(200, "text/plain", "Rebooting server...");
@@ -1137,6 +1142,27 @@ String processor(const String& var) {
       content += "<h4>Values function timing: " + String(datalayer.system.status.time_snap_values_us) + " us</h4>";
       content += "<h4>CAN/serial RX function timing: " + String(datalayer.system.status.time_snap_comm_us) + " us</h4>";
       content += "<h4>CAN TX function timing: " + String(datalayer.system.status.time_snap_cantx_us) + " us</h4>";
+
+      /* The MCP2515 interrupt drain's own loss accounting. Shown here rather
+         than only under a bench build, because the question it answers - did
+         this board lose frames - is one a user with a real bus can ask too.
+         When the drain is not running the line says so instead of printing
+         four zeros, which would read as "nothing was lost" on a board that
+         measured nothing. */
+      {
+        const CanDrainCounters drain = can_drain_counters();
+        if (drain.active) {
+          content += "<h4>MCP2515 ISR drain: " + String(drain.frames_drained) + " frames";
+          content += ", dropped " + String(drain.frames_dropped);
+          content += ", bus deferrals " + String(drain.bus_deferrals);
+          content += ", bus timeouts " + String(drain.bus_timeouts) + "</h4>";
+          content +=
+              "<button onclick=\"if(confirm('Zero the MCP2515 drain counters?')) { ResetDrain(); }\">Reset drain "
+              "counters</button> ";
+        } else {
+          content += "<h4>MCP2515 ISR drain: not running - these counters measure nothing on this board</h4>";
+        }
+      }
     }
 
     // SSID/RSSI/channel are WiFi-specific; only show them when configured
@@ -1763,6 +1789,9 @@ String processor(const String& var) {
           ">Close Contactors</button><br/>";
     content += "<script>";
     content += "function OTA() { window.location.href = '/update'; }";
+    content +=
+        "function ResetDrain() { var x=new XMLHttpRequest(); x.open('GET','/resetDrainCounters',true); x.send(); "
+        "setTimeout(function(){ window.location.reload(); }, 500); }";
     content += "function Settings() { window.location.href = '/settings'; }";
     content += "function Advanced() { window.location.href = '/advanced'; }";
     content += "function CANtools() { window.location.href = '/canreplay'; }";
