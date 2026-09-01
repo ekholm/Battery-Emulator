@@ -519,18 +519,6 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
     }
   }
 
-  if (var == "INVBIDCLASS") {
-    if (!inverter || !inverter->supports_battery_id()) {
-      return "hidden";
-    }
-  }
-
-  if (var == "INVBID") {
-    if (inverter && inverter->supports_battery_id()) {
-      return String(datalayer.battery_settings.sofar_user_specified_battery_id);
-    }
-  }
-
   if (var == "INVINTF") {
     if (inverter) {
       return inverter->interface_name();
@@ -545,12 +533,6 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
 
   if (var == "SHUNTCLASS") {
     if (!shunt) {
-      return "hidden";
-    }
-  }
-
-  if (var == "CHARGERCLASS") {
-    if (!charger) {
       return "hidden";
     }
   }
@@ -901,10 +883,6 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
     return datalayer.battery_settings.user_set_voltage_limits_active ? "active" : "inactive";
   }
 
-  if (var == "SOC_SCALING_CLASS") {
-    return datalayer.battery_settings.soc_scaling_active ? "active" : "inactiveSoc";
-  }
-
   if (var == "SOC_SCALING") {
     return datalayer.battery_settings.soc_scaling_active ? TRUE_CHAR_CODE : FALSE_CHAR_CODE;
   }
@@ -933,7 +911,7 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
     return datalayer.battery_settings.user_requests_balancing ? "active" : "inactive";
   }
 
-  if (var == "BALANCING_MAX_TIME") {
+  if (var == "BAL_MAX_TIME") {
     return String(datalayer.battery_settings.balancing_max_time_ms / 60000.0f, 1);
   }
 
@@ -2400,7 +2378,7 @@ const char* getCANInterfaceName(CAN_Interface interface) {
       <h4 data-h=maxdchga>Max discharge current: %MAX_DISCHARGE_SPEED% A </span><button onclick='editMaxDischargeA()'>Edit</button></h4>
 
       <h4 data-h=vlimits>Manual charge voltage limits: <span id='BATTERY_USE_VOLTAGE_LIMITS'>
-        <span class='%VOLTAGE_LIMITS_CLASS%'>%VOLTAGE_LIMITS%</span>
+        <span class='%VOLTAGE_LIMITS_ACTIVE_CLASS%'>%VOLTAGE_LIMITS%</span>
                 </span> <button onclick='editUseVoltageLimit()'>Edit</button></h4>
 
       <h4 class='%VOLTAGE_LIMITS_ACTIVE_CLASS%'>Target charge voltage: %CHARGE_VOLTAGE% V </span> <button onclick='editMaxChargeVoltage()'>Edit</button></h4>
