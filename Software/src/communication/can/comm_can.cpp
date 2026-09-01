@@ -730,9 +730,31 @@ void stop_can() {
    * runs, so on a board where the native init failed this condition is TRUE while the TWAI
    * peripheral was never enabled - the same state the transmit guard above exists for, and
    * end() writes TWAI_CMD_REG and TWAI_INT_ENA_REG before it disables the module.
+   *
+   * The flag goes down WITH the peripheral. end() calls
+   * periph_module_disable(PERIPH_TWAI_MODULE), so leaving the flag set left the transmit
+   * guard reading "the interface is up" about a module that is clock-gated - and
+   * allowed_to_send_CAN does not cover the gap. CAN replay runs in its own FreeRTOS task
+   * (webserver.cpp, xTaskCreatePinnedToCore "CAN_Replay"), so it can be inside
+   * transmit_can_frame_to_interface(), past that check, while core_loop's 1 s sub-task
+   * runs stop_can() here. Resuming is worse: update_pause_state() sets allowed_to_send_CAN
+   * true BEFORE calling restart_can(), so every replayed frame in that window used to reach
+   * tryToSend() on a disabled peripheral, which faults with interrupts off: a double
+   * exception the watchdog reboots straight back into, ~45 resets a minute.
+   * Clearing it here does not make the hand-off atomic, but it shrinks the exposure to the
+   * few instructions between the guard and tryToSend(), which is exactly the guarantee the
+   * null-pointer checks below give for the other three interfaces.
+   *
+   * receive_can() reads the same flag, so it now skips the native interface while paused
+   * instead of draining what is left in the driver's software buffer. That loses nothing:
+   * ACAN_ESP32::begin() re-runs mDriverReceiveBuffer.initWithSize(), so those frames were
+   * discarded on resume either way - and delivering frames captured before a pause INTO the
+   * pause, updating the datalayer while the emulator is deliberately quiet, was the odder of
+   * the two behaviours.
    */
   if (native_can_initialized) {
     ACAN_ESP32::can.end();
+    native_can_initialized = false;
   }
 
   if (can2515) {
@@ -749,13 +771,31 @@ void stop_can() {
 }
 
 void restart_can() {
-  /* Same as stop_can(), plus a null dereference: settingsespcan is only ever assigned inside
-   * init_native_can(), which the alloc_pins() failures return before reaching. So on exactly
-   * the boards this item is about - a pin conflict on the CAN pins - the old condition was
-   * true, settingsespcan was still nullptr, and resuming a paused emulator dereferenced it.
+  /* Gate on the settings pointer, not on the flag. stop_can() has just cleared the
+   * flag, and this is the function whose job is to undo that, so reading it here would make
+   * resuming a no-op and leave native CAN down for good after the first pause.
+   *
+   * settingsespcan is the same guard change_can_speed() uses below, and it answers the
+   * question this line actually asks - is there a native interface to bring back. It is
+   * assigned only inside init_native_can(), which the alloc_pins() failures return before
+   * reaching, so it stays null on exactly the pin-conflict boards where dereferencing it
+   * used to crash the resume.
+   *
+   * The error code is no longer discarded. ACAN_ESP32::begin() reports its failure the same
+   * way init_native_can() does, and until now this was the one (re)start that neither told
+   * the flag nor raised the event - so a board whose boot-time native init failed could have
+   * the peripheral brought up here and still be refused in both directions, with nothing
+   * saying why. Taking the flag from the result also makes this a retry: an interface that
+   * failed at boot and starts cleanly now goes back into service.
    */
-  if (native_can_initialized) {
-    ACAN_ESP32::can.begin(*settingsespcan);
+  if (settingsespcan != nullptr) {
+    const uint32_t errorCode = ACAN_ESP32::can.begin(*settingsespcan);
+    native_can_initialized = (errorCode == 0);
+    if (errorCode != 0) {
+      logging.print("Error Native Can: 0x");
+      logging.println(errorCode, HEX);
+      set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
+    }
   }
 
   if (can2515) {
