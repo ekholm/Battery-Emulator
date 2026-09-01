@@ -81,8 +81,19 @@ TEST(Mcp2515SpeedChange, TheTaskVerifiesTheModeInsteadOfAssumingIt) {
   EXPECT_NE(block.find("enterMode(CANCTRL_REQOP_CONFIG)"), std::string::npos)
       << "the speed change enters CONFIG mode without confirming the chip got there - the timing registers are then "
          "written to a chip that is still running at the old speed";
-  EXPECT_NE(block.find("enterMode(CANCTRL_REQOP_NORMAL)"), std::string::npos)
-      << "the speed change returns to NORMAL without confirming it - an interface stuck in CONFIG is off the bus "
+  /* The return to the running mode must be verified too. The readback change
+   * pinned the literal `enterMode(CANCTRL_REQOP_NORMAL)`; the gate made that
+   * mode conditional
+   * on how begin() was opened, so what is pinned now is the SHAPE - two verified
+   * mode changes, config and restore - which is what the assertion always meant.
+   * Which mode it restores is Mcp2515ModeGate.ASpeedChangeReturnsToTheModeBeginStartedIn.
+   */
+  size_t verified_mode_changes = 0;
+  for (size_t at = block.find("enterMode("); at != std::string::npos; at = block.find("enterMode(", at + 1)) {
+    ++verified_mode_changes;
+  }
+  EXPECT_GE(verified_mode_changes, 2u)
+      << "the speed change does not verify BOTH mode changes - an interface left stuck in CONFIG is off the bus "
          "entirely and nothing would say so";
   EXPECT_EQ(block.find("modifyRegister(REG_CANCTRL"), std::string::npos)
       << "a mode change in the speed-change path goes straight at the register again, which is the fire-and-forget "
@@ -154,7 +165,9 @@ TEST(Mcp2515SpeedChange, AnUnreachableBitrateIsAnAnswerNotSilence) {
  * that was already there.
  */
 TEST(Mcp2515SpeedChange, TheVerdictIsCollectedAndRaisedAsAnEvent) {
-  const std::string body = body_after(comm_can_source(), "receive_frame_can_addon() {");
+  // The poll moved out of receive_frame_can_addon() into its own function,
+  // because it must run even when the interface is gated OFF. The scan follows it.
+  const std::string body = body_after(comm_can_source(), "static void poll_can_addon_speed_change() {");
   ASSERT_FALSE(body.empty());
 
   const size_t poll = body.find("can2515->speedChangeFailed()");
@@ -165,4 +178,128 @@ TEST(Mcp2515SpeedChange, TheVerdictIsCollectedAndRaisedAsAnEvent) {
   EXPECT_NE(event, std::string::npos)
       << "the failed speed change raises no event - on a board without USBENABLED nothing is logged either, which "
          "is how this class of defect stays invisible";
+}
+
+/* ------------------------------------------------------------------------- *
+ * The three gaps the readback change left.
+ * ------------------------------------------------------------------------- */
+
+/* (a) Reporting a failure while leaving the interface in service is the defect
+ * the init and speed-change fixes made on the native path: the failure travels as a return value
+ * while the state that decides whether the interface is USED still says it is
+ * fine. The 2515 now has that state.
+ */
+TEST(Mcp2515ModeGate, AFailedSpeedChangeTakesTheInterfaceOutOfService) {
+  const std::string body = body_after(comm_can_source(), "static void poll_can_addon_speed_change() {");
+  ASSERT_FALSE(body.empty());
+
+  const size_t failed = body.find("speedChangeFailed()");
+  ASSERT_NE(failed, std::string::npos) << "the verdict is not polled at all";
+  const size_t cleared = body.find("can2515_initialized = false", failed);
+  EXPECT_NE(cleared, std::string::npos)
+      << "a failed speed change reports an event but leaves the interface in service - a chip at an unknown bitrate "
+         "keeps being polled and transmitted to, which the readback change said it was not closing";
+}
+
+/* ...and a gate you can only shut is a worse bug than no gate. The interface
+ * has to be able to come back, which is what speedChangeSucceeded() is for.
+ */
+TEST(Mcp2515ModeGate, AndTheInterfaceCanComeBack) {
+  const std::string body = body_after(comm_can_source(), "static void poll_can_addon_speed_change() {");
+  ASSERT_FALSE(body.empty());
+
+  const size_t ok = body.find("speedChangeSucceeded()");
+  ASSERT_NE(ok, std::string::npos)
+      << "nothing observes a speed change SUCCEEDING, so once the interface is gated off it can never be restored - "
+         "the gate is a one-way door";
+  EXPECT_NE(body.find("can2515_initialized = true", ok), std::string::npos)
+      << "a successful speed change does not put the interface back in service";
+}
+
+/* The recovery poll must run even while the interface is gated OFF. If it sat
+ * behind the gate, the flag that stops the polling would also stop the only
+ * path the restoring verdict arrives on.
+ */
+TEST(Mcp2515ModeGate, TheVerdictIsPolledOutsideTheUsabilityGate) {
+  const std::string body = body_after(comm_can_source(), "void receive_can() {");
+  ASSERT_FALSE(body.empty());
+
+  const size_t poll = body.find("poll_can_addon_speed_change()");
+  ASSERT_NE(poll, std::string::npos) << "the speed-change verdict is never polled from receive_can()";
+  const size_t gate = body.find("if (can2515_initialized)", poll);
+  ASSERT_NE(gate, std::string::npos) << "the 2515 receive path is not gated on the interface being usable";
+  EXPECT_LT(poll, gate) << "the verdict is polled INSIDE the usability gate, so a failed change stops the polling that "
+                           "would ever undo it - the interface could never recover";
+}
+
+/* Transmitting onto a bus at an unknown bitrate is worse than staying quiet:
+ * it is what an interface at the wrong speed does to everyone else on the wire.
+ */
+TEST(Mcp2515ModeGate, TransmitIsGatedOnUsabilityNotJustPresence) {
+  const std::string src = comm_can_source();
+  const size_t send = src.find("can2515->sendFrame(mcp2515_frame)");
+  ASSERT_NE(send, std::string::npos) << "the 2515 transmit site has moved, the scan has drifted";
+
+  const size_t line_start = src.rfind("if (", send);
+  ASSERT_NE(line_start, std::string::npos);
+  const std::string guard = src.substr(line_start, send - line_start);
+  EXPECT_NE(guard.find("can2515_initialized"), std::string::npos)
+      << "transmit checks only that the chip OBJECT exists, not that the interface is usable - after a failed speed "
+         "change the firmware keeps transmitting at a bitrate nobody knows";
+}
+
+/* (b) The same fire-and-forget shape removed from the speed-change path
+ * still sat in begin(). It matters more here: CNF1..3 are writable only in
+ * CONFIG, so a chip that never got there takes none of the timing.
+ */
+TEST(Mcp2515ModeGate, BeginVerifiesBothModeChanges) {
+  const std::string body = body_after(driver_source(), "bool MCP2515_Lite::begin(");
+  ASSERT_FALSE(body.empty());
+
+  EXPECT_EQ(body.find("modifyRegister(REG_CANCTRL"), std::string::npos)
+      << "begin() still drives CANCTRL directly, which is the unverified mode request this item removed";
+  EXPECT_NE(body.find("enterMode(CANCTRL_REQOP_CONFIG)"), std::string::npos)
+      << "begin() enters CONFIG without confirming it - the timing registers are then written to a chip that is not "
+         "in configuration mode, where they are not writable at all";
+  EXPECT_NE(body.find("enterMode("), std::string::npos) << "begin() never confirms the running mode either";
+}
+
+/* A begin() that verifies and then returns true anyway has only moved the
+ * silence. Every check has to be able to fail the init.
+ */
+TEST(Mcp2515ModeGate, BeginFailsInitWhenAStepDoesNotTake) {
+  const std::string body = body_after(driver_source(), "bool MCP2515_Lite::begin(");
+  ASSERT_FALSE(body.empty());
+
+  EXPECT_NE(body.find("if (!enterMode(CANCTRL_REQOP_CONFIG)) {"), std::string::npos)
+      << "a chip that will not enter CONFIG still reports a successful init";
+  EXPECT_NE(body.find("if (!applySpeedConfig(speed)) {"), std::string::npos)
+      << "an unreachable bitrate at BOOT writes no timing registers and still reports a successful init - the same "
+         "hole closed for a runtime change";
+
+  // The failure returns must come before the task is started: an init that
+  // failed should not leave a driver task polling the chip.
+  const size_t task = body.find("xTaskCreate");
+  ASSERT_NE(task, std::string::npos) << "begin() no longer starts the task, the scan has drifted";
+  EXPECT_LT(body.find("if (!enterMode("), task) << "the mode checks run after the task is started";
+}
+
+/* (c) begin()'s loopback argument was never stored, so the speed-change path
+ * had nothing to return to but an assumed NORMAL - and a loopback session
+ * became live on the bus at the first speed change, silently.
+ */
+TEST(Mcp2515ModeGate, ASpeedChangeReturnsToTheModeBeginStartedIn) {
+  const std::string src = driver_source();
+  const std::string begin_body = body_after(src, "bool MCP2515_Lite::begin(");
+  ASSERT_FALSE(begin_body.empty());
+  EXPECT_NE(begin_body.find("_loopback = loopback"), std::string::npos)
+      << "begin() still drops its loopback argument, so nothing downstream can know which mode to restore";
+
+  const std::string block = speed_change_block(src);
+  ASSERT_FALSE(block.empty());
+  EXPECT_NE(block.find("_loopback"), std::string::npos)
+      << "the speed change does not consult the mode the driver was started in";
+  EXPECT_EQ(block.find("enterMode(CANCTRL_REQOP_NORMAL)"), std::string::npos)
+      << "the speed change hard-codes a return to NORMAL - a driver opened in LOOPBACK silently becomes live on the "
+         "bus, transmitting onto a real wire from what the caller believes is a self-contained test";
 }
