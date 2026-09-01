@@ -196,3 +196,75 @@ TEST(SettingsPlaceholderPairing, AnUnansweredNameIsStillCaughtAlongsidePrefixFam
   EXPECT_TRUE(answered("TRIVB_FOO", a));
   EXPECT_FALSE(answered("BAL_MAX_TIME", a)) << "this is the exact pair that shipped broken for fourteen months";
 }
+
+// ── The same coupling, one layer over: handler -> stylesheet ─────────────────
+
+TEST(SettingsPlaceholderPairing, EveryClassAHandlerReturnsIsDefinedInThePagesOwnStylesheet) {
+  // A *_CLASS handler does not return a value, it returns a CSS class NAME, and
+  // that name is matched to the stylesheet in this same file by hand - exactly
+  // the coupling the tests above exist for, one layer further on. A handler that
+  // returned "inactiveSOC" would compile, pass every other case here, and render
+  // an unstyled span on a shipping build: the same silent failure as an orphaned
+  // placeholder, arriving by the same route.
+  //
+  // Empty today - all four names resolve - so this is a guard rather than a fix.
+  const std::string src = read_settings_html();
+
+  std::set<std::string> returned;
+  const std::regex handler(R"(if \(var == \"([A-Z0-9_]*CLASS)\"\))");
+  const std::regex literal(R"(return\s+\"([A-Za-z][A-Za-z0-9_-]*)\")");
+  const std::regex ternary(R"(\?\s*\"([A-Za-z][A-Za-z0-9_-]*)\"\s*:\s*\"([A-Za-z][A-Za-z0-9_-]*)\")");
+  for (std::sregex_iterator it(src.begin(), src.end(), handler), end; it != end; ++it) {
+    const size_t start = it->position();
+    const size_t stop = src.find("\n  }", start);
+    if (stop == std::string::npos) {
+      continue;
+    }
+    const std::string body = src.substr(start, stop - start);
+    for (std::sregex_iterator m(body.begin(), body.end(), literal), e; m != e; ++m) {
+      returned.insert((*m)[1]);
+    }
+    for (std::sregex_iterator m(body.begin(), body.end(), ternary), e; m != e; ++m) {
+      returned.insert((*m)[1]);
+      returned.insert((*m)[2]);
+    }
+  }
+  ASSERT_FALSE(returned.empty()) << "no *_CLASS handler was recognised - this test has stopped reading the file";
+
+  std::set<std::string> defined;
+  const std::regex rule(R"(\.([A-Za-z][A-Za-z0-9_-]*)\s*\{)");
+  for (std::sregex_iterator it(src.begin(), src.end(), rule), end; it != end; ++it) {
+    defined.insert((*it)[1]);
+  }
+
+  std::string missing;
+  for (const std::string& name : returned) {
+    if (defined.find(name) == defined.end()) {
+      missing += "\n    ." + name;
+    }
+  }
+  EXPECT_TRUE(missing.empty()) << "a *_CLASS handler returns a class the stylesheet does not define, so the "
+                                  "element renders unstyled:"
+                               << missing;
+}
+
+TEST(SettingsPlaceholderPairing, TheCommentRuleIsAnchoredAtTheStartOfTheLine) {
+  // The rule that skips comments is deliberately anchored: only a line whose
+  // first non-space characters open a comment is skipped. A placeholder in a
+  // TRAILING comment after code is therefore still collected, and so is one in a
+  // block-comment line that does not begin with `*`.
+  //
+  // That is the right trade today and the numbers say so rather than the
+  // argument: scanning both trees, the count of placeholders sitting in either
+  // of those positions is ZERO, while a looser rule that stripped `//` anywhere
+  // would have to survive a file whose templates are full of https:// URLs.
+  // Pinned so that replacing the heuristic with a real tokenizer is a decision
+  // someone takes, not one they discover.
+  EXPECT_FALSE(is_comment_line("  int x = 1;  // mentions %BAL_MAX_TIME% in passing"))
+      << "a trailing comment is not a comment LINE by this rule";
+  EXPECT_TRUE(is_comment_line("  // a whole-line comment about %BAL_MAX_TIME%"));
+  EXPECT_TRUE(is_comment_line("   * a block continuation about %BAL_MAX_TIME%"));
+  EXPECT_TRUE(is_comment_line("  /* a block opener about %BAL_MAX_TIME% */"));
+  EXPECT_FALSE(is_comment_line("      <a href='https://example.invalid/%NOT_A_PLACEHOLDER%'>"))
+      << "the anchored rule is what keeps URLs out of the comment-skipping path";
+}
