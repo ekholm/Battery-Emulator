@@ -13,28 +13,29 @@
 // GPIO gate.  It self-feeds CAN_inverter_still_alive in update_values().
 //
 // TX side: a 1s periodic sends 0x351, 0x355, 0x356, 0x359, 0x35E, 0x35F.
-// 0x30F is sent at 1s when its payload is non-zero (true for all normal SoC
-// values since byte1 = enable_flags is always 0x02 or 0x03 in practice).
+// 0x30F is sent at 1s when its payload is non-zero, which every SoC produces:
+// byte1 = enable_flags is 0x02 charging-only at the bottom, 0x01 discharge-only
+// at the cap, and 0x03 in between.
 // 0x35A is edge-triggered: only re-sent when its payload differs from the
-// last-sent snapshot. The snapshot is stored in static function-local
-// variables that survive instance recreation — a test-isolation limitation
-// documented below.
+// last-sent snapshot. The snapshot lives in the instance, so it dies with the
+// driver.
 //
 // RX side: 0x605 and 0x705 address-filtered on
 // sofar_user_specified_battery_id; matching frames set aliveness and trigger
 // on-demand responses.  Unknown IDs are silently ignored.
 //
-// Suspected production defect: the 0x30F enable_flags branch for "SoC >= 100%
-// (discharge only)" is unreachable because spoofed_soc is capped at 9900 before
-// the comparison, making soc_percent top out at 99, which never satisfies
-// `soc_percent >= 100` (SOFAR-CAN.cpp:29-85).
+// Two defects this file used to document as present are FIXED, and the cases
+// below pin the fixed behaviour:
 //
-// Test-isolation note: `last_35A_payload` and `have_last_35A` are static
-// function-local variables inside transmit_can().  They are NOT reset when
-// the inverter instance is recreated between tests.  AlwaysTransmitsFirst35A
-// covers the first-transmission path; tests named later alphabetically
-// cannot reliably test the change-edge behaviour without a production-code
-// change.
+//   - The 0x30F "full, discharge only" branch compared soc_percent against 100
+//     while spoofed_soc is capped at 99%, so it could never be taken and the
+//     inverter was never told to stop charging by this flag. Both ends now use
+//     SOFAR_MAX_REPORTED_SOC_PPTT.
+//   - `last_35A_payload` / `have_last_35A` were function-local statics and so
+//     outlived the driver, which suppressed the first 0x35A after a driver
+//     restart whenever the payload matched. They are members now, which is why
+//     the change-edge and fresh-instance cases below can exist at all - this
+//     file previously recorded that they could not be written.
 
 namespace {
 
@@ -69,22 +70,59 @@ class SofarCanInverterTest : public ::testing::Test {
 
 }  // namespace
 
-// ── 0x35A – edge-triggered (must run first alphabetically) ───────────────────
+// ── 0x35A – edge-triggered, and the edge state belongs to the INSTANCE ───────
 //
-// 0x35A fires the very first time transmit_can() runs with enough elapsed time
-// because the static `have_last_35A` starts false at process start.  After the
-// first call it is set and subsequent tests in this session won't retrigger it
-// unless the payload changes.
+// This used to be untestable. `last_35A_payload` and `have_last_35A` were
+// function-local statics in transmit_can(), so they outlived the driver: the
+// case below could only assert that nothing crashed, and it had to run first
+// alphabetically to have any meaning at all. They are members now, which is
+// both the production fix and what lets the behaviour be asserted.
+//
+// The production defect the statics caused: destroy the driver and build a new
+// one - a protocol switch, or a battery-id change - and the fresh instance
+// inherited the old one's idea of what it had already sent, so the first 0x35A
+// after the restart was SUPPRESSED whenever the payload happened to match.
+// 0x35A carries the alarm and protection flags, so the frame that went missing
+// is the one that matters most.
 
-TEST_F(SofarCanInverterTest, AlwaysTransmitsFirst35AOnFreshStaticState) {
-  // This test is only reliable as the first SOFAR test in the process.
-  // We assert GE(1) rather than EQ(1) to tolerate any retrigger edge.
+TEST_F(SofarCanInverterTest, FirstTransmitAlwaysSends35A) {
   sofar->update_values();
   sofar->transmit_can(INTERVAL_200_MS + 1);
-  // If static was fresh, 35A is sent once; if already set with same payload, 0 times.
-  // Either way, verify no crash and aliveness is correct.
-  EXPECT_TRUE(true)  // structural: we just want transmit_can not to crash
-      << "0x35A edge trigger must not crash regardless of static state";
+  EXPECT_EQ(count_frames_with_id(0x35A), 1u) << "a fresh driver has sent nothing, so the first 0x35A is an edge";
+}
+
+TEST_F(SofarCanInverterTest, UnchangedPayloadIsNotResent) {
+  sofar->update_values();
+  sofar->transmit_can(INTERVAL_200_MS + 1);
+  clear_transmitted_frames();
+
+  // Same payload, enough time elapsed: the edge is what gates it, not the clock.
+  sofar->update_values();
+  sofar->transmit_can(2 * (INTERVAL_200_MS + 1));
+  EXPECT_EQ(count_frames_with_id(0x35A), 0u) << "0x35A is edge-triggered, not periodic";
+}
+
+TEST_F(SofarCanInverterTest, ANewInstanceDoesNotInheritTheOldEdgeState) {
+  // THE DEFECT, in the shape it takes on a device: send once, then replace the
+  // driver the way a protocol or battery-id change does. With the state in
+  // statics the new instance stayed quiet - it believed the old instance's
+  // transmission was its own - and the alarm frame never reached the inverter.
+  sofar->update_values();
+  sofar->transmit_can(INTERVAL_200_MS + 1);
+  ASSERT_EQ(count_frames_with_id(0x35A), 1u);
+
+  delete inverter;
+  inverter = nullptr;
+  setup_inverter();
+  ASSERT_NE(inverter, nullptr);
+  sofar = static_cast<SofarInverter*>(inverter);
+  clear_transmitted_frames();
+
+  sofar->update_values();
+  sofar->transmit_can(3 * (INTERVAL_200_MS + 1));
+  EXPECT_EQ(count_frames_with_id(0x35A), 1u)
+      << "a new driver has sent nothing yet, so its first 0x35A must go out even though "
+         "the payload matches what the PREVIOUS instance sent";
 }
 
 // ── update_values feeds aliveness directly ───────────────────────────────────
@@ -252,6 +290,50 @@ TEST_F(SofarCanInverterTest, RemoteCommandByte1IsTwoWhenSocAtZero) {
   const CAN_frame* f = find_frame_with_id(0x30F);
   ASSERT_NE(f, nullptr);
   EXPECT_EQ(f->data.u8[1], 0x02u) << "0x30F byte 1 must be 0x02 (charge only) at SoC = 0%";
+}
+
+// The full end of the consent range. This branch was UNREACHABLE: it compared
+// soc_percent against 100 while spoofed_soc is capped at 99% just above, so the
+// inverter was never told to stop charging by this flag however full the pack
+// got - it only ever saw 0x03. The cap is deliberate (a Sofar reads a literal
+// 100 as 0), so the threshold is the cap, not 100. Both are now expressed
+// against SOFAR_MAX_REPORTED_SOC_PPTT and cannot drift apart again.
+
+TEST_F(SofarCanInverterTest, RemoteCommandByte1IsOneWhenTheReportedSocIsFull) {
+  datalayer.battery.status.reported_soc = 10000;  // real 100%, reported as 99
+  sofar->update_values();
+  sofar->transmit_can(INTERVAL_1_S + 1);
+
+  const CAN_frame* f = find_frame_with_id(0x30F);
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->data.u8[1], 0x01u) << "0x30F byte 1 must be 0x01 (discharge only) once the pack reads full";
+}
+
+TEST_F(SofarCanInverterTest, TheFullThresholdIsTheReportingCapNotOneHundred) {
+  // The bug in one assertion: the reported SoC can never exceed the cap, so a
+  // threshold above it can never be met. Pin them equal.
+  datalayer.battery.status.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT;
+  sofar->update_values();
+  sofar->transmit_can(INTERVAL_1_S + 1);
+
+  const CAN_frame* f355 = find_frame_with_id(0x355);
+  ASSERT_NE(f355, nullptr);
+  EXPECT_EQ(f355->data.u8[0], SOFAR_MAX_REPORTED_SOC_PPTT / 100) << "the reported SoC tops out at the cap";
+
+  const CAN_frame* f30F = find_frame_with_id(0x30F);
+  ASSERT_NE(f30F, nullptr);
+  EXPECT_EQ(f30F->data.u8[1], 0x01u)
+      << "and the consent must treat that same value as full, or its branch is dead code";
+}
+
+TEST_F(SofarCanInverterTest, JustBelowFullStillAllowsCharging) {
+  datalayer.battery.status.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT - 100;
+  sofar->update_values();
+  sofar->transmit_can(INTERVAL_1_S + 1);
+
+  const CAN_frame* f = find_frame_with_id(0x30F);
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->data.u8[1], 0x03u) << "one percent below the cap must still permit charge";
 }
 
 // ── RX – aliveness and address filtering ─────────────────────────────────────
