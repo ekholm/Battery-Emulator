@@ -114,6 +114,17 @@ class MCP2515_Lite {
   inline uint32_t isrBusDeferrals() const { return _isr_bus_deferrals; }
   inline uint32_t isrBusTimeouts() const { return _iram_spi.timeouts(); }
 
+  /* Zero the four counters above, so a measurement can start from a known
+   * point instead of subtracting two reads.
+   *
+   * The ISR writes three of these, and this does not lock it out: a reset that
+   * lands between the interrupt's read and its write loses that one count. That
+   * is the right trade for a bench instrument - locking the interrupt out to
+   * protect a statistic would perturb the very thing being measured - but it
+   * means the counters are exact only while nothing resets them.
+   */
+  void resetIsrCounters();
+
   // True once if the last speed change the task enacted did not take: the
   // bitrate was unreachable from this oscillator, or the chip did not report
   // the mode that was asked for. Consumed on read, like hasErrors(), so the

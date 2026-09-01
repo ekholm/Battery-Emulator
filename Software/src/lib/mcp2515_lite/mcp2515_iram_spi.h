@@ -51,6 +51,7 @@ class Mcp2515IramSpi {
   // Transfers that gave up waiting for the peripheral. Non-zero means the bus
   // is not behaving; those transfers return false and their frames are dropped.
   uint32_t timeouts() const { return _timeouts; }
+  void resetTimeouts() { _timeouts = 0; }
 
  private:
   bool _bound = false;

@@ -81,4 +81,24 @@ bool change_can_speed(CAN_Interface interface, CAN_Speed speed);
 void comm_can_reset_for_test();
 #endif
 
+/* What the MCP2515's interrupt drain has actually done, for anything that wants
+   to measure loss rather than argue about it.
+
+   The driver has counted these since the drain was written and nothing read
+   them, so the instrument for "is this path lossless" existed and produced no
+   numbers. `active` is false when there is no MCP2515 or its drain never
+   started, and the four counts are then meaningless rather than zero - a caller
+   that shows 0/0/0/0 for a board with no drain is reporting success it did not
+   measure. */
+struct CanDrainCounters {
+  bool active;
+  uint32_t frames_drained;
+  uint32_t frames_dropped;  // ring full: the consumer was too slow
+  uint32_t bus_deferrals;   // the interrupt found the task holding the SPI bus
+  uint32_t bus_timeouts;    // a transfer gave up; its frames are gone
+};
+
+CanDrainCounters can_drain_counters();
+void reset_can_drain_counters();
+
 #endif

@@ -77,6 +77,14 @@ MCP2515_Lite::~MCP2515_Lite() {
   detachIsrPin();
 }
 
+void MCP2515_Lite::resetIsrCounters() {
+  _isr_frames = 0;
+  _isr_bus_deferrals = 0;
+  _isr_dropped_reported = 0;
+  _isr_ring.resetDropped();
+  _iram_spi.resetTimeouts();
+}
+
 void MCP2515_Lite::detachIsrPin() {
   detachInterrupt(digitalPinToInterrupt(_int_pin));
   _isr_interrupt_installed = false;

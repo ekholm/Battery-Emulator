@@ -1154,6 +1154,20 @@ size_t format_can_frame(char* buffer, size_t len, const CAN_frame& frame, CAN_In
   return (size_t)(ptr - buffer);
 }
 
+CanDrainCounters can_drain_counters() {
+  if (can2515 == nullptr || !can2515->isrDrainActive()) {
+    return {false, 0, 0, 0, 0};
+  }
+  return {true, can2515->isrFramesDrained(), can2515->isrFramesDropped(), can2515->isrBusDeferrals(),
+          can2515->isrBusTimeouts()};
+}
+
+void reset_can_drain_counters() {
+  if (can2515 != nullptr) {
+    can2515->resetIsrCounters();
+  }
+}
+
 void stop_can() {
   /* Registration is not initialization. A driver registers on CAN_NATIVE before init_CAN()
    * runs, so on a board where the native init failed this condition is TRUE while the TWAI

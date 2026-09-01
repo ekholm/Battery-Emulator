@@ -158,9 +158,20 @@ TEST(CanAddonGuardSource, TheNullPathReportsAMissingChipAndNotAFullBuffer) {
 // not merely duplicated: leaving it would keep the old flag reachable for the
 // same condition and make which report the user gets depend on evaluation order.
 TEST(CanAddonGuardSource, TheOldNullShortCircuitIsGoneFromTheSendCheck) {
+  /* Scoped to transmit_can_frame_to_interface(), which is what this property is
+     about. It used to scan the whole file, and that is a different claim: any
+     later code anywhere in comm_can.cpp that legitimately writes
+     `can2515 == nullptr || ...` - asking whether the chip is there before using
+     it, which is the normal way to ask - reddened a test about the SEND path
+     while the send path was intact. */
   const std::string src = comm_can_source();
+  const size_t at = src.find("void transmit_can_frame_to_interface(");
+  ASSERT_NE(at, std::string::npos) << "transmit_can_frame_to_interface() is not where this test looks";
+  const std::string transmit = brace_block(src, at);
+  ASSERT_FALSE(transmit.empty());
+
   for (const AddonPath& path : addon_paths()) {
-    EXPECT_EQ(src.find(std::string(path.pointer) + " == nullptr || "), std::string::npos)
+    EXPECT_EQ(transmit.find(std::string(path.pointer) + " == nullptr || "), std::string::npos)
         << path.pointer << ": the null case is its own branch now; folding it back into the send check "
         << "restores the misdiagnosis";
   }
