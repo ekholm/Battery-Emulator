@@ -23,6 +23,34 @@
  */
 namespace {
 
+/* Every guard in this file is matched as TEXT, and the guards all carry a rationale comment
+ * that says what the code below it does - in the same words the assertion looks for. So a
+ * guard deleted from the code but described in prose used to satisfy its own test. That is not
+ * theoretical: with the transmit guard replaced by `if (false)` and its comment left in place,
+ * every case here passed - and that guard is the one thing standing between a frame and
+ * tryToSend() on a peripheral that was never enabled, which is the reboot loop this whole file
+ * exists to stop.
+ *
+ * Strip comments before matching, the way can_pause_state_tests.cpp does. It also makes
+ * brace_block() below count only real braces.
+ */
+std::string without_comments(const std::string& src) {
+  std::string out;
+  out.reserve(src.size());
+  for (size_t i = 0; i < src.size();) {
+    if (src.compare(i, 2, "/*") == 0) {
+      const size_t end = src.find("*/", i + 2);
+      i = (end == std::string::npos) ? src.size() : end + 2;
+    } else if (src.compare(i, 2, "//") == 0) {
+      const size_t end = src.find('\n', i);
+      i = (end == std::string::npos) ? src.size() : end;
+    } else {
+      out += src[i++];
+    }
+  }
+  return out;
+}
+
 std::string comm_can_source() {
   // Located relative to this file rather than through a CMake define, so the test needs no
   // build-system plumbing to run.
@@ -31,7 +59,8 @@ std::string comm_can_source() {
   const std::string path = dir + "/../Software/src/communication/can/comm_can.cpp";
   std::ifstream src(path);
   EXPECT_TRUE(src.is_open()) << "comm_can.cpp is where this test looks: " << path;
-  return std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+  // Stripped here rather than at each call site, so an assertion added later cannot forget to.
+  return without_comments(std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>()));
 }
 
 // The brace-balanced block that opens at the first '{' at or after 'from'.
@@ -192,10 +221,20 @@ TEST(CanNativeTransmitGuardSource, StoppingCanDoesNotEndAnInterfaceThatNeverStar
          "interface never came up, and end() writes TWAI registers before disabling the module";
 }
 
+/* The property is unchanged - resuming must not dereference a settings pointer that was never
+ * allocated. The MECHANISM changed: gating on native_can_initialized also
+ * protected the dereference, but stop_can() now clears that flag, so reading it here would make
+ * every resume a no-op. The guard is the null check the same pointer already gets in
+ * change_can_speed(), which is what this line was really asking about anyway.
+ */
 TEST(CanNativeTransmitGuardSource, RestartingCanDoesNotDereferenceSettingsThatWereNeverAllocated) {
   const std::string before = body_before_call(comm_can_source(), "void restart_can()", "ACAN_ESP32::can.begin");
-  EXPECT_NE(before.find("if (native_can_initialized)"), std::string::npos)
-      << "restart_can() must gate on initialization: settingsespcan is only assigned inside "
-         "init_native_can(), which the alloc_pins() failure paths return before reaching, so "
-         "resuming a paused emulator dereferenced a null pointer";
+  EXPECT_NE(before.find("settingsespcan != nullptr"), std::string::npos)
+      << "restart_can() must guard the settings pointer before dereferencing it: settingsespcan "
+         "is only assigned inside init_native_can(), which the alloc_pins() failure paths return "
+         "before reaching, so resuming a paused emulator dereferenced a null pointer";
+  EXPECT_EQ(before.find("if (native_can_initialized)"), std::string::npos)
+      << "restart_can() must NOT gate on native_can_initialized - stop_can() clears it, so this "
+         "is the function that has to bring it back; reading it here leaves native CAN down for "
+         "good after the first pause";
 }
