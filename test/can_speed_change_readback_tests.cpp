@@ -145,6 +145,10 @@ TEST(Mcp2515SpeedChange, EnterModeReadsTheStatusRegisterBack) {
 /* An unreachable bitrate writes no timing registers at all and left the chip at
  * its old speed, silently. applySpeedConfig() must say so rather than return
  * void.
+ *
+ * What "unreachable" MEANS is no longer scanned for: the arithmetic moved
+ * into mcp2515_timing.cpp and mcp2515_timing_tests.cpp calls it. This test is
+ * now only about the chain - that the verdict has a return value to travel on.
  */
 TEST(Mcp2515SpeedChange, AnUnreachableBitrateIsAnAnswerNotSilence) {
   const std::string src = driver_source();
@@ -157,6 +161,27 @@ TEST(Mcp2515SpeedChange, AnUnreachableBitrateIsAnAnswerNotSilence) {
   ASSERT_FALSE(body.empty());
   EXPECT_NE(body.find("return false"), std::string::npos) << "applySpeedConfig() cannot report the calculation failing";
   EXPECT_NE(body.find("return true"), std::string::npos) << "applySpeedConfig() never reports success";
+}
+
+/* The timing arithmetic must stay in the TU the tests can reach.
+ *
+ * A private re-implementation inside the driver would compile, link and pass
+ * every other test in this file while putting the tolerance check back out of
+ * reach - which is precisely the state that let the defect live for years. So
+ * pin the delegation, not just the behaviour.
+ */
+TEST(Mcp2515TimingSeam, TheDriverDelegatesTheTimingArithmetic) {
+  const std::string src = driver_source();
+
+  const std::string body = body_after(src, "bool MCP2515_Lite::applySpeedConfig(");
+  ASSERT_FALSE(body.empty());
+  EXPECT_NE(body.find("mcp2515_calculate_timing("), std::string::npos)
+      << "applySpeedConfig() no longer calls the extracted, host-tested function";
+
+  EXPECT_EQ(src.find("static bool calculateMCP2515Config"), std::string::npos)
+      << "the file-static copy is back - whatever it computes is untestable again";
+  EXPECT_NE(src.find("#include \"mcp2515_timing.h\""), std::string::npos)
+      << "the driver does not include the timing header";
 }
 
 /* The verdict has to reach a human. The driver cannot raise the event itself

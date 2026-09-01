@@ -1,6 +1,7 @@
 #include "mcp2515_lite.h"
 #include <Arduino.h>
 
+#include "mcp2515_timing.h"
 #include "src/devboard/utils/logging.h"
 
 // MCP2515 Opcodes and Registers
@@ -66,47 +67,9 @@ MCP2515_Lite::~MCP2515_Lite() {
   detachInterrupt(digitalPinToInterrupt(_int_pin));
 }
 
-static bool calculateMCP2515Config(uint32_t f_osc, uint32_t can_rate, uint8_t* cnf) {
-  if (!cnf || can_rate == 0 || f_osc == 0) {
-    return false;
-  }
-
-  // Calculate for TQ = 16 (will fail for 500kbit@8MHz)
-  uint32_t div16 = 32 * can_rate;
-  uint32_t brp16 = (f_osc + (div16 / 2)) / div16;  // Integer rounding
-  if (brp16 < 1) {
-    brp16 = 1;
-  } else if (brp16 > 64) {
-    brp16 = 64;
-  }
-  uint32_t rate16 = f_osc / (32 * brp16);
-  uint32_t err16 = (rate16 > can_rate) ? (rate16 - can_rate) : (can_rate - rate16);
-
-  // Calculate for TQ = 8 (lower resolution)
-  uint32_t div8 = 16 * can_rate;
-  uint32_t brp8 = (f_osc + (div8 / 2)) / div8;  // Integer rounding
-  if (brp8 < 1) {
-    brp8 = 1;
-  } else if (brp8 > 64) {
-    brp8 = 64;
-  }
-  uint32_t rate8 = f_osc / (16 * brp8);
-  uint32_t err8 = (rate8 > can_rate) ? (rate8 - can_rate) : (can_rate - rate8);
-
-  if (err8 < err16) {
-    // TQ=8 has lower error, use that
-    cnf[0] = (uint8_t)(brp8 - 1);
-    cnf[1] = 0x8A;  // BTLMODE=1, SAM=0, PHSEG1=1, PRSEG=2
-    cnf[2] = 0x01;  // PHSEG2=1
-  } else {
-    // otherwise use TQ=16
-    cnf[0] = (uint8_t)(brp16 - 1);
-    cnf[1] = 0xA5;  // BTLMODE=1, SAM=0, PHSEG1=4, PRSEG=5
-    cnf[2] = 0x03;  // PHSEG2=3
-  }
-
-  return true;
-}
+// The bit-timing arithmetic moved to mcp2515_timing.cpp, so that a
+// host test can call it: it needs neither Arduino nor FreeRTOS, and being a
+// file-static in this file was the only thing keeping it out of the test build.
 
 uint32_t MCP2515_Lite::autodetectOscillatorFrequency() {
   // 7813 baud at 8MHz is 128us per bit
@@ -382,7 +345,7 @@ void MCP2515_Lite::canTask(void* pvParameters) {
         // the first speed change, silently.
         changed = self->enterMode(self->_loopback ? CANCTRL_REQOP_LOOPBACK : CANCTRL_REQOP_NORMAL) && changed;
         /* One verdict outstanding at a time, and it is the LATEST one
-                 * Two independent read-and-clear latches are not two
+                 *. Two independent read-and-clear latches are not two
                  * pieces of information: they are one, spread over two bools,
                  * and a caller that reads them in priority order can act on the
                  * older of the pair. Concretely, with a change that SUCCEEDED
@@ -480,27 +443,28 @@ bool MCP2515_Lite::reset() {
   return true;
 }
 
-// Returns false when no timing could be computed at all, in which case NOTHING
-// is written and the chip keeps the timing it had. On the live path that means
-// one thing: an oscillator frequency of zero, which is what
-// autodetectOscillatorFrequency() returns when its probe begin() fails and what
-// comm_can.cpp stores unconditionally.
+// Returns false when no usable timing could be computed, in which case NOTHING
+// is written and the chip keeps the timing it had. Two things now produce that,
+// where until this change only the first did:
 //
-// It does NOT mean "this bitrate is unreachable from this oscillator"; a later
-// review corrected this comment for claiming it did. calculateMCP2515Config() rejects
-// only degenerate arguments (null buffer, zero rate, zero oscillator); for a
-// rate the oscillator cannot produce it clamps the prescaler, picks whichever
-// of its two TQ layouts is least wrong, and returns true. Measured with its own
-// body: 1000 kbit/s asked of an 8 MHz part yields 500 kbit/s, 800 asked of 8 MHz
-// yields 500, 1000 of 20 MHz yields 1250, 500 of 12 MHz yields 375 - every one
-// of them reported as success. That silent failure is real, it is in the enum's
-// range (CAN_SPEED_800KBPS and CAN_SPEED_1000KBPS both exist) and it is still
-// open: the remaining gap is tracked separately.
+//  - a degenerate argument, in practice an oscillator frequency of zero, which
+//    is what autodetectOscillatorFrequency() returns when its probe begin()
+//    fails and what comm_can.cpp stores unconditionally;
+//  - a bitrate this oscillator cannot get within
+//    MCP2515_TIMING_TOLERANCE_PERMILLE of.
+//
+// The second used to return TRUE. The prescaler was clamped, the least-wrong of
+// the two TQ layouts was picked, and the chip was configured for whatever came
+// out: 1000 kbit/s asked of an 8 MHz part yielded 500, 800 of 8 MHz yielded 500,
+// 200 of 8 MHz yielded 166, 800 of 16 MHz yielded 1000 - every one of them
+// reported as a successful init, and all four rates are selectable from the
+// CAN_Speed enum. Review found it; the earlier comment had claimed the opposite.
 bool MCP2515_Lite::applySpeedConfig(const MCP2515_Lite_Speed& speed) {
   uint8_t cnf[3];
-  if (!calculateMCP2515Config(speed.f_osc, speed.bitrate, cnf)) {
-    DEBUG_PRINTF("MCP2515 has no timing for %u bit/s from a %u Hz oscillator\n", (unsigned)speed.bitrate,
-                 (unsigned)speed.f_osc);
+  uint32_t achieved = 0;
+  if (!mcp2515_calculate_timing(speed.f_osc, speed.bitrate, cnf, &achieved)) {
+    DEBUG_PRINTF("MCP2515 has no timing for %u bit/s from a %u Hz oscillator (closest %u)\n", (unsigned)speed.bitrate,
+                 (unsigned)speed.f_osc, (unsigned)achieved);
     return false;
   }
   writeRegister(REG_CNF1, cnf[0]);
