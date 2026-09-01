@@ -326,6 +326,57 @@ TEST_F(SofarCanInverterTest, TheFullThresholdIsTheReportingCapNotOneHundred) {
       << "and the consent must treat that same value as full, or its branch is dead code";
 }
 
+TEST_F(SofarCanInverterTest, TheChargeLimitStillPermitsChargeAtTheSocTheConsentCallsFull) {
+  // R382. Making the "full" branch reachable at the CAP - rather than at a true
+  // 100.00% - means a pack whose real SoC is 99.00% is told discharge-only,
+  // because the cap makes 99% and 100% indistinguishable on this frame. That
+  // collides with the system-wide full policy, which fires only at an exact
+  // 10000 pptt (safety.cpp zeroes max_charge_power_W there and raises
+  // EVENT_BATTERY_FULL). So at the cap the driver emits a contradiction: 0x351
+  // still advertises a charge current the pack is allowed to take, while 0x30F
+  // says charging is not permitted at all.
+  //
+  // This test asserts the contradiction rather than blessing it - it is the
+  // open question R382 could not settle from the tree, and the alternative fix
+  // (judge consent on the UNCAPPED reported_soc, keeping the cap for 0x355
+  // only) would make the two agree. Whichever way it is resolved, this test
+  // must be looked at, which is the point of writing it down.
+  datalayer.battery.status.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT;  // 99.00%, below the system full cutoff
+  datalayer.battery.status.max_charge_current_dA = 500;
+  datalayer.battery.status.max_discharge_current_dA = 500;
+  sofar->update_values();
+  sofar->transmit_can(INTERVAL_1_S + 1);
+
+  const CAN_frame* f351 = find_frame_with_id(0x351);
+  ASSERT_NE(f351, nullptr);
+  EXPECT_EQ(u16_le(f351->data.u8[4], f351->data.u8[5]), 500u) << "the charge limit still permits charge at this SoC";
+
+  const CAN_frame* f30F = find_frame_with_id(0x30F);
+  ASSERT_NE(f30F, nullptr);
+  EXPECT_EQ(f30F->data.u8[1], 0x01u) << "while the consent flag forbids it - the two disagree at the cap (R382, open)";
+}
+
+TEST_F(SofarCanInverterTest, TheChargeOnlyThresholdIsOnePercentNotTwo) {
+  // The bottom branch is soc_percent <= 1, and only soc 0 was covered. Its
+  // boundary is untested in both directions, which is how the top branch came
+  // to be wrong for a year - nobody pinned where it changed. 1.99% is still
+  // charge-only; 2.00% is not.
+  datalayer.battery.status.reported_soc = 199;
+  sofar->update_values();
+  sofar->transmit_can(INTERVAL_1_S + 1);
+  const CAN_frame* low = find_frame_with_id(0x30F);
+  ASSERT_NE(low, nullptr);
+  EXPECT_EQ(low->data.u8[1], 0x02u) << "1.99% must still be charge-only";
+
+  clear_transmitted_frames();
+  datalayer.battery.status.reported_soc = 200;
+  sofar->update_values();
+  sofar->transmit_can(2 * INTERVAL_1_S + 2);
+  const CAN_frame* mid = find_frame_with_id(0x30F);
+  ASSERT_NE(mid, nullptr);
+  EXPECT_EQ(mid->data.u8[1], 0x03u) << "2.00% must permit both";
+}
+
 TEST_F(SofarCanInverterTest, JustBelowFullStillAllowsCharging) {
   datalayer.battery.status.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT - 100;
   sofar->update_values();
