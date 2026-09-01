@@ -2,6 +2,12 @@
 #define SOFAR_CAN_H
 #include "CanInverterProtocol.h"
 
+// The highest SoC this driver will ever report, in pptt. A Sofar treats a
+// literal 100% as 0, so the reported value is deliberately capped just below -
+// and the charge/discharge consent on 0x30F must be judged against THIS value
+// rather than 100, or its "full" branch can never be reached.
+static constexpr uint16_t SOFAR_MAX_REPORTED_SOC_PPTT = 9900;
+
 class SofarInverter : public CanInverterProtocol {
  public:
   bool setup() override;
@@ -18,6 +24,18 @@ class SofarInverter : public CanInverterProtocol {
   unsigned long previousMillis100 = 0;
   unsigned long last_command_millis = 0;
   unsigned long last_35A_sent_millis = 0;
+
+  // The 0x35A edge state. These were function-local statics in transmit_can(),
+  // which meant they OUTLIVED the instance: destroy the driver and build a new
+  // one - a protocol switch, or a battery-id change - and the fresh instance
+  // inherited the old one's idea of what it had already sent, so the first
+  // 0x35A after the restart was suppressed whenever the payload happened to
+  // match. 0x35A carries the alarm/protection flags, so the frame that goes
+  // missing is the one that matters most. As members they die with the
+  // instance, which also lets the edge behaviour be tested at all - the test
+  // file documents the isolation limitation this removes.
+  uint8_t last_35A_payload[8] = {};
+  bool have_last_35A = false;
   uint16_t calculated_capacity_AH = 0;
   const char* BatteryType = "BATxEMU";
 
