@@ -164,6 +164,12 @@ void update_machineryprotection() {
   } else {
     clear_event(EVENT_CANMCP2515_BUS_ERROR);
   }
+  if (datalayer.system.info.can_2515_not_initialized) {
+    set_event(EVENT_CANMCP2515_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_2515_not_initialized = false;
+  } else {
+    clear_event(EVENT_CANMCP2515_NOT_INITIALIZED);
+  }
   if (datalayer.system.info.can_2518_send_fail) {
     set_event(EVENT_CANFD_BUFFER_FULL, 0);
     datalayer.system.info.can_2518_send_fail = false;
@@ -176,6 +182,12 @@ void update_machineryprotection() {
   } else {
     clear_event(EVENT_CANFD_BUS_ERROR);
   }
+  if (datalayer.system.info.can_2518_not_initialized) {
+    set_event(EVENT_CANFD_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_2518_not_initialized = false;
+  } else {
+    clear_event(EVENT_CANFD_NOT_INITIALIZED);
+  }
   if (datalayer.system.info.can_2518_2_send_fail) {
     set_event(EVENT_CANFD_2_BUFFER_FULL, 0);
     datalayer.system.info.can_2518_2_send_fail = false;
@@ -187,6 +199,12 @@ void update_machineryprotection() {
     datalayer.system.info.can_2518_2_bus_error = false;
   } else {
     clear_event(EVENT_CANFD_2_BUS_ERROR);
+  }
+  if (datalayer.system.info.can_2518_2_not_initialized) {
+    set_event(EVENT_CANFD_2_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_2518_2_not_initialized = false;
+  } else {
+    clear_event(EVENT_CANFD_2_NOT_INITIALIZED);
   }
 
   // Start checking that the battery is within reason. Incase we see any funny business, raise an event!
