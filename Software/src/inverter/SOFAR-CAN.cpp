@@ -26,8 +26,8 @@ void SofarInverter::
   // ----- Frame 0x355 – SoC / SoH -----
   // SoC deception only to CAN (we do not touch datalayer)
   uint16_t spoofed_soc = datalayer.battery.status.reported_soc;  // 0..10000 pptt
-  if (spoofed_soc >= 10000) {
-    spoofed_soc = 9900;  // limit to 99%
+  if (spoofed_soc >= SOFAR_MAX_REPORTED_SOC_PPTT) {
+    spoofed_soc = SOFAR_MAX_REPORTED_SOC_PPTT;  // limit to 99%
   }
   SOFAR_355.data.u8[0] = spoofed_soc / 100;                        // %
   SOFAR_355.data.u8[2] = datalayer.battery.status.soh_pptt / 100;  // %
@@ -76,12 +76,19 @@ void SofarInverter::
   // SOFAR_35F.data.u8[7] = 0x00;
 
   // ===== Frame 0x30F – Remote command / enable (event/keep-alive) =====
-  // Charge and discharge consent dependent on SoC with hysteresis at 99% soc
+  // Charge and discharge consent dependent on SoC, full at the reporting cap.
+  //
+  // The full threshold is the CAP, not 100: spoofed_soc is deliberately limited
+  // just above, because a Sofar reads a literal 100 as 0. Comparing against 100
+  // here made the branch unreachable, so the inverter was never told to stop
+  // charging by this flag no matter how full the pack got - it only ever saw
+  // 0x03. Both ends are now expressed against the same constant, so capping and
+  // consent cannot drift apart again.
   uint8_t soc_percent = spoofed_soc / 100;
   uint8_t enable_flags = 0x00;
   if (soc_percent <= 1) {
     enable_flags = 0x02;  // Only charging allowed
-  } else if (soc_percent >= 100) {
+  } else if (soc_percent >= SOFAR_MAX_REPORTED_SOC_PPTT / 100) {
     enable_flags = 0x01;  // Only discharge allowed
   } else {
     enable_flags = 0x03;  // Both charge and discharge allowed
@@ -212,9 +219,6 @@ void SofarInverter::map_can_frame_to_variable(CAN_frame rx_frame) {
 }
 
 void SofarInverter::transmit_can(unsigned long currentMillis) {
-
-  static uint8_t last_35A_payload[8];
-  static bool have_last_35A = false;
 
   if ((unsigned long)(currentMillis - previousMillis1s) >= INTERVAL_1_S) {
     previousMillis1s = currentMillis;

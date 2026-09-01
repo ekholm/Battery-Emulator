@@ -14,10 +14,11 @@
 //   - Pairing fires an immediate burst of ALL 13 frames (no batching delay).
 //   - The 100ms periodic path is gated on contactors_engaged == 1, not on
 //     inverter_allows_contactor_closing.
-//   - 0x4D8 bytes 2:3 encode datalayer.battery.status.current_dA (not
-//     reported_current_dA) – this differs from both the H and HVS variants
-//     and is likely a copy-paste defect (SMA-SBS-BYD-CAN.cpp:51-52 vs the
-//     equivalent lines in SMA-BYD-H-CAN.cpp / SMA-BYD-HVS-CAN.cpp).
+//
+// It USED to differ in a third way: 0x4D8 bytes 2:3 encoded current_dA rather
+// than reported_current_dA, so the frame carried battery 1 alone where the H
+// and HVS variants carry the sum over every battery in the system. Confirmed a
+// defect and fixed; the test below now pins the sum.
 
 namespace {
 
@@ -165,11 +166,14 @@ TEST_F(SmaSbsBydCanInverterTest, SocSohAhFrameEncodesCorrectly) {
 
 // ── TX payload – frame 0x4D8 (voltage / current / temp / ready) ──────────────
 //
-// NOTE: this driver encodes current_dA (not reported_current_dA) in bytes 2:3,
-// unlike the H and HVS variants.  This is pinned as current production
-// behaviour; it is suspected to be a copy-paste defect (see file header).
+// This driver now encodes reported_current_dA in bytes 2:3, like the H and HVS
+// variants.  It used to send current_dA, which is battery 1 alone rather than
+// the sum over every battery in the system, so a double or triple pack told the
+// inverter a fraction of the real current.  The two
+// fields are set to DIFFERENT values below precisely so the frame cannot pass
+// by accident on a single-battery configuration, where they are equal.
 
-TEST_F(SmaSbsBydCanInverterTest, BatteryInfoFrameEncodesCurrentDaNotReportedCurrentDa) {
+TEST_F(SmaSbsBydCanInverterTest, BatteryInfoFrameEncodesTheSystemCurrentNotBatteryOneAlone) {
   datalayer.battery.status.voltage_dV = 3900;
   // Set both fields to different values so we can distinguish which one is sent.
   datalayer.battery.status.current_dA = static_cast<int16_t>(-300);
@@ -184,8 +188,9 @@ TEST_F(SmaSbsBydCanInverterTest, BatteryInfoFrameEncodesCurrentDaNotReportedCurr
   const CAN_frame* f = find_frame_with_id(0x4D8);
   ASSERT_NE(f, nullptr);
   EXPECT_EQ(u16_be(f->data.u8[0], f->data.u8[1]), 3900u);
-  // Pinned behaviour: current_dA (-300), NOT reported_current_dA (-400).
-  EXPECT_EQ(static_cast<int16_t>(u16_be(f->data.u8[2], f->data.u8[3])), -300);
+  // reported_current_dA (-400), the system sum - NOT current_dA (-300).
+  EXPECT_EQ(static_cast<int16_t>(u16_be(f->data.u8[2], f->data.u8[3])), -400)
+      << "0x4D8 must carry the sum over all batteries, as the H and HVS siblings do";
   EXPECT_EQ(static_cast<int16_t>(u16_be(f->data.u8[4], f->data.u8[5])), 250);
 }
 
