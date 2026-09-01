@@ -39,14 +39,27 @@ struct Anchor {
 
 }  // namespace
 
-TEST(EventOrdinalStability, TheEventThisBranchAddsIsAppendedNotInserted) {
-  /* The whole property, in one line: our event sits immediately before the sentinel, so
-   * nothing that predates it moved. Stated against EVENT_NOF_EVENTS rather than a number,
-   * because the number is upstream's to change and the position is ours to keep. */
-  EXPECT_EQ(static_cast<int>(EVENT_CAN_NATIVE_INIT_FAILURE) + 1, static_cast<int>(EVENT_NOF_EVENTS))
-      << get_event_enum_string(EVENT_CAN_NATIVE_INIT_FAILURE) << " is not the last event before the\n"
-      << "  sentinel, so it was INSERTED rather than appended and every event after it has been\n"
-      << "  renumbered. Event ordinals are published over ESP-NOW (ESPNOW_KEY_EVENT_ID), so a\n"
+TEST(EventOrdinalStability, TheEventsThisLaneAddsAreAppendedNotInserted) {
+  /* The whole property, in one line each: the events this lane adds form a contiguous block
+   * at the END, so nothing that predates them moved. Stated against EVENT_NOF_EVENTS and
+   * against each other rather than against absolute numbers, because the numbers are
+   * upstream's to change - it inserts mid-enum itself - and the POSITION is ours to keep. */
+  const EVENTS_ENUM_TYPE added[] = {
+      EVENT_CAN_NATIVE_INIT_FAILURE,
+      EVENT_CAN_NATIVE_NOT_INITIALIZED,
+  };
+  const int count = static_cast<int>(sizeof(added) / sizeof(added[0]));
+
+  for (int i = 1; i < count; i++) {
+    EXPECT_EQ(static_cast<int>(added[i]), static_cast<int>(added[i - 1]) + 1)
+        << get_event_enum_string(added[i]) << " is not adjacent to " << get_event_enum_string(added[i - 1])
+        << ", so this lane's events are no longer one block at the end.";
+  }
+
+  EXPECT_EQ(static_cast<int>(added[count - 1]) + 1, static_cast<int>(EVENT_NOF_EVENTS))
+      << get_event_enum_string(added[count - 1]) << " is not the last event before the\n"
+      << "  sentinel, so an event was INSERTED rather than appended and every event after it has\n"
+      << "  been renumbered. Event ordinals are published over ESP-NOW (ESPNOW_KEY_EVENT_ID), so a\n"
       << "  receiver on an older build now decodes the wrong event - silently, and precisely in\n"
       << "  the data a user reads to diagnose a fault.\n"
       << "  Add new events at the END of EVENTS_ENUM_TYPE, immediately before EVENT_NOF_EVENTS.";
