@@ -103,6 +103,10 @@ add_executable(tests
     ../Software/src/datalayer/datalayer.cpp
     ../Software/src/datalayer/datalayer_extended.cpp
     ../Software/src/lib/uds_isotp/isotp.cpp
+    # Only the MCP2515's bit-timing arithmetic, not the driver: mcp2515_lite.cpp
+    # reaches for Arduino and FreeRTOS and stays out of the host build, which is
+    # exactly why this TU was split out of it.
+    ../Software/src/lib/mcp2515_lite/mcp2515_timing.cpp
     ../Software/src/lib/eModbus-eModbus/ModbusMessage.cpp
     ../Software/src/lib/eModbus-eModbus/ModbusServer.cpp
     ../Software/src/lib/eModbus-eModbus/ModbusServerRTU.cpp
