@@ -65,6 +65,30 @@ Stacked on `can-replay-dlc-bound`: this branch contains that fix, and the two to
 
 ---
 
+**Safety events that could never fire**
+Branch [`driver-dead-safety-events`](https://github.com/ekholm/Battery-Emulator/tree/driver-dead-safety-events) @ `07d15e48` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-dead-safety-events)
+Two drivers raised safety events on conditions that could not occur: the Kia/Hyundai HYBRID's interlock decode had a cast-precedence error, so `EVENT_HVIL_FAILURE` never fired (now fires and clears on `0x5AE`), and CHARGEBYTE's error ladder was ordered so an error while charging never reported `BMS_FAULT` (reordered). One decision stated openly: the E-GMP water-sensor check was dead - the member is initialised to 164 ("no water") and no E-GMP RX path ever writes it, so the event could never fire and the page rendered a constant. The sibling KIA-64 driver decodes the same sensor for real (`u8[3]` of its poll response, 164 = dry), so this was a copied pattern that never got its decode wired. Removed rather than guessed at; one E-GMP trace naming the byte restores it with the KIA-64 decode as the template.
+
+---
+
+**Decode arithmetic: five values fixed, three pinned**
+Branch [`driver-decode-arithmetic`](https://github.com/ekholm/Battery-Emulator/tree/driver-decode-arithmetic) @ `9cdfa40a` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-decode-arithmetic)
+Range Rover PHEV's 24-bit current read against the driver's own declared range; TESLA-LEGACY wrapped subzero temperatures (the decode's own range is -40..+87.5 C); IMIEV had swapped channels, mV rounding loss, and - found during testing - uninitialised 88-entry instance arrays publishing heap reads until every sensor reports; RELION-LV's minimum temperature was decoded but never wired. Three further suspicions are pinned as correct-as-is by characterization tests with the evidence named, so the next reader does not re-litigate them.
+
+---
+
+**Family consistency: four fixes where siblings already agree**
+Branch [`driver-family-consistency`](https://github.com/ekholm/Battery-Emulator/tree/driver-family-consistency) @ `4ef719f9` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-family-consistency)
+FERROAMP now honours user voltage limits like PYLON and SOLXPOW already do (the siblings' 2.0 V offset deliberately not imported); GROWATT-WIT's capacity guard goes `> 0` to `> 10`, ending a 50,000 dAh fiction from a 0.5 V startup reading; MG-5's `MG5_USE_FULL_CAPACITY` branch - defined nowhere - is deleted; swapped charge/discharge byte labels corrected, values unchanged.
+
+---
+
+**Uninitialised driver arrays: the four that are live**
+Branch [`driver-uninit-sweep`](https://github.com/ekholm/Battery-Emulator/tree/driver-uninit-sweep) @ `4fed488a` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-uninit-sweep) · includes the memory-safety fixes beneath it
+A sweep sorted ten suspect arrays by liveness: four are whole-array memcpys into the datalayer reachable before frames fill them - BOLT-AMPERA, HYUNDAI-IONIQ-28, KIA-HYUNDAI-64 (whose `<300` filter passes high garbage), SANTA-FE-PHEV. All four get `= {0}` plus a poisoned default-init test through their own publish path; the six that are written-before-read are commented at the declaration instead of churned. Beneath it, the memory-safety commits it includes: an ORION out-of-range cell id is rejected rather than clamped (a corrupted id must neither overwrite a real cell nor inflate the detected-cell count), and explicit zero-init where a user-provided constructor defeats value-initialisation.
+
+---
+
 **Shunt: three values that corrupt instead of going missing**
 Branch [`driver-signedness-clamps`](https://github.com/ekholm/Battery-Emulator/tree/driver-signedness-clamps) @ `d52de5de` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-signedness-clamps) · stacked under `sbox-average-divisor`
 Three driver defects with the same shape: a signedness or width error that turns a real measurement into a plausible wrong number. The main one: `datalayer.shunt.measured_amperage_dA` was `uint16_t`, so every discharge current wrapped - a -50 A discharge read as ~65,486 dA. Now `int16_t`, matching `battery.status.current_dA`, the same quantity and unit already signed in-tree. The audit behind it found the field has two writers and zero in-tree readers, which is what makes the root fix safe to take first. Also: BMW-SBOX's rolling-average members go signed (`avg_mA_array`, `avg_sum` - the division then signs itself), and a review commit zero-initialises them and pins that.
