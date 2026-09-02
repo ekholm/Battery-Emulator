@@ -231,8 +231,10 @@ class BoltAmperaBattery : public CanBattery {
   // VITM_HV - 0x7E7 replies on 7EF (This is battery)
 
   uint16_t soc_periodic = 0;
-  uint16_t battery_cell_voltages[96];  //array with all the cellvoltages polled via PID
-  uint16_t cellblock_voltage[96];      //array with all the cellvoltages, constantly broadcasted
+  uint16_t battery_cell_voltages
+      [96];  //array with all the cellvoltages polled via PID (written by PID replies, read nowhere today)
+  uint16_t cellblock_voltage[96] = {
+      0};  //array with all the cellvoltages, constantly broadcasted (update_values() memcpys all 96 before the first broadcast fills them)
   uint32_t sensed_battery_voltage_mV = 0;
   int16_t sensed_current_sensor_1 = 0;
   int16_t sensed_current_sensor_2 = 0;

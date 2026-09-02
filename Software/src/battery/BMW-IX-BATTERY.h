@@ -6,7 +6,7 @@
 
 // UDS Multi-Frame Reception Context
 struct UDS_CONTEXT {
-  uint8_t UDS_buffer[512];            // Buffer to store multi-frame UDS data
+  uint8_t UDS_buffer[512];            // Buffer to store multi-frame UDS data (memset on every reception start)
   uint16_t UDS_bytesReceived;         // Track number of bytes received
   uint16_t UDS_expectedLength;        // Total expected length from first frame
   uint8_t UDS_sequenceNumber;         // Expected sequence number for consecutive frames (for IX non-batch mode)
@@ -684,7 +684,7 @@ CAN_frame BMWiX_49C = {.FD = true,
 
   /**
  * @brief Handle incoming inverter request to close or open contactors.alignas
- * 
+ *
  * This function uses the "inverter_allows_contactor_closing" flag from the datalayer, to determine if CAN messages shall be sent to the battery to close or open the contactors.
  *
  * @param[in] void
