@@ -50,8 +50,6 @@ class Mg5Battery : public CanBattery {
 
   uint16_t soc = 0;
   uint16_t cell_id = 0;
-  uint16_t cellVoltageValidTime = 0;
-  static const uint8_t CELL_VOLTAGE_TIMEOUT = 10;  // in seconds
 
   uint8_t transmitIndex = 0;  //For polling switchcase
   uint8_t previousState = 0;

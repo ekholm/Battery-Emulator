@@ -77,13 +77,24 @@ void FerroampCanInverter::
   FERROAMP_4211.data.u8[4] = ((datalayer.battery.status.temperature_max_dC + 1000) & 0x00FF);
   FERROAMP_4211.data.u8[5] = ((datalayer.battery.status.temperature_max_dC + 1000) >> 8);
 
-  //Maxvoltage (eg 400.0V = 4000 , 16bits long) Discharge Cutoff Voltage
-  FERROAMP_4221.data.u8[0] = (datalayer.battery.info.max_design_voltage_dV & 0x00FF);
-  FERROAMP_4221.data.u8[1] = (datalayer.battery.info.max_design_voltage_dV >> 8);
+  //Check what charge and discharge cutoff voltages to send, like the 0x4200
+  //family siblings (PYLON, SOLXPOW) do: a user-tightened window must reach the
+  //inverter (wq312). The no-user-limit values stay the raw design limits this
+  //driver always sent - the siblings' +-2.0 V offset is NOT imported here.
+  uint16_t charge_cutoff_voltage_dV = datalayer.battery.info.max_design_voltage_dV;
+  uint16_t discharge_cutoff_voltage_dV = datalayer.battery.info.min_design_voltage_dV;
+  if (datalayer.battery.settings.user_set_voltage_limits_active) {
+    charge_cutoff_voltage_dV = datalayer.battery.settings.max_user_set_charge_voltage_dV;
+    discharge_cutoff_voltage_dV = datalayer.battery.settings.max_user_set_discharge_voltage_dV;
+  }
 
-  //Minvoltage (eg 300.0V = 3000 , 16bits long) Charge Cutoff Voltage
-  FERROAMP_4221.data.u8[2] = (datalayer.battery.info.min_design_voltage_dV & 0x00FF);
-  FERROAMP_4221.data.u8[3] = (datalayer.battery.info.min_design_voltage_dV >> 8);
+  //Maxvoltage (eg 400.0V = 4000 , 16bits long) Charge Cutoff Voltage
+  FERROAMP_4221.data.u8[0] = (charge_cutoff_voltage_dV & 0x00FF);
+  FERROAMP_4221.data.u8[1] = (charge_cutoff_voltage_dV >> 8);
+
+  //Minvoltage (eg 300.0V = 3000 , 16bits long) Discharge Cutoff Voltage
+  FERROAMP_4221.data.u8[2] = (discharge_cutoff_voltage_dV & 0x00FF);
+  FERROAMP_4221.data.u8[3] = (discharge_cutoff_voltage_dV >> 8);
 
   //Max ChargeCurrent
   FERROAMP_4221.data.u8[4] = ((datalayer.battery.status.max_charge_current_dA + 30000) & 0x00FF);

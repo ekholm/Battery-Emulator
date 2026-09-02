@@ -76,8 +76,11 @@ void SofarInverter::
   // SOFAR_35F.data.u8[7] = 0x00;
 
   // ===== Frame 0x30F – Remote command / enable (event/keep-alive) =====
-  // Charge and discharge consent dependent on SoC with hysteresis at 99% soc
-  uint8_t soc_percent = spoofed_soc / 100;
+  // Consent follows the REAL SoC: the display spoof above caps spoofed_soc at
+  // 99 %, which made the discharge-only branch below unreachable and its
+  // claimed 99 % "hysteresis" fiction (wq312). A truly full pack must revoke
+  // charge consent even while the display reads 99 %.
+  uint8_t soc_percent = datalayer.battery.status.reported_soc / 100;
   uint8_t enable_flags = 0x00;
   if (soc_percent <= 1) {
     enable_flags = 0x02;  // Only charging allowed

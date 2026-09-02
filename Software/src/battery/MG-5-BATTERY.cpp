@@ -39,34 +39,11 @@ inline const char* getBMStatus(int index) {
 
 void Mg5Battery::update_soc(uint16_t soc_times_ten) {
 
-#if MG5_USE_FULL_CAPACITY
-  // The SoC hits 100% at 4.1V/cell. To get the full 4.2V/cell we need to use
-  // voltage instead for the last bit.
-
-  if (cellVoltageValidTime == 0) {
-    // We don't have a recent cell max voltage reading, so can't do
-    // voltage-based SoC.
-  } else if (soc_times_ten > 900 && datalayer.battery.status.cell_max_voltage_mV < 4000) {
-    // Something is wrong with our max cell voltage reading (it is too low), so
-    // don't trust it - we'll just let the SoC hit 100%.
-  } else if (soc_times_ten == 1000 && datalayer.battery.status.cell_max_voltage_mV >= 4100) {
-    // We've hit 100%, so use voltage-based-SoC calculation for the last bit.
-
-    // We usually hit 92% at ~369V, and the pack max is 378V.
-
-    // Scale so that 100% becomes 92%
-    soc_times_ten = (uint16_t)(((uint32_t)soc_times_ten * 9200) / 10000);
-
-    // Add on the last 100mV as the last 8% of SoC.
-    soc_times_ten += (uint16_t)((((uint32_t)datalayer.battery.status.cell_max_voltage_mV - 4100) * 800) / 1000);
-    if (soc_times_ten > 1000) {
-      soc_times_ten = 1000;  // Don't let it go above 100%
-    }
-  } else {
-    // Scale so that 100% becomes 92%
-    soc_times_ten = (uint16_t)(((uint32_t)soc_times_ten * 9200) / 10000);
-  }
-#endif
+  // A voltage-extended SoC branch (MG5_USE_FULL_CAPACITY) lived here from the
+  // driver's first commit to wq312: the macro was defined nowhere, so it was
+  // compiled out of every build that ever shipped. Deleted rather than
+  // activated - its 4.1 V/369 V/92 % constants would need a real-pack trace to
+  // validate, and git history keeps the draft (wq312).
 
   // Set the state of charge in the datalayer
   datalayer.battery.status.real_soc = soc_times_ten * 10;
@@ -80,8 +57,6 @@ void Mg5Battery::update_soc(uint16_t soc_times_ten) {
   } else {
     datalayer.battery.status.remaining_capacity_Wh = 0;
   }
-
-  //#if MG5_USE_FULL_CAPACITY
 
   // Calculate the maximum charge power. Taper the charge power between 90% and 100% SoC, as 100% SoC is approached
   if (RealSoC < StartChargeTaper) {
@@ -205,11 +180,6 @@ void Mg5Battery::
     update_values() {  //This function maps all the values fetched via CAN to the correct parameters used for modbus
 
   //all data are already update when it is received via CAN
-
-  //reduce timout valeue for cell voltage timeout, reduce by 1 every second
-  if (cellVoltageValidTime > 0) {
-    cellVoltageValidTime--;
-  }
 }
 
 void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -266,7 +236,6 @@ void Mg5Battery::handle_incoming_can_frame(CAN_frame rx_frame) {
       v = (rx_frame.data.u8[4] << 8) | rx_frame.data.u8[5];
       if (v > 0 && v < 0x2000) {
         datalayer.battery.status.cell_max_voltage_mV = v;
-        cellVoltageValidTime = CELL_VOLTAGE_TIMEOUT;
       }
       v = (rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7];
       if (v > 0 && v < 0x2000) {

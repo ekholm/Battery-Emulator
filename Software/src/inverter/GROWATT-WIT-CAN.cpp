@@ -132,7 +132,9 @@ void GrowattWitInverter::update_values() {
   // Byte 2-3: Rated Capacity (0.1Ah, 0-50000)
   // Convert Wh to Ah: Ah = Wh / V
   uint16_t rated_capacity_dAh = 0;
-  if (datalayer.battery.status.voltage_dV > 0) {
+  // Family guard: HV and LV siblings refuse to divide below 1.0 V, where a
+  // startup reading turns the quotient into fiction (wq312).
+  if (datalayer.battery.status.voltage_dV > 10) {
     // total_capacity_Wh / (voltage_dV / 10) = capacity_Ah
     // capacity_dAh = capacity_Ah * 10 = total_capacity_Wh * 100 / voltage_dV
     uint32_t capacity_calc =
