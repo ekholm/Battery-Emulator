@@ -175,11 +175,17 @@ void canReplayTask(void* param) {
         }
         currentFrame.DLC = (uint8_t)declared_dlc;
 
-        int byteIndex = 0;
-        char* token = strtok((char*)dataBytes.c_str(), " ");
-        while (token != NULL && byteIndex < currentFrame.DLC) {
-          currentFrame.data.u8[byteIndex++] = strtol(token, NULL, 16);
-          token = strtok(NULL, " ");
+        /* Parse the data bytes through the host-tested helper: it never hands
+         * strtok a NULL data field (which would continue the previous line's
+         * freed scan and put freed heap on the wire), and it reports how many
+         * bytes the line actually supplied. begin() is the String's own
+         * writable buffer - strtok overwrites the delimiters in place - so no
+         * const-cast of c_str(). */
+        const size_t suppliedBytes = can_replay_parse_data(dataBytes.begin(), currentFrame.DLC, currentFrame.data.u8);
+        if (suppliedBytes < currentFrame.DLC) {
+          logging.printf("CAN replay: skipping line - declared %u data bytes, supplied %u\n",
+                         (unsigned)currentFrame.DLC, (unsigned)suppliedBytes);
+          continue;
         }
 
         currentFrame.FD = (datalayer.system.info.can_replay_interface == CANFD_NATIVE) ||

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <fstream>
 #include <string>
 
@@ -167,4 +168,95 @@ TEST(CanReplayDlcBound, TheCallSiteChecksTheParsedValueNotTheNarrowedOne) {
   const size_t assign = src.find("currentFrame.DLC =");
   ASSERT_NE(assign, std::string::npos) << "the DLC assignment moved - re-check this test";
   EXPECT_LT(call, assign) << "the bound must run BEFORE the value reaches the uint8_t field";
+}
+
+/* The data-byte parser. The strtok scan moved out of webserver.cpp
+ * (which no host binary compiles) into can_replay_parse_data, so the bug it
+ * retires can finally be pinned on the host: a NULL or empty data field must
+ * parse zero bytes WITHOUT calling strtok on NULL - which would continue the
+ * previous line's freed scan and put freed heap on the wire. The caller skips
+ * a line whose supplied count is short of its declared DLC, which is why a
+ * valid zero-length frame ([0], emitted by the log writer as "...] ") still
+ * transmits while a [8]-with-no-data line does not.
+ */
+namespace {
+// strtok mutates its input, so every case parses from its own writable buffer.
+size_t parse(const char* line, size_t declared, unsigned char* out) {
+  char buf[128];
+  std::snprintf(buf, sizeof(buf), "%s", line);
+  return can_replay_parse_data(buf, declared, out);
+}
+}  // namespace
+
+TEST(CanReplayParseData, ANullDataFieldParsesZeroAndNeverTouchesStrtok) {
+  // The defect: a line ending at the ']' gave a default-constructed String,
+  // c_str()/begin() == NULL, and strtok(NULL,...) continued the previous scan.
+  unsigned char out[64] = {0xAB};
+  EXPECT_EQ(can_replay_parse_data(nullptr, 8, out), 0u);
+  EXPECT_EQ(out[0], 0xAB);  // untouched - nothing was parsed
+}
+
+TEST(CanReplayParseData, AnEmptyDataFieldParsesZero) {
+  unsigned char out[64] = {0xAB};
+  EXPECT_EQ(parse("", 8, out), 0u);
+  EXPECT_EQ(out[0], 0xAB);
+}
+
+TEST(CanReplayParseData, TheBytesActuallySuppliedAreParsedInOrder) {
+  unsigned char out[64] = {0};
+  EXPECT_EQ(parse("11 22 33", 3, out), 3u);
+  EXPECT_EQ(out[0], 0x11);
+  EXPECT_EQ(out[1], 0x22);
+  EXPECT_EQ(out[2], 0x33);
+}
+
+TEST(CanReplayParseData, ParsingStopsAtTheDeclaredLengthEvenIfMoreAreSupplied) {
+  // declared is the already-bounded DLC; the parser must not write past it.
+  unsigned char out[64] = {0};
+  EXPECT_EQ(parse("11 22 33 44 55", 2, out), 2u);
+  EXPECT_EQ(out[2], 0);  // the third token never reached the array
+}
+
+TEST(CanReplayParseData, AShortLineReportsFewerThanDeclaredSoTheCallerCanSkip) {
+  // [8] with three tokens: the caller sees 3 < 8 and skips - it would otherwise
+  // transmit stale data for the missing five bytes.
+  unsigned char out[64] = {0};
+  EXPECT_EQ(parse("11 22 33", 8, out), 3u);
+}
+
+TEST(CanReplayParseData, AZeroLengthFrameParsesZeroAndIsNotShort) {
+  // The log writer emits "...[0] " for a valid zero-length CAN frame. supplied
+  // (0) is not < declared (0), so the caller transmits it rather than dropping
+  // it - the behaviour a literal "skip when the field is empty" guard would
+  // have lost.
+  unsigned char out[64] = {0};
+  EXPECT_EQ(parse("", 0, out), 0u);
+}
+
+TEST(CanReplayParseData, TheCallSiteUsesTheHelperAndSkipsAShortLine) {
+  // webserver.cpp is not in any host binary, so pin the call site by reading it:
+  // the raw strtok scan and its const-cast must be gone, and the line must be
+  // skipped when the helper reports fewer bytes than the DLC declared.
+  const std::string src = webserver_source();
+
+  EXPECT_NE(src.find("can_replay_parse_data("), std::string::npos)
+      << "the replay parser no longer routes data bytes through the host-tested helper";
+  EXPECT_EQ(src.find("strtok((char*)"), std::string::npos)
+      << "the const-cast strtok scan is back in the webserver, where the NULL data field UAF lived "
+         "and no host test can see it";
+  EXPECT_EQ(src.find("strtok(NULL"), std::string::npos)
+      << "a bare strtok(NULL, ...) is back at the call site - it continues the previous line's freed scan";
+
+  const size_t call = src.find("can_replay_parse_data(");
+  const std::string after = src.substr(call, 400);
+  // The exact guard, so a `false &&` or other weakening that keeps the operands
+  // around does not pass on the substring alone.
+  EXPECT_NE(after.find("if (suppliedBytes < currentFrame.DLC)"), std::string::npos)
+      << "the call site no longer skips a line that supplied fewer bytes than it declared - it would "
+         "transmit a frame the file did not fully describe.\n  "
+      << after;
+  const size_t guard = after.find("if (suppliedBytes < currentFrame.DLC)");
+  if (guard != std::string::npos) {
+    EXPECT_NE(after.find("continue;", guard), std::string::npos) << "the short-line guard no longer skips the line";
+  }
 }
