@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "hal_source_scan.h"
+
 #include <cctype>
 #include <fstream>
 #include <sstream>
@@ -34,65 +36,12 @@ std::string read_source(const std::string& file) {
 }
 
 // The body of available_interfaces(), which is the declaration under test.
+// The extraction itself now lives in hal_source_scan.h - it took two rounds of
+// review to get right, and a second copy of it shipped without either lesson.
 std::string available_interfaces_body(const std::string& source) {
-  const size_t at = source.find("available_interfaces()");
-  EXPECT_NE(at, std::string::npos) << "the board does not implement available_interfaces()";
-  if (at == std::string::npos) {
-    return "";
-  }
-  const size_t open = source.find('{', at);
-  // Brace-MATCH rather than scan to the first '}' (wq213): the body's own
-  // initializer list is a nested brace, so a naive slice stops at the end of the
-  // first `return {...}` and everything after it - a conditional push_back, a
-  // second return - is invisible to the check. That made the test unable to see
-  // a board whose availability depends on a runtime probe. Matching is strictly
-  // stronger: it can only ever see MORE of the body.
-  // R213: ...and skip comments and string/char literals while matching. A brace
-  // that appears in PROSE is still counted by a naive matcher, which runs the
-  // slice past the end of the function - and every assertion here except the
-  // phantom one is POSITIVE ("the body mentions X"), so an over-reaching slice
-  // is satisfied by text outside the function. Demonstrated during review: one
-  // '{' in a comment inside hw_waveshare.h's body made the acceptance test pass
-  // over a board whose declaration had been reverted. The commit's "strictly
-  // stronger, never weaker" holds only in the direction it reasoned about;
-  // over-reach weakens the other one.
-  size_t close = open;
-  int depth = 0;
-  while (close < source.size()) {
-    const char c = source[close];
-    if (c == '/' && close + 1 < source.size() && source[close + 1] == '/') {
-      const size_t eol = source.find('\n', close);
-      if (eol == std::string::npos) {
-        break;
-      }
-      close = eol;
-      continue;
-    }
-    if (c == '/' && close + 1 < source.size() && source[close + 1] == '*') {
-      const size_t end = source.find("*/", close + 2);
-      if (end == std::string::npos) {
-        break;
-      }
-      close = end + 2;
-      continue;
-    }
-    if (c == '"' || c == '\'') {
-      const char quote = c;
-      ++close;
-      while (close < source.size() && source[close] != quote) {
-        close += (source[close] == '\\') ? 2 : 1;
-      }
-      ++close;
-      continue;
-    }
-    if (c == '{') {
-      ++depth;
-    } else if (c == '}' && --depth == 0) {
-      break;
-    }
-    ++close;
-  }
-  return source.substr(open, close - open);
+  EXPECT_NE(source.find("available_interfaces()"), std::string::npos)
+      << "the board does not implement available_interfaces()";
+  return hal_scan::available_interfaces_body(source);
 }
 
 /* Whole-token search. `CanFdAddonMcp2518` is a PREFIX of `CanFdAddonMcp2518_2`, so a plain
