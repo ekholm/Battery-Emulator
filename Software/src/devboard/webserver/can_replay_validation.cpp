@@ -1,5 +1,8 @@
 #include "can_replay_validation.h"
 
+#include <cstdlib>
+#include <cstring>
+
 #include "../utils/types.h"
 
 std::string can_replay_interface_rejection(int requested, bool (*ready)(int)) {
@@ -27,4 +30,20 @@ std::string can_replay_dlc_rejection(long declared, size_t capacity) {
            " byte maximum a CAN frame can carry";
   }
   return "";
+}
+
+size_t can_replay_parse_data(char* data_field, size_t declared, unsigned char* out) {
+  // A missing data field is NULL here (a default-constructed String's buffer);
+  // never hand that to strtok, which would continue the previous scan. The
+  // empty-but-non-null case (*data_field == '\0') is caught here too, though
+  // strtok would also return NULL for it - belt-and-braces, and it says so.
+  if (data_field == nullptr || *data_field == '\0') {
+    return 0;
+  }
+  size_t count = 0;
+  for (char* token = std::strtok(data_field, " "); token != nullptr && count < declared;
+       token = std::strtok(nullptr, " ")) {
+    out[count++] = (unsigned char)std::strtol(token, nullptr, 16);
+  }
+  return count;
 }

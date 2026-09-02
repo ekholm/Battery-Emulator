@@ -48,4 +48,25 @@ std::string can_replay_interface_rejection(int requested, bool (*ready)(int));
    Returns "" when the DLC is usable; otherwise why the line was refused. */
 std::string can_replay_dlc_rejection(long declared, size_t capacity);
 
+/* Parses the space-separated hex bytes of a replay line's data field into `out`
+   (which must hold at least `declared` bytes) and returns how many were parsed.
+
+   It exists to take the strtok scan OUT of the webserver, where nothing on the
+   host could see it. The bug it retires: the parser called
+   `strtok((char*)dataBytes.c_str(), " ")`, and a line that ends at or just past
+   the `]` gives a default-constructed String whose c_str()/begin() is NULL.
+   strtok(NULL, ...) does not START a scan - it CONTINUES the previous one, whose
+   buffer was the last line's data field, freed when it went out of scope. So a
+   NULL or empty field would feed strtol() freed heap and put it on the wire.
+   Here a NULL/empty field parses zero bytes and strtok is never handed NULL.
+
+   `data_field` is mutated in place (strtok writes NULs over the delimiters), so
+   it must be the line's own writable buffer - String::begin(), not a const cast
+   of c_str(). The caller compares the return against the declared DLC: fewer
+   bytes than declared means the line promised more than it supplied, and it is
+   skipped rather than truncated - the same refuse-don't-truncate rule as the
+   DLC bound, and the reason a valid zero-length ([0]) frame still transmits
+   while a [8]-with-no-data line does not. */
+size_t can_replay_parse_data(char* data_field, size_t declared, unsigned char* out);
+
 #endif  // CAN_REPLAY_VALIDATION_H
