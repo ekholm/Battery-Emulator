@@ -392,7 +392,11 @@ class EcmpBattery : public CanBattery {
   static const uint16_t PID_DATE_OF_MANUFACTURE = 0xF18B;
   uint16_t battery_voltage = 370;
   uint16_t battery_soc = 0;
-  uint16_t cellvoltages[108];
+  // Zeroed explicitly: the user-provided constructors defeat the
+  // value-initialization `new EcmpBattery()` would otherwise perform, so
+  // without this the first 0x6FF frame memcpys 104 words of heap garbage
+  // into the datalayer as cell voltages (wq309).
+  uint16_t cellvoltages[108] = {0};
   uint16_t battery_AllowedMaxChargeCurrent = 0;
   uint16_t battery_AllowedMaxDischargeCurrent = 0;
   uint16_t battery_insulationResistanceKOhm = 0;

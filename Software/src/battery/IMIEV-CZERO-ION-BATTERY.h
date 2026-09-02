@@ -38,8 +38,12 @@ class ImievCZeroIonBattery : public CanBattery {
   float BMU_Current = 0;
   float BMU_PackVoltage = 0;
   float BMU_Power = 0;
-  float cell_voltages[88];      //array with all the cellvoltages
-  float cell_temperatures[88];  //array with all the celltemperatures
+  // Zeroed explicitly: update_values() min/max-scans both arrays and copies
+  // the voltages into the datalayer before any frame fills them. Today
+  // `new ImievCZeroIonBattery()` happens to value-initialize (no user-provided
+  // ctor); adding any constructor would silently end that (wq309).
+  float cell_voltages[88] = {0};      //array with all the cellvoltages
+  float cell_temperatures[88] = {0};  //array with all the celltemperatures
   float max_volt_cel = 3.70f;
   float min_volt_cel = 3.70f;
   float max_temp_cel = 20.00f;
