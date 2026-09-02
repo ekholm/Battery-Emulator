@@ -73,6 +73,23 @@ turn out to cover a 70 kWh variant as well, "fixing" this would be the more dang
 
 **What would settle it:** anyone running a legacy 100 kWh pack (P100D, within this driver's
 2012-2020 range) telling us what hwID their BMS reports. One number closes it.
+---
+
+## Which E-GMP poll byte carries the pack water sensor?
+
+The E-GMP driver had a water-ingress check that could never fire: `waterleakageSensor` is
+initialised to 164 ("no water") and no E-GMP RX path ever writes it, so the event was dead and the
+advanced page rendered a constant. We removed the dead check rather than guessing at a byte.
+
+But the physical sensor very likely exists - it is the same battery family engineering, and the
+KIA-64 driver decodes the same sensor for real (`u8[3]` of its poll response, 164 = dry, 0 =
+short). What is missing is only which byte of which E-GMP poll response carries it.
+
+**What would settle it:** one trace from an Ioniq 5 / EV6 / EV9-class pack naming the byte -
+ideally one reading with the pack dry and, if anyone ever has the misfortune, one with moisture
+present. The KIA-64 decode is the ready template; the answer restores a genuine safety event, not
+a cosmetic one.
+
 
 ---
 
