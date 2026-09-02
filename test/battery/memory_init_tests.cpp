@@ -41,7 +41,11 @@ CAN_frame orion_cell_frame(uint8_t cell_id, uint16_t voltage_tenths_mV) {
 // owns calling reset()/dtor via the returned pointer before buf dies.
 template <typename T>
 T* poisoned_construct(void* buf, size_t size) {
-  memset(buf, 0xAB, size);
+  // 0x42, not the traditional 0xAB: four 0xAB bytes read as a float are
+  // ~1e-12, which truncates to 0 through IMIEV's `voltage * 1000 -> uint16`
+  // copy and fakes a pass. 0x42424242 reads as ~48.57f and 0x4242 as 16962,
+  // so poison surfaces through float and uint16 arrays alike.
+  memset(buf, 0x42, size);
   return new (buf) T;  // no parentheses: default-init, NSDMIs only
 }
 
