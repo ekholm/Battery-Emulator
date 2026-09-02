@@ -61,7 +61,8 @@ class SantaFePhevBattery : public CanBattery {
   int8_t temperatureMin = 0;
   int16_t batteryAmps = 0;
   uint8_t StatusBattery = 0;
-  uint16_t cellvoltages_mv[96];
+  uint16_t cellvoltages_mv[96] = {
+      0};  // The poll-complete memcpy publishes all 96; a lost poll frame must surface as 0, not heap garbage
 
   CAN_frame SANTAFE_200 = {.FD = false,
                            .ext_ID = false,
