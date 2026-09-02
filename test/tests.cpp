@@ -4,6 +4,7 @@
 #include "../Software/src/battery/BATTERIES.h"
 #include "../Software/src/charger/CHARGERS.h"
 #include "../Software/src/datalayer/datalayer.h"
+#include "../Software/src/datalayer/datalayer_extended.h"
 #include "../Software/src/devboard/hal/hal.h"
 #include "../Software/src/devboard/safety/safety.h"
 #include "../Software/src/devboard/utils/events.h"
@@ -16,6 +17,19 @@ class DataLayerResetListener : public ::testing::EmptyTestEventListener {
  public:
   void OnTestStart(const ::testing::TestInfo& /*test_info*/) override {
     datalayer = DataLayer();
+
+    /* The extended datalayer is a UNION across battery types, and it was the
+       omission here. Only one battery ever runs on a board, so two drivers
+       sharing the storage costs nothing there - but this binary runs all of
+       them, one after another, and a test that renders battery B's page after
+       battery A's test has run is reading A's bytes through B's struct.
+       UBSAN sees it first as "load of value 255, which is not a valid value
+       for type 'bool'" in NissanLeafHtmlRenderer after FordMachEBattery has
+       written the same union; the same pollution in a wider field would be a
+       plausible wrong NUMBER that an assertion accepts instead. Order
+       dependent, so it appears and disappears with the shuffle seed. */
+    datalayer_extended = DataLayerExtended();
+
     reset_all_events();
 
     // Every instance holds pointers into the datalayer we just replaced, so
