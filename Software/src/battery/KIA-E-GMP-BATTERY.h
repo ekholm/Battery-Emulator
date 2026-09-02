@@ -73,7 +73,6 @@ class KiaEGmpBattery : public UdsCanBattery {
   uint8_t batteryManagementMode = 0;
   uint8_t BMS_ign = 0xff;
   uint8_t batteryRelay = 0;
-  uint8_t waterleakageSensor = 164;
   bool startedUp = false;
   int8_t temperature_water_inlet = 20;
   int8_t heatertemp = 20;

@@ -202,9 +202,9 @@ void KiaEGmpBattery::update_values() {
     set_voltage_minmax_limits();  // Count cells, and set voltage limits accordingly
   }
 
-  if (waterleakageSensor == 0) {
-    set_event(EVENT_WATER_INGRESS, 0, battery_index);
-  }
+  // No E-GMP RX path decodes a water-leakage byte (unlike the KIA-64 sibling's
+  // 0x5D5), so the old check against a never-assigned member could not fire and
+  // the page rendered a constant as if it were a reading.
 
   if (leadAcidBatteryVoltage < 110) {
     set_event(EVENT_12V_LOW, leadAcidBatteryVoltage, battery_index);
@@ -225,7 +225,6 @@ String KiaEGmpBattery::get_uds_info_html() {
               "<h4>SOC (BMS): " << String(SOC_BMS) << "</h4>"
               "<h4>SOC (Display): " << String(SOC_Display) << "</h4>"
               "<h4>12V voltage: " << String(leadAcidBatteryVoltage / 10.0f, 1) << "</h4>"
-              "<h4>Waterleakage: " << String(waterleakageSensor)  << "</h4>"
               "<h4>Temperature, water inlet: " << String(temperature_water_inlet)  << "</h4>"
               "<h4>Batterymanagement mode: " << String(batteryManagementMode)  << "</h4>"
               "<h4>Cumulative Charge Energy: " << String(cumulativeChargeEnergy)  << " Wh</h4>"
