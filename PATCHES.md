@@ -295,15 +295,3 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 *More is in preparation. Ask if it would help to know what is coming.*
-
----
-
-## Landed upstream
-
-Removed from the shelf because `main` now has them. Kept here briefly so a returning reader can see
-where an entry went.
-
-- **OTA: confirm a new image only after the system has actually run** - upstream `main` carries
-  `Software/src/devboard/utils/ota_rollback.cpp`, which defers
-  `esp_ota_mark_app_valid_cancel_rollback()` past `setup()` so the bootloader's rollback can fire.
-  Same mechanism the shelf entry described. Removed 2026-09-02.
