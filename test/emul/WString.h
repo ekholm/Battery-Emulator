@@ -46,6 +46,10 @@ class String {
 
   // Comparison operators
   bool operator==(const String& rhs) const { return data == rhs.data; }
+  // Ordering and indexing, so host code can sort option names and peek at a
+  // first character the way the firmware String allows.
+  bool operator<(const String& rhs) const { return data < rhs.data; }
+  char operator[](size_t i) const { return i < data.size() ? data[i] : '\0'; }
 
   // Concatenation
   String operator+(const String& rhs) const { return String(data + rhs.data); }
