@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cstring>
+
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -194,6 +196,24 @@ TEST(CanReplayParseData, ANullDataFieldParsesZeroAndNeverTouchesStrtok) {
   unsigned char out[64] = {0xAB};
   EXPECT_EQ(can_replay_parse_data(nullptr, 8, out), 0u);
   EXPECT_EQ(out[0], 0xAB);  // untouched - nothing was parsed
+}
+
+TEST(CanReplayParseData, ANullFieldDoesNotCONTINUEAPreviousScan) {
+  // The test above checks a NULL field returns zero - but on the host a
+  // fresh strtok(NULL) with no prior scan ALSO returns NULL, so it passes even
+  // with the guard removed and does not actually guard the fix. This one does:
+  // it reproduces the mechanism. strtok holds a static pointer into the LAST
+  // buffer it scanned; in production that was the previous log line's data
+  // field, already freed. Stand in for it - leave strtok mid-scan over a live
+  // buffer, then hand the helper a NULL field. The guard must return 0 WITHOUT
+  // calling strtok(NULL), which would resume this scan and parse "22"/"33" from
+  // it - exactly the freed-heap read, here made observable.
+  char prior[] = "11 22 33";
+  char* first = std::strtok(prior, " ");
+  ASSERT_STREQ(first, "11");  // strtok now points just after "11"
+  unsigned char out[64] = {0xAB};
+  EXPECT_EQ(can_replay_parse_data(nullptr, 8, out), 0u) << "a NULL field must parse zero";
+  EXPECT_EQ(out[0], 0xAB) << "the helper continued the prior scan - the use-after-free, reintroduced";
 }
 
 TEST(CanReplayParseData, AnEmptyDataFieldParsesZero) {
