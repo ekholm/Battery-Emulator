@@ -156,9 +156,23 @@ class LilyGo2CANHal : public Esp32Hal {
     // channel this board NAMES "CAN FD (MCP2518 add-on)", so hiding it hid a
     // working interface on a shipping env.
     std::vector<comm_interface> out = {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative,
-                                       comm_interface::CanAddonMcp2515, comm_interface::CanFdAddonMcp2518};
+                                       comm_interface::CanFdAddonMcp2518};
     if (is_fd()) {
       out.push_back(comm_interface::CanFdAddonMcp2518_2);
+    } else {
+      /* The MCP2515 belongs to the NON-FD fitment only. Its pins are all
+         `is_fd() ? GPIO_NUM_NC : ...`, so declaring it flat made this board do
+         on the FD fitment exactly what the Stark did and this branch fixed:
+         declare an add-on whose chip select is not routed. init_CAN() trusts
+         this list, alloc_pins() then refuses the NC pin and the MCP2515 block
+         returns false - which aborts init_CAN() ABOVE the MCP2518FD blocks and
+         takes this board's FD interfaces down with it.
+
+         It was invisible for the same reason the Stark's was: the name below
+         was "" on this branch, and the settings page drops blank-named options
+         BEFORE it checks the declaration, so the stored value that causes it
+         could not be seen or corrected on the page. */
+      out.push_back(comm_interface::CanAddonMcp2515);
     }
     return out;
   }
@@ -170,7 +184,13 @@ class LilyGo2CANHal : public Esp32Hal {
       case comm_interface::CanFdNative:
         return "";
       case comm_interface::CanAddonMcp2515:
-        return is_fd() ? "" : "CAN A (MCP2515)";
+        /* Named on BOTH fitments, deliberately. A board that does not
+           declare an interface should still name it, so a value already stored
+           in NVS renders as itself with the page's "(not available on this
+           board)" suffix instead of vanishing - it is the only route the user
+           has to correct it. Only the selected value is shown, so this costs
+           nothing on a board configured normally. */
+        return "CAN A (MCP2515)";
       case comm_interface::CanFdAddonMcp2518:
         return is_fd() ? "CAN FD A (MCP2518)" : "CAN FD (MCP2518 add-on)";
       case comm_interface::CanFdAddonMcp2518_2:
