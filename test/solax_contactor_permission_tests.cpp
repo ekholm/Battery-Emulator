@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <Arduino.h>  // Emul: set_millis64() to control the test clock
+
 #include "../Software/src/datalayer/datalayer.h"
 #include "../Software/src/devboard/utils/events.h"
 #include "../Software/src/inverter/INVERTERS.h"
@@ -9,9 +11,11 @@
 // to open. The CONTACTOR_CLOSED case sets inverter_allows_contactor_closing
 // near its top and only then tests for the open payload; resetting STATE alone
 // there would leave the permission true until the NEXT received frame drives
-// the BATTERY_ANNOUNCE case - and indefinitely, if the inverter goes quiet
-// after asking to disconnect. These tests pin the revocation to the same
-// frame that carries the open request.
+// the BATTERY_ANNOUNCE case - and for ~2-3 s if the inverter goes quiet after
+// asking to disconnect (update_values()'s 2 s RX-timeout backstop, checked on
+// the 1 s update cadence, is the only other clearing path). These tests pin
+// the revocation to the same frame that carries the open request, and pin the
+// backstop itself: its threshold, and that it respects LockAfterFirstClose.
 
 namespace {
 
@@ -75,6 +79,42 @@ TEST_F(SolaxContactorPermissionTest, PermissionStaysRevokedWhileAnnounceRuns) {
   // Subsequent frames drive BATTERY_ANNOUNCE, which must agree.
   rx1871(PAYLOAD_ANNOUNCE);
   EXPECT_FALSE(datalayer.system.status.inverter_allows_contactor_closing);
+}
+
+TEST_F(SolaxContactorPermissionTest, TimeoutBackstopClearsPermissionAtTwoSecondsOfSilence) {
+  // The RX-timeout backstop in update_values() is the only clearing path other
+  // than a received frame; it bounds how long a stale permission could ever
+  // survive. Pin its threshold: at 1999 ms of silence the permission stands,
+  // at 2000 ms it is revoked.
+  set_millis64(10000);
+  walk_to_contactor_closed();
+
+  set_millis64(10000 + INTERVAL_2_S - 1);
+  solax->update_values();
+  EXPECT_TRUE(datalayer.system.status.inverter_allows_contactor_closing) << "backstop fired before the 2 s threshold";
+
+  set_millis64(10000 + INTERVAL_2_S);
+  solax->update_values();
+  EXPECT_FALSE(datalayer.system.status.inverter_allows_contactor_closing)
+      << "backstop did not revoke the permission at the 2 s threshold";
+}
+
+TEST_F(SolaxContactorPermissionTest, LockAfterFirstCloseSurvivesTimeout) {
+  // LockAfterFirstClose exists to keep the contactors closed once granted; the
+  // timeout backstop must not undo the lock when the inverter goes quiet.
+  delete inverter;
+  inverter = nullptr;
+  user_selected_inverter_contactor_mode = inverter_contactor_mode_enum::LockAfterFirstClose;
+  setup_inverter();
+  solax = static_cast<SolaxInverter*>(inverter);
+
+  set_millis64(10000);
+  walk_to_contactor_closed();
+
+  set_millis64(10000 + INTERVAL_2_S);
+  solax->update_values();
+  EXPECT_TRUE(datalayer.system.status.inverter_allows_contactor_closing)
+      << "timeout backstop broke the LockAfterFirstClose lock";
 }
 
 TEST_F(SolaxContactorPermissionTest, LockAfterFirstCloseIgnoresOpenRequest) {

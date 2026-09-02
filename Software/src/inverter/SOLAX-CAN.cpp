@@ -238,8 +238,9 @@ void SolaxInverter::map_can_frame_to_variable(CAN_frame rx_frame) {
             set_event(EVENT_INVERTER_OPEN_CONTACTOR, 0);
             // Revoke the closing permission here, not in BATTERY_ANNOUNCE: that case only
             // runs on the next received frame, so leaving the flag set here keeps the
-            // permission true after the inverter asked to open - indefinitely, if the
-            // inverter goes quiet after asking.
+            // permission true after the inverter asked to open - until the next frame
+            // arrives, or until update_values()'s 2 s RX-timeout backstop clears it if
+            // the inverter goes quiet after asking.
             datalayer.system.status.inverter_allows_contactor_closing = false;
             STATE = BATTERY_ANNOUNCE;
           }
