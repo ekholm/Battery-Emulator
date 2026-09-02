@@ -10,9 +10,12 @@
 > It tracks [dalathegreat/Battery-Emulator](https://github.com/dalathegreat/Battery-Emulator) and
 > adds two pages of its own. Nothing here is filed as a pull request.
 >
-> **[PATCHES.md](PATCHES.md)** - changes that are prepared, built and tested, waiting to be useful
-> to someone. Each entry links its branch, pinned commit and diff against upstream `main`, and
+> **[FIXES.md](FIXES.md)** - defect repairs: small, self-contained, built and tested, each ready
+> to merge. Every entry links its branch, pinned commit and diff against upstream `main`, and
 > carries the PR body it would ship with.
+>
+> **[FEATURES.md](FEATURES.md)** - the larger offerings: conversions, reworks, improvements. Same
+> format, but an entry here may deserve a design conversation before code review.
 >
 > **[FINDINGS.md](FINDINGS.md)** - things we have found and cannot fix ourselves, because they are
 > on hardware we do not run. Some are defects we are confident about; some are questions only an

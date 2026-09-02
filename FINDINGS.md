@@ -1,6 +1,6 @@
 # Findings on hardware we do not run
 
-*See also [PATCHES.md](PATCHES.md), for changes that are prepared and ready to use.*
+*See also [FIXES.md](FIXES.md) for defect repairs ready to merge, and [FEATURES.md](FEATURES.md) for larger changes.*
 
 *This is a short list on purpose. It holds only things we have found, cannot fix ourselves, and
 cannot settle without someone who has the hardware in front of them. Anything we have actually
