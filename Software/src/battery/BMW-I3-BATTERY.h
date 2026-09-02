@@ -471,7 +471,7 @@ class BmwI3Battery : public CanBattery {
   uint8_t battery_ID2 = 0;
   uint8_t battery_soh = 99;
 
-  uint8_t message_data[50];
+  uint8_t message_data[50];  // Written-before-read: reads are gated on next_data >= 4 and writes fill from index 0
   uint8_t next_data = 0;
   uint8_t current_cell_polled = 0;
 };

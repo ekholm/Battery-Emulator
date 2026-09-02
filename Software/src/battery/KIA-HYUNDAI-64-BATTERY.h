@@ -75,7 +75,7 @@ class KiaHyundai64Battery : public CanBattery {
   uint16_t batteryVoltage = 3700;
   uint16_t inverterVoltageFrameHigh = 0;
   uint16_t inverterVoltage = 0;
-  uint16_t cellvoltages_mv[98];
+  uint16_t cellvoltages_mv[98] = {0};  // The POLL_GROUP_5 memcpy publishes all 98; the <300 filter passes high garbage
   uint16_t leadAcidBatteryVoltage = 120;
   int16_t batteryAmps = 0;
   int16_t temperatureMax = 0;

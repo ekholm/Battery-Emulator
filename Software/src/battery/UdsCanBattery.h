@@ -234,7 +234,7 @@ class UdsCanBattery : public CanBattery, public IsoTp {
   // The request currently in flight as part of a sequence.
   struct {
     uint8_t sid;
-    uint8_t data[16];
+    uint8_t data[16];  // Written-before-read: memcpy(len) precedes every uds_send(len)
     uint8_t len;
     uint16_t timeout_ticks;  // original timeout, re-applied on each retry
     uint8_t retries;

@@ -4,9 +4,13 @@
 #include <new>
 
 #include "../../Software/src/battery/BATTERIES.h"
+#include "../../Software/src/battery/BOLT-AMPERA-BATTERY.h"
 #include "../../Software/src/battery/ECMP-BATTERY.h"
+#include "../../Software/src/battery/HYUNDAI-IONIQ-28-BATTERY.h"
 #include "../../Software/src/battery/IMIEV-CZERO-ION-BATTERY.h"
+#include "../../Software/src/battery/KIA-HYUNDAI-64-BATTERY.h"
 #include "../../Software/src/battery/ORION-BMS.h"
+#include "../../Software/src/battery/SANTA-FE-PHEV-BATTERY.h"
 #include "../../Software/src/datalayer/datalayer.h"
 
 // wq309: memory-safety defects in battery drivers.
@@ -155,3 +159,85 @@ TEST(DriverMemoryInitTest, ImievCellArraysStartZeroedNotHeapGarbage) {
 }
 
 }  // namespace
+
+// --- The sweep's four LIVE classes -----------------------------------------
+// The review sweep found eight more user-provided-ctor + uninitialised-array
+// combinations; per-class liveness sorted them four live (whole-array memcpys
+// into the datalayer that can run before frames fill the array) and four
+// written-before-read or read-nowhere (commented at their declarations, not
+// churned). Each live one gets the poisoned default-init construction and a
+// deterministic zero assert through its own publish path.
+
+TEST(DriverMemoryInitTest, BoltAmperaCellblockVoltagesStartZeroedNotHeapGarbage) {
+  alignas(BoltAmperaBattery) static unsigned char buf[sizeof(BoltAmperaBattery)];
+  BoltAmperaBattery* bat = poisoned_construct<BoltAmperaBattery>(buf, sizeof(buf));
+
+  // update_values() memcpys all 96 cellblock entries unconditionally.
+  bat->update_values();
+
+  for (int i = 0; i < 96; i++) {
+    ASSERT_EQ(datalayer.battery.status.cell_voltages_mV[i], 0) << "heap garbage surfaced at cell " << i;
+  }
+  bat->~BoltAmperaBattery();
+}
+
+TEST(DriverMemoryInitTest, HyundaiIoniq28CellvoltagesStartZeroedNotHeapGarbage) {
+  alignas(HyundaiIoniq28Battery) static unsigned char buf[sizeof(HyundaiIoniq28Battery)];
+  HyundaiIoniq28Battery* bat = poisoned_construct<HyundaiIoniq28Battery>(buf, sizeof(buf));
+
+  bat->update_values();
+
+  for (int i = 0; i < 96; i++) {
+    ASSERT_EQ(datalayer.battery.status.cell_voltages_mV[i], 0) << "heap garbage surfaced at cell " << i;
+  }
+  bat->~HyundaiIoniq28Battery();
+}
+
+TEST(DriverMemoryInitTest, KiaHyundai64CellvoltagesStartZeroedNotHeapGarbage) {
+  alignas(KiaHyundai64Battery) static unsigned char buf[sizeof(KiaHyundai64Battery)];
+  KiaHyundai64Battery* bat = poisoned_construct<KiaHyundai64Battery>(buf, sizeof(buf));
+
+  // The publish path is the POLL_GROUP_5 sixth datarow: a 0x10 header names
+  // the group, then the 0x26 row zeroes sub-300 tails and memcpys all 98 -
+  // note the <300 filter passes HIGH garbage (0x4242 = 16962 mV), which is
+  // exactly why the initialiser matters.
+  CAN_frame header = {};
+  header.ID = 0x7EC;
+  header.DLC = 8;
+  header.data.u8[0] = 0x10;
+  header.data.u8[3] = 0x01;  // POLL_GROUP_5 = 0x0105
+  header.data.u8[4] = 0x05;
+  bat->handle_incoming_can_frame(header);
+
+  CAN_frame row = {};
+  row.ID = 0x7EC;
+  row.DLC = 8;
+  row.data.u8[0] = 0x26;
+  bat->handle_incoming_can_frame(row);
+
+  for (int i = 0; i < 85; i++) {
+    ASSERT_EQ(datalayer.battery.status.cell_voltages_mV[i], 0) << "heap garbage surfaced at cell " << i;
+  }
+  bat->~KiaHyundai64Battery();
+}
+
+TEST(DriverMemoryInitTest, SantaFePhevCellvoltagesStartZeroedNotHeapGarbage) {
+  alignas(SantaFePhevBattery) static unsigned char buf[sizeof(SantaFePhevBattery)];
+  SantaFePhevBattery* bat = poisoned_construct<SantaFePhevBattery>(buf, sizeof(buf));
+
+  // The publish path is the fifth datarow of poll 4: advance poll_data_pid
+  // 1->2->3->4 through four 500 ms transmit passes, then inject the 0x25 row.
+  for (unsigned long t = 500; t <= 2000; t += 500) {
+    bat->transmit_can(t);
+  }
+  CAN_frame row = {};
+  row.ID = 0x7EC;
+  row.DLC = 8;
+  row.data.u8[0] = 0x25;
+  bat->handle_incoming_can_frame(row);
+
+  for (int i = 0; i < 91; i++) {
+    ASSERT_EQ(datalayer.battery.status.cell_voltages_mV[i], 0) << "heap garbage surfaced at cell " << i;
+  }
+  bat->~SantaFePhevBattery();
+}
