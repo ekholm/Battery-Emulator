@@ -45,7 +45,7 @@ namespace {
  * across three lines - exactly what clang-format does once that line grows past
  * the 120-column limit - turns the SD test red while reporting "the T-CAN485 SD
  * card has left HSPI", which is not true and sends the reader after a defect
- * that is not there (R255, demonstrated). At 48 columns today it has room, but
+ * that is not there (demonstrated on hardware). At 48 columns today it has room, but
  * one rename is all it takes.
  *
  * What this does NOT buy: the search is still textual, so it would also match
@@ -98,7 +98,7 @@ TEST(SdSpiBus, TheSdCardIsOnHspi) {
          "MCP2515 add-on, and the second begin() steals the controller's MISO: the SD mounts, goes deaf "
          "when init_CAN() runs, and every log write fails with no event";
   EXPECT_EQ(src.find("SD_SPI_BUS() override { return VSPI; }"), std::string::npos)
-      << "the pre-wq255 assignment is back";
+      << "the pre-split assignment is back";
 }
 
 TEST(SdSpiBus, TheFdAddonVacatedHspi) {
@@ -106,7 +106,7 @@ TEST(SdSpiBus, TheFdAddonVacatedHspi) {
   EXPECT_NE(src.find("uint8_t MCP2517_BUS() override { return VSPI; }"), std::string::npos)
       << "the MCP2517 add-on no longer overrides its bus to VSPI - on a classic ESP32 its default is "
          "HSPI, which now belongs to the SD card, so an FD add-on plus SD logging would re-create the "
-         "exact collision wq255 fixed, one bus over";
+         "exact collision the SD-SPI split fixed, one bus over";
 }
 
 /* The three tests above search normalised text, and that normalisation is the
@@ -139,7 +139,7 @@ TEST(SdSpiBus, TheMcp2515StaysOffTheSdController) {
   }
   EXPECT_NE(src.find("MCP2515_BUS() override { return VSPI; }"), std::string::npos)
       << "hw_lilygo.h now overrides MCP2515_BUS to something other than VSPI. If that is HSPI, the "
-         "2515 shares a controller with the SD card and the wq255 defect is back. If it is a genuinely "
+         "2515 shares a controller with the SD card and the shared-controller defect is back. If it is a genuinely "
          "new bus assignment, re-derive the truth table at the top of this file before loosening this.";
 }
 
