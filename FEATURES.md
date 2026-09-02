@@ -55,6 +55,8 @@ Note: drafted with AI assistance, reviewed by me.
 Branch [`mg5-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mg5-uds-superclass) @ `2c005363` · stacked on `mache-uds-superclass` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mg5-uds-superclass)
 The MG5 duplicated the same transport machinery, down to its own 1 KB ISO-TP reassembly context. It keeps what is genuinely MG5's - the broadcast decode, now pinned by golden tests for the first time, and the `0x8A` contactor-close handshake - and its DTC readout moves from the serial log to the standard UDS page with working read and erase buttons.
 
+Note on upstream direction: upstream's MGHS driver (`MG-GEN1`, already on the UDS superclass) has begun absorbing MG5 variants - the 50 kWh LFP is detected today and the hardware-number table knows the 52 kWh NMC this driver serves. If that route wins, this conversion retires with the driver it converts, and retiring it would be fine. Until then it keeps the 52 kWh pack's broadcast decode golden-tested and its DTC readout on the standard page - and if the better end-state is one MG driver, we would rather help that happen than defend this one. Worth a design conversation before code review.
+
 <details>
 <summary>PR body it would ship with</summary>
 
