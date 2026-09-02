@@ -132,3 +132,54 @@ TEST_F(SolaxContactorPermissionTest, LockAfterFirstCloseIgnoresOpenRequest) {
       << "LockAfterFirstClose must keep the permission despite the open payload";
   EXPECT_EQ(get_event_pointer(EVENT_INVERTER_OPEN_CONTACTOR)->occurences, 0);
 }
+
+TEST_F(SolaxContactorPermissionTest, BackstopMeasuresSilenceFromTheLatestFrameNotTheFirst) {
+  // R380. The corrected exposure claim - a stale permission is bounded at
+  // ~2-3 s rather than surviving indefinitely - rests on the backstop being a
+  // SILENCE timeout: LastFrameTime is refreshed by every accepted 0x1871
+  // (SOLAX-CAN.cpp:155), so the 2 s clock restarts at the last frame received,
+  // which for the leak path is the open request itself. Every existing test
+  // stamps all of its frames at one instant, so an absolute timeout measured
+  // from the first frame ever seen would satisfy all of them and still make
+  // the published bound wrong.
+  set_millis64(10000);
+  walk_to_contactor_closed();
+
+  // Long after the first frame, but still talking.
+  set_millis64(50000);
+  rx1871(PAYLOAD_CLOSE);
+
+  set_millis64(50000 + INTERVAL_2_S - 1);
+  solax->update_values();
+  EXPECT_TRUE(datalayer.system.status.inverter_allows_contactor_closing)
+      << "backstop measured silence from an earlier frame, not the latest one";
+
+  set_millis64(50000 + INTERVAL_2_S);
+  solax->update_values();
+  EXPECT_FALSE(datalayer.system.status.inverter_allows_contactor_closing)
+      << "backstop did not fire 2 s after the latest frame";
+}
+
+TEST_F(SolaxContactorPermissionTest, AlwaysClosedSurvivesTimeout) {
+  // R380. The backstop is gated on NoWorkaround, and that gate has two
+  // non-NoWorkaround modes to exclude. LockAfterFirstClose is covered above;
+  // AlwaysClosed reaches the permission by a different path entirely (an early
+  // return at SOLAX-CAN.cpp:158, bypassing the state machine), so a gate
+  // written to exclude only LockAfterFirstClose would pass every other test
+  // here and still open the contactors of an AlwaysClosed installation 2 s
+  // after the inverter stopped talking - which is the one thing that mode
+  // promises will not happen.
+  delete inverter;
+  inverter = nullptr;
+  user_selected_inverter_contactor_mode = inverter_contactor_mode_enum::AlwaysClosed;
+  setup_inverter();
+  solax = static_cast<SolaxInverter*>(inverter);
+
+  set_millis64(10000);
+  walk_to_contactor_closed();
+
+  set_millis64(10000 + INTERVAL_2_S);
+  solax->update_values();
+  EXPECT_TRUE(datalayer.system.status.inverter_allows_contactor_closing)
+      << "timeout backstop revoked permission in AlwaysClosed mode";
+}
