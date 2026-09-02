@@ -160,7 +160,7 @@ void KiaEGmpBattery::update_values() {
 
   // No E-GMP RX path decodes a water-leakage byte (unlike the KIA-64 sibling's
   // 0x5D5), so the old check against a never-assigned member could not fire and
-  // the getter fed a constant to the web page as if it were a reading (wq310).
+  // the getter fed a constant to the web page as if it were a reading .
 
   if (leadAcidBatteryVoltage < 110) {
     set_event(EVENT_12V_LOW, leadAcidBatteryVoltage);

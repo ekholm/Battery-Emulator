@@ -129,7 +129,7 @@ void ChargebyteCCSBattery::update_values() {
 
   // Errors first: with the charge states ahead of them, an error raised while
   // charging reported BMS_ACTIVE and BMS_FAULT was unreachable in exactly the
-  // state where a fault matters most (wq310).
+  // state where a fault matters most .
   if (hasLowLevelError || hasChargebyteError)
     datalayer.battery.status.real_bms_status = BMS_FAULT;
   else if (inPrecharge)

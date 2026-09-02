@@ -4,7 +4,7 @@
 #include "../datalayer/datalayer.h"
 #include "../devboard/utils/events.h"
 
-/* TODO: 
+/* TODO:
 - The HEV battery seems to turn off after 1 minute of use. When this happens SOC% stops updating.
 - We need to figure out how to keep the BMS alive. Most likely we need to send a specific CAN message
 */
@@ -87,7 +87,7 @@ void KiaHyundaiHybridBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
       // The (bool) cast used to bind before the shift, so this read 0 on every
-      // frame and EVENT_HVIL_FAILURE could never fire (wq310).
+      // frame and EVENT_HVIL_FAILURE could never fire .
       interlock_missing = (rx_frame.data.u8[1] & 0x02) >> 1;
       break;
     case 0x5AF:

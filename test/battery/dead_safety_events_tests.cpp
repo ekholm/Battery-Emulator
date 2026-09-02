@@ -8,7 +8,7 @@
 
 #include "Arduino.h"
 
-// wq310: safety events that existed in the code but could not fire at runtime.
+// safety events that existed in the code but could not fire at runtime.
 // Each test failed against the defect and pins the repaired path.
 
 namespace {
