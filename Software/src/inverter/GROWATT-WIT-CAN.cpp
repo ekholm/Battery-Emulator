@@ -139,7 +139,8 @@ void GrowattWitInverter::update_values() {
     // capacity_dAh = capacity_Ah * 10 = total_capacity_Wh * 100 / voltage_dV
     uint32_t capacity_calc =
         (datalayer.battery.info.reported_total_capacity_Wh * 100UL) / datalayer.battery.status.voltage_dV;
-    // Clamp to uint16_t max (50000 per protocol, but allow up to 65535)
+    // Clamp to the protocol's stated maximum, 50000 (R312: the old comment
+    // also claimed "allow up to 65535", which the line below never did)
     rated_capacity_dAh = (capacity_calc > 50000) ? 50000 : (uint16_t)capacity_calc;
   }
   GROWATT_1AC6.data.u8[2] = (rated_capacity_dAh & 0xFF);

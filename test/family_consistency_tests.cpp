@@ -143,6 +143,20 @@ TEST_F(FamilyConsistencyInverterTest, SofarMidSocAllowsBothDirections) {
   EXPECT_EQ(consent->data.u8[1], 0x03);
 }
 
+// The ladder's third rung, unpinned until R312: an empty pack is charge-only.
+// The wq312 change moved the whole ladder onto the real SoC, so this rung's
+// threshold moved with it and deserved its own witness.
+TEST_F(FamilyConsistencyInverterTest, SofarEmptyPackAllowsOnlyCharge) {
+  use_inverter(InverterProtocolType::Sofar);
+  datalayer.battery.status.reported_soc = 100;  // 1 %
+  can_inverter->update_values();
+  can_inverter->transmit_can(INTERVAL_1_S);
+
+  const CAN_frame* consent = last_frame_with_id(0x30F);
+  ASSERT_NE(consent, nullptr);
+  EXPECT_EQ(consent->data.u8[1], 0x02) << "at 1 % only charging is allowed";
+}
+
 // ── MG-5: the never-compiled voltage-extended SoC branch stays deleted ─────
 
 // MG5_USE_FULL_CAPACITY was defined nowhere, so no shipped build ever ran the
