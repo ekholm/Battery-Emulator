@@ -82,7 +82,17 @@ class BEComHal : public Esp32Hal {
       case comm_interface::CanFdNative:
         return "";
       case comm_interface::CanAddonMcp2515:
-        return "";
+        /* Named, not blanked. This board does not declare the 2515 and
+           does not route its pins, which is correct - but the settings page
+           drops blank-named options BEFORE it checks the declaration, so an
+           override to "" also removed the SELECTED value from the list and the
+           page then showed some other interface as current. Naming it lets the
+           page say "CAN (MCP2515 add-on) (not available on this board)", which
+           is what a user needs to see to correct a stale stored value. Only the
+           selected value is shown, so a normally configured board sees nothing.
+           This is the same principle the Stark half of this branch argues:
+           hiding an interface is how a wrong stored value stays wrong. */
+        return "CAN (MCP2515 add-on)";
       case comm_interface::CanFdAddonMcp2518:
         return "CAN FD Battery 1 (MCP2518)";
       case comm_interface::CanFdAddonMcp2518_2:
