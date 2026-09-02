@@ -158,9 +158,9 @@ void KiaEGmpBattery::update_values() {
     set_voltage_minmax_limits();  // Count cells, and set voltage limits accordingly
   }
 
-  if (waterleakageSensor == 0) {
-    set_event(EVENT_WATER_INGRESS, 0);
-  }
+  // No E-GMP RX path decodes a water-leakage byte (unlike the KIA-64 sibling's
+  // 0x5D5), so the old check against a never-assigned member could not fire and
+  // the getter fed a constant to the web page as if it were a reading (wq310).
 
   if (leadAcidBatteryVoltage < 110) {
     set_event(EVENT_12V_LOW, leadAcidBatteryVoltage);
@@ -170,9 +170,6 @@ void KiaEGmpBattery::update_values() {
 // Getter implementations for HTML renderer
 int KiaEGmpBattery::get_battery_12V() const {
   return leadAcidBatteryVoltage;
-}
-int KiaEGmpBattery::get_waterleakageSensor() const {
-  return waterleakageSensor;
 }
 int KiaEGmpBattery::get_temperature_water_inlet() const {
   return temperature_water_inlet;

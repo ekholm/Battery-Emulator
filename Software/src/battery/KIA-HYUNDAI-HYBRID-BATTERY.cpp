@@ -86,7 +86,9 @@ void KiaHyundaiHybridBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
     case 0x5AE:
       datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;
 
-      interlock_missing = (bool)(rx_frame.data.u8[1] & 0x02) >> 1;
+      // The (bool) cast used to bind before the shift, so this read 0 on every
+      // frame and EVENT_HVIL_FAILURE could never fire (wq310).
+      interlock_missing = (rx_frame.data.u8[1] & 0x02) >> 1;
       break;
     case 0x5AF:
       break;

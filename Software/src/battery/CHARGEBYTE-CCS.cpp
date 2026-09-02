@@ -127,12 +127,15 @@ void ChargebyteCCSBattery::update_values() {
   CHARGEBYTE_302.data.u8[2] = presentVoltage_dV & 0xff;
   CHARGEBYTE_302.data.u8[3] = presentVoltage_dV >> 8;
 
-  if (inPrecharge)
+  // Errors first: with the charge states ahead of them, an error raised while
+  // charging reported BMS_ACTIVE and BMS_FAULT was unreachable in exactly the
+  // state where a fault matters most (wq310).
+  if (hasLowLevelError || hasChargebyteError)
+    datalayer.battery.status.real_bms_status = BMS_FAULT;
+  else if (inPrecharge)
     datalayer.battery.status.real_bms_status = BMS_STANDBY;
   else if (inCharge)
     datalayer.battery.status.real_bms_status = BMS_ACTIVE;
-  else if (hasLowLevelError || hasChargebyteError)
-    datalayer.battery.status.real_bms_status = BMS_FAULT;
   else
     datalayer.battery.status.real_bms_status = BMS_DISCONNECTED;
 

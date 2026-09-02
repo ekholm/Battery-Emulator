@@ -17,7 +17,6 @@ class KiaEGmpBattery : public CanBattery {
   BatteryHtmlRenderer& get_status_renderer() { return renderer; }
   // Getter implementations for HTML renderer
   int get_battery_12V() const;
-  int get_waterleakageSensor() const;
   int get_temperature_water_inlet() const;
   int get_powerRelayTemperature() const;
   int get_batteryManagementMode() const;
@@ -73,7 +72,6 @@ class KiaEGmpBattery : public CanBattery {
   uint8_t batteryManagementMode = 0;
   uint8_t BMS_ign = 0xff;
   uint8_t batteryRelay = 0;
-  uint8_t waterleakageSensor = 164;
   bool startedUp = false;
   bool ok_start_polling_battery = false;
   uint8_t counter_200 = 0;
