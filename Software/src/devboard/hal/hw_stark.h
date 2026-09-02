@@ -111,8 +111,17 @@ class StarkHal : public Esp32Hal {
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
 
   std::vector<comm_interface> available_interfaces() {
-    return {comm_interface::Modbus,          comm_interface::RS485,       comm_interface::CanNative,
-            comm_interface::CanAddonMcp2515, comm_interface::CanFdNative, comm_interface::CanFdAddonMcp2518};
+    /* No MCP2515: this board routes no chip select for one - MCP2515_CS() is
+       the base class's GPIO_NUM_NC - and "available" here means the chip
+       select is routed, which is what lets a user fit the module. Declaring
+       it anyway was not cosmetic: init_CAN() trusts this list, so a stored
+       selection of that interface passed the availability guard and drove a
+       chip select at NC, which is the "autodetected crystal: 0MHz" failure
+       this whole declaration mechanism exists to stop - surviving on the very
+       board that motivated it. The empty name below only hid it from the
+       dropdown; a value already in NVS never goes through the dropdown. */
+    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanFdNative,
+            comm_interface::CanFdAddonMcp2518};
   }
 
   virtual const char* name_for_comm_interface(comm_interface comm) {
@@ -121,8 +130,11 @@ class StarkHal : public Esp32Hal {
         return "CAN 1 (Native)";
       case comm_interface::CanFdNative:
         return "CAN FD 2 (Native)";
-      case comm_interface::CanAddonMcp2515:
-        return "";
+      /* Deliberately NOT overridden to "": the base name is correct, and a
+         board that does not declare an interface should still NAME it, so a
+         stale stored selection renders as itself with the page's "(not
+         available on this board)" suffix instead of vanishing. Hiding it is
+         how this one stayed wrong. */
       case comm_interface::CanFdAddonMcp2518:
         return "CAN FD (MCP2518FD add-on)";
       case comm_interface::CanFdAddonMcp2518_2:
