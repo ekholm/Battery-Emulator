@@ -29,7 +29,7 @@ namespace {
 // on the base class, so a minimal board is enough.
 class FakeHal : public Esp32Hal {
  public:
-  const char* name() override { return "wq256 test board"; }
+  const char* name() override { return "spi-guard test board"; }
   std::vector<comm_interface> available_interfaces() override { return {}; }
 };
 
@@ -72,7 +72,7 @@ TEST_F(SpiBusClaimFixture, TheShippedTcan485ShapeIsReported) {
   esp32hal->claim_spi_bus("CAN", kSharedBus, kCanSck, kCanMiso, kCanMosi);
 
   EXPECT_TRUE(conflict_raised()) << "the SD card and the MCP2515 add-on shared VSPI with different pins - the "
-                                    "collision alloc_pins() cannot see, and the defect wq255 fixes";
+                                    "collision alloc_pins() cannot see, and the defect the SD-SPI split fixes";
 }
 
 // And the fixed shape stays quiet, or the guard would cry wolf on every boot of
@@ -137,7 +137,7 @@ TEST_F(SpiBusClaimFixture, TheMessageNamesBothDevices) {
   EXPECT_NE(message.find("CAN"), std::string::npos) << message;
 }
 
-/* R256. The message is re-rendered every time the event is published - the
+/* The message is re-rendered every time the event is published - the
  * events page, MQTT (mqtt.cpp) and ESP-NOW (espnow.cpp) all call
  * get_event_message_string() - so it must not read names that anything else can
  * overwrite in the meantime.
