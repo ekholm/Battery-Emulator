@@ -7,7 +7,7 @@
 #include "../Software/src/inverter/CanInverterProtocol.h"
 #include "../Software/src/inverter/INVERTERS.h"
 
-// wq312: drivers diverging from what their own family or their own comment
+// drivers diverging from what their own family or their own comment
 // says they do. Each test pins the repaired family behaviour; each failed (or
 // was impossible) against the defect.
 
@@ -143,8 +143,8 @@ TEST_F(FamilyConsistencyInverterTest, SofarMidSocAllowsBothDirections) {
   EXPECT_EQ(consent->data.u8[1], 0x03);
 }
 
-// The ladder's third rung, unpinned until R312: an empty pack is charge-only.
-// The wq312 change moved the whole ladder onto the real SoC, so this rung's
+// The ladder's third rung, unpinned until this pass: an empty pack is charge-only.
+// This pass moved the whole ladder onto the real SoC, so this rung's
 // threshold moved with it and deserved its own witness.
 TEST_F(FamilyConsistencyInverterTest, SofarEmptyPackAllowsOnlyCharge) {
   use_inverter(InverterProtocolType::Sofar);

@@ -79,7 +79,7 @@ void FerroampCanInverter::
 
   //Check what charge and discharge cutoff voltages to send, like the 0x4200
   //family siblings (PYLON, SOLXPOW) do: a user-tightened window must reach the
-  //inverter (wq312). The no-user-limit values stay the raw design limits this
+  //inverter . The no-user-limit values stay the raw design limits this
   //driver always sent - the siblings' +-2.0 V offset is NOT imported here.
   uint16_t charge_cutoff_voltage_dV = datalayer.battery.info.max_design_voltage_dV;
   uint16_t discharge_cutoff_voltage_dV = datalayer.battery.info.min_design_voltage_dV;

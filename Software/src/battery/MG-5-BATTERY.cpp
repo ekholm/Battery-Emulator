@@ -9,11 +9,11 @@
 
 #ifndef SMALL_FLASH_DEVICE
 
-/* TODO: 
+/* TODO:
 - Get contactor closing working
 - Figure out which CAN messages need to be sent towards the battery to keep it alive
 - Map all values from battery CAN messages
-- Most important ones 
+- Most important ones
 */
 
 inline const char* getBMStatus(int index) {
@@ -40,10 +40,10 @@ inline const char* getBMStatus(int index) {
 void Mg5Battery::update_soc(uint16_t soc_times_ten) {
 
   // A voltage-extended SoC branch (MG5_USE_FULL_CAPACITY) lived here from the
-  // driver's first commit to wq312: the macro was defined nowhere, so it was
+  // driver's first commit to this pass: the macro was defined nowhere, so it was
   // compiled out of every build that ever shipped. Deleted rather than
   // activated - its 4.1 V/369 V/92 % constants would need a real-pack trace to
-  // validate, and git history keeps the draft (wq312).
+  // validate, and git history keeps the draft .
 
   // Set the state of charge in the datalayer
   datalayer.battery.status.real_soc = soc_times_ten * 10;
