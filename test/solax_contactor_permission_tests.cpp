@@ -134,7 +134,7 @@ TEST_F(SolaxContactorPermissionTest, LockAfterFirstCloseIgnoresOpenRequest) {
 }
 
 TEST_F(SolaxContactorPermissionTest, BackstopMeasuresSilenceFromTheLatestFrameNotTheFirst) {
-  // R380. The corrected exposure claim - a stale permission is bounded at
+  // The corrected exposure claim - a stale permission is bounded at
   // ~2-3 s rather than surviving indefinitely - rests on the backstop being a
   // SILENCE timeout: LastFrameTime is refreshed by every accepted 0x1871
   // (SOLAX-CAN.cpp:155), so the 2 s clock restarts at the last frame received,
@@ -161,7 +161,7 @@ TEST_F(SolaxContactorPermissionTest, BackstopMeasuresSilenceFromTheLatestFrameNo
 }
 
 TEST_F(SolaxContactorPermissionTest, AlwaysClosedSurvivesTimeout) {
-  // R380. The backstop is gated on NoWorkaround, and that gate has two
+  // The backstop is gated on NoWorkaround, and that gate has two
   // non-NoWorkaround modes to exclude. LockAfterFirstClose is covered above;
   // AlwaysClosed reaches the permission by a different path entirely (an early
   // return at SOLAX-CAN.cpp:158, bypassing the state machine), so a gate
