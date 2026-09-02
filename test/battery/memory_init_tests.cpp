@@ -13,7 +13,7 @@
 #include "../../Software/src/battery/SANTA-FE-PHEV-BATTERY.h"
 #include "../../Software/src/datalayer/datalayer.h"
 
-// wq309: memory-safety defects in battery drivers.
+// memory-safety defects in battery drivers.
 //
 // The uninitialised-array tests construct the driver by PLACEMENT-NEW in
 // DEFAULT-INIT form (`new (buf) T`, no parentheses) on a 0xAB-poisoned
@@ -62,7 +62,7 @@ CanBattery* make_battery(BatteryType type) {
 // --- ORION-BMS: the out-of-bounds write, fixed by REJECTING the frame -------
 // The defect: an over-range cell id was clamped TO MAX_AMOUNT_CELLS and then
 // written, one past the end of cellvoltages[MAX_AMOUNT_CELLS]. The recorded
-// fix decision (wq309): REJECT the frame rather than clamp to the last cell -
+// fix decision (recorded decision of the memory-safety pass): REJECT the frame rather than clamp to the last cell -
 // a corrupted or mis-configured id must not overwrite a real cell's reading,
 // and the sticky amount_of_detected_cells it fed must not jump to a full pack.
 //

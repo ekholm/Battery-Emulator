@@ -38,7 +38,7 @@ class OrionBms : public CanBattery {
   // Zeroed explicitly: update_values() memcpys the whole array into the
   // datalayer before any frame fills it. Today `new OrionBms()` happens to
   // value-initialize (no user-provided ctor); adding any constructor would
-  // silently end that - ECMP had exactly that failure (wq309).
+  // silently end that - ECMP had exactly that failure (recorded decision of the memory-safety pass).
   uint16_t cellvoltages[MAX_AMOUNT_CELLS] = {0};
 };
 

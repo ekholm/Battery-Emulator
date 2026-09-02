@@ -97,7 +97,7 @@ void OrionBms::handle_incoming_can_frame(CAN_frame rx_frame) {
       Checksum = rx_frame.data.u8[7];  //Value = (0x36 + 8 + byte0 + byte1 + ... + byte6) & 0xFF
 
       if (CellID >= MAX_AMOUNT_CELLS) {
-        // Recorded decision (wq309): REJECT the frame rather than clamp. The old
+        // Recorded decision (recorded decision of the memory-safety pass): REJECT the frame rather than clamp. The old
         // clamp TO MAX_AMOUNT_CELLS wrote one past the end of cellvoltages, and
         // clamping to the last cell instead would let a corrupted or
         // mis-configured id silently overwrite a real cell's reading and drive

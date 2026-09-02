@@ -684,7 +684,7 @@ CAN_frame BMWiX_49C = {.FD = true,
 
   /**
  * @brief Handle incoming inverter request to close or open contactors.alignas
- * 
+ *
  * This function uses the "inverter_allows_contactor_closing" flag from the datalayer, to determine if CAN messages shall be sent to the battery to close or open the contactors.
  *
  * @param[in] void

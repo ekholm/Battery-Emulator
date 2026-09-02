@@ -395,7 +395,7 @@ class EcmpBattery : public CanBattery {
   // Zeroed explicitly: the user-provided constructors defeat the
   // value-initialization `new EcmpBattery()` would otherwise perform, so
   // without this the first 0x6FF frame memcpys 104 words of heap garbage
-  // into the datalayer as cell voltages (wq309).
+  // into the datalayer as cell voltages (recorded decision of the memory-safety pass).
   uint16_t cellvoltages[108] = {0};
   uint16_t battery_AllowedMaxChargeCurrent = 0;
   uint16_t battery_AllowedMaxDischargeCurrent = 0;
