@@ -14,7 +14,11 @@ class String {
  public:
   // Constructors
   String() = default;
-  String(const char* s) : data(s) {}
+  // Arduino's String(const char*) null-guards before it copies (WString.cpp:
+  // `if (cstr) copy(...)`), so a null yields an empty String rather than
+  // undefined behaviour. std::string has no such guard and throws, which
+  // turned a benign-on-hardware render into a host-only crash.
+  String(const char* s) : data(s ? s : "") {}
   String(const std::string& s) : data(s) {}
   String(const String& other) = default;
   String(String&& other) = default;
@@ -66,7 +70,11 @@ class String {
   }
 
   String& operator+=(const char* rhs) {
-    data += rhs;
+    // Same null guard as the constructor: Arduino's operator+=(const char*)
+    // is a no-op on null (WString.cpp), not a crash.
+    if (rhs != nullptr) {
+      data += rhs;
+    }
     return *this;
   }
 
