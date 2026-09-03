@@ -27,7 +27,17 @@ inline void emul_set_mac(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t
   emul_mac_bytes[5] = b5;
 }
 
+/* Counted, so a test can assert that the eFuse is read ONCE. Object identity cannot show that:
+ * the cache is a function-local static that gets reassigned in place, so its address is the
+ * same whether or not it is rebuilt on every call. */
+inline int emul_mac_reads = 0;
+
+inline void emul_reset_mac_reads() {
+  emul_mac_reads = 0;
+}
+
 inline int esp_read_mac(uint8_t* mac, esp_mac_type_t /*type*/) {
+  emul_mac_reads++;
   memcpy(mac, emul_mac_bytes, sizeof(emul_mac_bytes));
   return 0;
 }

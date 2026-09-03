@@ -14,7 +14,20 @@ extern String custom_hostname;
  * LINE. Callers that want their own copy still get one by assigning to a String.
  *
  * custom_hostname is a String rather than a std::string for the same reason: the mixture was
- * what forced active_hostname() to build a fresh String from bytes that already existed. */
+ * what forced active_hostname() to build a fresh String from bytes that already existed.
+ *
+ * WHAT MAKES THE REFERENCE SAFE, so it is clear what would break it: custom_hostname is
+ * written in exactly one place, init_stored_settings(), which setup() calls once BEFORE it
+ * creates any task - so no reader can observe a write, and there is no reassignment at
+ * runtime at all. The settings page saves "HOSTNAME" to NVM but deliberately does not touch
+ * this global, which is why a hostname change needs a reboot to take effect.
+ *
+ * So: making the hostname apply WITHOUT a reboot is the change that turns these references
+ * into a hazard, because String::operator= frees the old buffer and any caller holding the
+ * reference - or a c_str() taken from it - is left dangling, from another task. Every call
+ * site today either copies immediately or consumes the reference within one expression; if
+ * live update is ever added, they must be re-audited and this should hand back a copy (or the
+ * write must be made under the same lock every reader takes). */
 /* The name a MAC maps to, as a pure function of the six bytes. Split out from the cached
  * accessor below because that one reads the eFuse once and remembers the answer, which makes
  * the FORMAT - lowercase, two digits per byte, leading zeroes kept - impossible to check

@@ -84,11 +84,19 @@ TEST_F(HostnameTest, TheReturnedReferenceIsTheStorageItself) {
   EXPECT_EQ(&active_hostname(), &custom_hostname) << "set, the active name IS custom_hostname, not a copy of it";
 }
 
+/* The cache, asserted as a cache. Object identity alone cannot show this: the cache is a
+ * function-local static reassigned in place, so its address is the same whether or not it is
+ * rebuilt on every call - a mutant that drops the isEmpty() guard passes the pointer check and
+ * was caught only by the allocation probe, one test over. Counting the eFuse reads says the
+ * thing the test is named for.
+ */
 TEST_F(HostnameTest, TheDefaultIsBuiltOnceAndCached) {
-  const String* first = &default_hostname();
+  const String* first = &default_hostname();  // pay the build, whichever test got here first
+  emul_reset_mac_reads();
   for (int i = 0; i < 5; i++) {
-    EXPECT_EQ(&default_hostname(), first);
+    EXPECT_EQ(&default_hostname(), first) << "one object, not a fresh copy";
   }
+  EXPECT_EQ(emul_mac_reads, 0) << "the eFuse must be read once and remembered, not re-read per call";
 }
 
 /* The point of the item, asserted rather than estimated: reading the hostname must not
