@@ -97,7 +97,16 @@ void TeslaLegacyBattery::update_values() {
       break;
   }
 
-  datalayer.battery.status.soh_pptt = BMS_CAC_min / 2316;  // uitgelezen minimale CAC / CAC bij nieuw (231,6 Ah)
+  // Reported SOH is the measured minimum CAC over the CAC-at-new, and 231.6 Ah - the CAC-at-new of
+  // an 85 kWh pack - is the only reference this driver has. Legacy packs run 60 to 100 kWh, so on
+  // any larger pack the quotient exceeds 10000 and the battery reports over 100 % SOH; soh_pptt is
+  // published to the inverter protocols, so that number leaves the box. Clamping keeps it inside
+  // its own range until a CAC-at-new per hwID group exists.
+  //
+  // A SMALLER pack reads too LOW here and no clamp can fix that - it needs the same missing table,
+  // and the per-capacity CAC figures are not in this tree.
+  const uint32_t soh_from_cac_pptt = BMS_CAC_min / 2316;
+  datalayer.battery.status.soh_pptt = (soh_from_cac_pptt > 10000) ? 10000 : soh_from_cac_pptt;
 
   datalayer.battery.status.real_soc = (battery_soc_ui * 10);  //increase SOC range from 0-100.0 -> 100.00
 
