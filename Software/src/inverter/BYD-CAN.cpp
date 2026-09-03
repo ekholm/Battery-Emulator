@@ -110,9 +110,18 @@ void BydCanInverter::map_can_frame_to_variable(CAN_frame rx_frame) {
       if (rx_frame.data.u8[0] & 0x01) {  //Battery requests identification
         send_initial_data();
       } else {  // We can identify what inverter type we are connected to
+        /* Byte 0 carries the identification-request flag tested above, so the
+         * brand string is bytes 1..7 - which is why the copy is offset and the
+         * test has to be offset with it. Both halves were wrong here: the guard
+         * read u8[i] while the copy took u8[i + 1], so the filter never governed
+         * the byte actually stored; and both comparisons were `>`, which
+         * collapses the range to `> 0x7B` - admitting exactly the bytes the
+         * comment says it rejects and rejecting the whole printable range it
+         * was written to accept. */
         for (uint8_t i = 0; i < 7; i++) {
-          if ((rx_frame.data.u8[i] > 0x40) && (rx_frame.data.u8[i] > 0x7B)) {  //Filter out invalid chars
-            datalayer.system.info.inverter_brand[i] = rx_frame.data.u8[i + 1];
+          const uint8_t c = rx_frame.data.u8[i + 1];
+          if ((c > 0x40) && (c < 0x7B)) {  //Filter out invalid chars
+            datalayer.system.info.inverter_brand[i] = c;
           }
         }
         datalayer.system.info.inverter_brand[7] = '\0';
