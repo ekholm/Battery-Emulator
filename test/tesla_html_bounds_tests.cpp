@@ -9,7 +9,7 @@
 
 namespace {
 
-// The Tesla renderer indexes thirteen static tables with fields the CAN parser fills straight
+// The Tesla renderer indexes fourteen static tables with fields the CAN parser fills straight
 // from bit slices of a frame. Every field below is wider than the table it selects from, so a
 // pack that reports a code the table has no entry for reads past the end: on the host that is a
 // wild pointer handed to String(), on the ESP32 the same. These tests pin the bound at the only
@@ -133,18 +133,48 @@ TEST(TeslaHtmlLookupBounds, AnOutOfRangeRetryCountIsNamedNotDereferenced) {
   EXPECT_TRUE(contains(content, "<h4>Precharge Restart Cnt: UNKNOWN(7)</h4>"));
 }
 
-// hvilStatusState[16] and contactorState[12] are the two tables the wire cannot overrun (4-bit
-// into 16, 3-bit into 12). The bound must leave their real labels alone at the top code.
-TEST(TeslaHtmlLookupBounds, TheExactlyCoveredTablesStillRenderTheirTopLabels) {
+/* hvilStatusState[16] and contactorState[12] are the two tables the wire cannot overrun (4-bit
+ * into 16, 3-bit into 12). The bound must leave their real labels alone.
+ *
+ * Assert the last DISTINCTLY NAMED entry of each, not the last entry: both tables pad their tail
+ * with literal "UNKNOWN(n)" strings, which are the same text the bound produces out of range. A
+ * case asserting hvil_status = 15 renders "UNKNOWN(15)" therefore passes whether the bound fired
+ * or the table answered, and cannot tell a correct bound from one that fires early. The boundary
+ * itself is pinned directly below, where a purpose-built table has a distinctive last entry.
+ */
+TEST(TeslaHtmlLookupBounds, TheExactlyCoveredTablesStillRenderTheirNamedLabels) {
   String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
-    tesla.hvil_status = 15;
+    tesla.hvil_status = 9;
     tesla.packContNegativeState = 7;
     tesla.packContPositiveState = 7;
   });
 
-  EXPECT_TRUE(contains(content, "<h4>HVIL Status: UNKNOWN(15)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>HVIL Status: VEHICLE_OR_PENTHOUSE_LID_OPENFAULT</h4>"));
   EXPECT_TRUE(contains(content, "<h4>Negative Contactor: WELDED</h4>"));
   EXPECT_TRUE(contains(content, "<h4>Positive Contactor: WELDED</h4>"));
+}
+
+/* The bound is a property of lookupName(), and lookupName() is directly callable, so the boundary
+ * can be pinned without going through a page of rendered HTML.
+ *
+ * It needs to be. Every other case here asserts on a substring of the whole page, and the widest
+ * code the wire can carry is nowhere near the end of most tables - so a bound that fires ONE ENTRY
+ * EARLY changes nothing any of them look at. Measured, not assumed: mutating the bound to
+ * `index + 1 < N` fails exactly ONE test in the entire suite, and it is not one of the cases named
+ * for covering this. A table with a distinctive last entry is what makes the off-by-one visible.
+ */
+TEST(TeslaHtmlLookupBounds, TheBoundAdmitsTheLastEntryAndNamesTheFirstPastIt) {
+  static const char* const table[] = {"ZERO", "ONE", "LAST"};
+
+  EXPECT_EQ(lookupName(table, 0), String("ZERO"));
+  EXPECT_EQ(lookupName(table, 2), String("LAST")) << "the last entry is in range";
+  EXPECT_EQ(lookupName(table, 3), String("UNKNOWN(3)")) << "one past the end is named, not read";
+  EXPECT_EQ(lookupName(table, 255), String("UNKNOWN(255)")) << "the widest code a uint8_t can carry";
+
+  static const char* const single[] = {"ONLY"};
+
+  EXPECT_EQ(lookupName(single, 0), String("ONLY")) << "a one-entry table still has an entry 0";
+  EXPECT_EQ(lookupName(single, 1), String("UNKNOWN(1)"));
 }
 
 // The wire can only reach the widths above, but nothing in the renderer depends on that: a
