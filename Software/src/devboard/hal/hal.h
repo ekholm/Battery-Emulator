@@ -47,16 +47,16 @@ class Esp32Hal {
     for (gpio_num_t pin : requested_pins) {
       if (pin < 0) {
         // Must be set BEFORE set_event(): set_event() logs the event message immediately,
-        // and get_event_message_string() reads it back via failed_allocator().
-        allocator_name = name;
+        // and get_event_message_string() reads it back via gpio_undefined_claimant_name().
+        gpio_undefined_claimant = name;
         set_event(EVENT_GPIO_NOT_DEFINED, (int)pin);  // also printing a log entry
         return false;
       }
 
       auto it = allocated_pins.find(pin);
       if (it != allocated_pins.end()) {
-        allocator_name = name;
-        allocated_name = it->second.c_str();
+        gpio_conflict_claimant = name;
+        gpio_conflict_holder = it->second.c_str();
         set_event(EVENT_GPIO_CONFLICT, (int)pin);  // also printing a log entry
         return false;
       }
@@ -242,16 +242,29 @@ class Esp32Hal {
     }
   }
 
-  String failed_allocator() { return allocator_name; }
-  String conflicting_allocator() { return allocated_name; }
+  String gpio_conflict_claimant_name() { return gpio_conflict_claimant; }
+  String gpio_conflict_holder_name() { return gpio_conflict_holder; }
+  String gpio_undefined_claimant_name() { return gpio_undefined_claimant; }
 
  private:
   std::unordered_map<gpio_num_t, std::string> allocated_pins;
 
-  // For event logging, store the name of the allocator/allocated
-  // for failed gpio allocations.
-  String allocator_name;
-  String allocated_name;
+  /* One pair per event, and they are not shared with anything.
+   *
+   * get_event_message_string() is re-rendered every time an event is published
+   * - the events page, MQTT and ESP-NOW all call it - so a message that reads
+   * these back live names whoever failed an allocation MOST RECENTLY rather
+   * than the devices the event is about. While both GPIO events read one
+   * shared pair, a missing-pin failure after a pin conflict re-pointed the
+   * conflict's message at the wrong component, and vice versa. Both events are
+   * raised on every boot of a misconfigured board and cleared by nothing, so
+   * the wrong text is what the user reads for the life of the board.
+   *
+   * Separate storage is what makes that unrepresentable rather than merely
+   * unlikely: there is no longer a slot two events can both write. */
+  String gpio_conflict_claimant;
+  String gpio_conflict_holder;
+  String gpio_undefined_claimant;
 };
 
 extern Esp32Hal* esp32hal;

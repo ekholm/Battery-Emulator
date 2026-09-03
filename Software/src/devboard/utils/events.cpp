@@ -721,10 +721,11 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_BMS_RESET_REQ_FAIL:
       return "BMS reset request failed - check contactors are open.";
     case EVENT_GPIO_CONFLICT:
-      return "GPIO Pin Conflict: The pin used by '" + esp32hal->failed_allocator() + "' is already allocated by '" +
-             esp32hal->conflicting_allocator() + "'. Please check your configuration and assign different pins.";
+      return "GPIO Pin Conflict: The pin used by '" + esp32hal->gpio_conflict_claimant_name() +
+             "' is already allocated by '" + esp32hal->gpio_conflict_holder_name() +
+             "'. Please check your configuration and assign different pins.";
     case EVENT_GPIO_NOT_DEFINED:
-      return "Missing GPIO Assignment: The component '" + esp32hal->failed_allocator() +
+      return "Missing GPIO Assignment: The component '" + esp32hal->gpio_undefined_claimant_name() +
              "' requires a GPIO pin that isn't configured. Please define a valid pin number in your settings.";
     default:
       return "";
