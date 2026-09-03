@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 
 #include "../Software/src/lib/pierremolinaro-acan-esp32/ACAN_ESP32_RxSlot.h"
@@ -339,3 +342,95 @@ TEST(AcanRxSlotDispatch, AnUnrelatedInterruptDoesNothingToTheReceivePath) {
 }
 
 }  // namespace
+
+/* -------- the wiring, which nothing else in this binary can reach --------
+ *
+ * `read()` and `plan()` are testable because they were split out; what CALLS
+ * them is not. ACAN_ESP32.cpp is an ESP translation unit - it is in no host
+ * target and no test compiles it - so every assertion above holds with the
+ * driver wired to none of it. Measured, not feared: replacing
+ * `if (dispatch.readSlot)` in the ISR with `if (false)`, so the interrupt never
+ * reads a slot and the driver receives nothing at all, leaves this whole suite
+ * green.
+ *
+ * So the four wiring facts are read out of the source, which is the same thing
+ * the OTA confirmation path does for `onOTAStart()` and for the same reason.
+ * A source-reading test is the weakest kind and it is still the only one that
+ * can fail here.
+ */
+
+namespace {
+
+std::string driver_source() {
+  const std::string self = __FILE__;
+  const std::string path =
+      self.substr(0, self.find_last_of('/')) + "/../Software/src/lib/pierremolinaro-acan-esp32/ACAN_ESP32.cpp";
+  std::ifstream file(path);
+  EXPECT_TRUE(file.is_open()) << "this test reads " << path;
+  return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+}
+
+// The body of a function, by brace depth from its signature.
+std::string body_of(const std::string& source, const std::string& signature) {
+  const size_t at = source.find(signature);
+  EXPECT_NE(at, std::string::npos) << "no `" << signature << "` in the driver this test reads";
+  if (at == std::string::npos) {
+    return "";
+  }
+  const size_t open = source.find('{', at);
+  int depth = 0;
+  for (size_t i = open; i < source.size(); ++i) {
+    if (source[i] == '{') {
+      ++depth;
+    } else if (source[i] == '}' && --depth == 0) {
+      return source.substr(open, i - open + 1);
+    }
+  }
+  return "";
+}
+
+}  // namespace
+
+TEST(AcanRxSlotWiring, TheInterruptTakesBothItsCallsFromPlan) {
+  const std::string isr = body_of(driver_source(), "void IRAM_ATTR ACAN_ESP32::isr (void * inUserArgument)");
+  ASSERT_FALSE(isr.empty());
+
+  EXPECT_NE(isr.find("ACAN_ESP32_RxSlot::plan"), std::string::npos)
+      << "the ISR no longer asks plan() what to do, so the read/drain choice is back inline where no "
+         "test can reach it";
+  EXPECT_NE(isr.find("dispatch.handleOverrun"), std::string::npos)
+      << "the overrun handler is no longer gated on plan()";
+  EXPECT_NE(isr.find("dispatch.readSlot"), std::string::npos)
+      << "the slot read is no longer gated on plan(): with this gone the interrupt reads nothing and every "
+         "other test in this file still passes";
+  /* The old shape is the defect: an `else if` makes the read the overrun's
+     alternative, which is what skipped it on Miss-Status silicon. */
+  EXPECT_EQ(isr.find("}else if ((interrupt & TWAI_RX_INT_ST)"), std::string::npos)
+      << "the read is the overrun's `else` again";
+}
+
+TEST(AcanRxSlotWiring, ThePlaceholderIsNotAppendedToTheReceiveQueue) {
+  const std::string handler = body_of(driver_source(), "void IRAM_ATTR ACAN_ESP32::handleRXInterrupt (void)");
+  ASSERT_FALSE(handler.empty());
+
+  EXPECT_NE(handler.find("if (!getReceivedMessage (frame)) {"), std::string::npos)
+      << "handleRXInterrupt() no longer tests what getReceivedMessage() returned, so a slot the read "
+         "reported as a placeholder is delivered as a frame - the stale copy this branch exists to stop";
+  EXPECT_NE(handler.find("return"), std::string::npos);
+}
+
+TEST(AcanRxSlotWiring, TheWholeFifoDrainStaysOnClassicSiliconOnly) {
+  const std::string handler = body_of(driver_source(), "void IRAM_ATTR ACAN_ESP32::handleOverrunInterrupt (void)");
+  ASSERT_FALSE(handler.empty());
+
+  EXPECT_NE(handler.find("if (!twaiHasRxStatus) {"), std::string::npos)
+      << "the drain is no longer gated on the target: on Miss-Status silicon it throws away the real "
+         "frames queued behind the lost ones, which is half the defect";
+  /* The clear-data-overrun command is OUTSIDE that gate on purpose - it runs on
+     both targets, so the status bit cannot latch. */
+  const size_t gate = handler.find("if (!twaiHasRxStatus) {");
+  const size_t clear = handler.find("TWAI_CLR_OVERRUN");
+  ASSERT_NE(clear, std::string::npos) << "the clear-data-overrun command is gone";
+  EXPECT_GT(clear, gate) << "the clear-data-overrun command has moved inside the classic-only gate, so on "
+                            "Miss-Status silicon the overrun status would latch";
+}
