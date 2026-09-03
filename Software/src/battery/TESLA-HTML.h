@@ -15,8 +15,12 @@
 // from 3. A pack reporting a code the table has no entry for used to hand String() whatever
 // pointer-shaped bytes followed the table - a wild dereference on the ESP32, and a segfault on the
 // host. Out of range now renders as UNKNOWN(n), which is both safe and more useful than a name:
-// it shows the code the pack actually sent. The same battery's serial-logging twins
-// (getContactorText() and friends in TESLA-BATTERY.cpp) have always had this via a switch default.
+// it shows the code the pack actually sent. UNKNOWN(n) is this file's own spelling for a code with
+// no name - the tables above pad their tails with exactly those strings - and the same battery's
+// serial-logging twins (getContactorText() and friends in TESLA-BATTERY.cpp) have always had a
+// switch default for the same reason. Their default returns a bare "UNKNOWN" rather than the code;
+// carrying the number is the one deliberate difference, because a page that says which value the
+// pack sent is diagnosable and one that says "UNKNOWN" is not.
 //
 // Taking the table by reference is what makes the bound automatic - the length comes from the
 // array's own type, so a table that gains or loses an entry cannot leave a hardcoded limit behind.
