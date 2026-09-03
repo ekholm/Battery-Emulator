@@ -110,10 +110,25 @@ void BydCanInverter::map_can_frame_to_variable(CAN_frame rx_frame) {
       if (rx_frame.data.u8[0] & 0x01) {  //Battery requests identification
         send_initial_data();
       } else {  // We can identify what inverter type we are connected to
+        /* Byte 0 carries the identification-request flag tested above, so the
+         * brand string is bytes 1..7 - which is why the copy is offset and the
+         * test has to be offset with it. SUNGROW-CAN.cpp parses this same frame
+         * for the same purpose and agrees in as many words: it reads byte 0 as a
+         * mux and comments its copy "Manufacturer byte1-7". Both halves were wrong here: the guard
+         * read u8[i] while the copy took u8[i + 1], so the filter never governed
+         * the byte actually stored; and both comparisons were `>`, which
+         * collapses the range to `> 0x7B` - admitting exactly the bytes the
+         * comment says it rejects and rejecting the whole printable range it
+         * was written to accept. */
         for (uint8_t i = 0; i < 7; i++) {
-          if ((rx_frame.data.u8[i] > 0x40) && (rx_frame.data.u8[i] > 0x7B)) {  //Filter out invalid chars
-            datalayer.system.info.inverter_brand[i] = rx_frame.data.u8[i + 1];
-          }
+          const uint8_t c = rx_frame.data.u8[i + 1];
+          /* A rejected byte must CLEAR its slot, not leave it. The destination
+           * is never cleared between frames, so leaving it exposes whatever the
+           * previous name put there: "GoodWes" followed by "SMA" produced
+           * "SMAdWes", a brand string that was never on the wire. That was
+           * unreachable while the broken filter accepted almost nothing, and
+           * became reachable the moment the filter started working. */
+          datalayer.system.info.inverter_brand[i] = ((c > 0x40) && (c < 0x7B)) ? c : '\0';
         }
         datalayer.system.info.inverter_brand[7] = '\0';
       }
