@@ -50,6 +50,11 @@ std::string hal_dir() {
   return self.substr(0, self.find_last_of('/')) + "/../Software/src/devboard/hal";
 }
 
+std::string webserver_dir() {
+  const std::string self = __FILE__;
+  return self.substr(0, self.find_last_of('/')) + "/../Software/src/devboard/webserver";
+}
+
 std::string read(const std::string& path) {
   std::ifstream f(path);
   EXPECT_TRUE(f.is_open()) << path;
@@ -58,9 +63,16 @@ std::string read(const std::string& path) {
 
 // name_for_comm_interface's cases, as written in one file. A value containing
 // '?' is a runtime conditional and is recorded as such, never as a name.
-std::map<std::string, std::string> names_in(const std::string& text) {
+std::map<std::string, std::string> names_in(const std::string& raw) {
+  /* Comments blanked first, literals kept. The arm a case returns is separated
+     from its label by nothing but whitespace ONLY until someone writes a comment
+     there, and the commit that introduced the naming rule below wrote one on all
+     three boards it changed - which took those three interfaces out of the map,
+     and so out of every check that reads it. Blanking the comments keeps the
+     match strict (whitespace only) without letting prose decide what is scanned. */
+  const std::string text = hal_scan::without_comments(raw);
   std::map<std::string, std::string> out;
-  const std::regex re(R"(case comm_interface::(\w+):\s*\n\s*return ([^;]+);)");
+  const std::regex re(R"(case comm_interface::(\w+):\s*return ([^;]+);)");
   for (std::sregex_iterator it(text.begin(), text.end(), re), end; it != end; ++it) {
     out[(*it)[1]] = (*it)[2];
   }
@@ -210,6 +222,207 @@ bool declared_unconditionally(const std::string& code, const std::string& iface)
   return false;
 }
 
+/* The if/else ARMS of the declaration body, each with the condition that
+ * controls it and which side of it the arm is.
+ *
+ * conditional_spans() above answers "is this declaration guarded at all", which
+ * is what the flat-declaration check needs. It is not enough for the board that
+ * is two boards: guarding a declaration with the WRONG branch of the right probe
+ * is the original defect exactly - the interface is declared on the fitment
+ * whose chip select is GPIO_NUM_NC - and a check that only asks "is it guarded"
+ * passes it. Mutation-checked: see AnInvertedGuardIsNotAgreement.
+ */
+struct Arm {
+  std::string cond;
+  bool positive;  // true: the `if` arm; false: its bare `else`.
+  size_t begin;
+  size_t end;
+};
+
+std::vector<Arm> conditional_arms(const std::string& code) {
+  std::vector<Arm> arms;
+  for (size_t at = code.find("if ("); at != std::string::npos; at = code.find("if (", at + 1)) {
+    const size_t paren = code.find('(', at);
+    if (paren == std::string::npos) {
+      continue;
+    }
+    size_t k = paren;
+    int depth = 0;
+    for (; k < code.size(); ++k) {
+      if (code[k] == '(') {
+        ++depth;
+      } else if (code[k] == ')' && --depth == 0) {
+        break;
+      }
+    }
+    if (k >= code.size()) {
+      continue;
+    }
+    const std::string cond = code.substr(paren + 1, k - paren - 1);
+    bool positive = true;
+    size_t open = code.find('{', k);
+    while (open != std::string::npos) {
+      size_t close = open;
+      int d = 0;
+      for (; close < code.size(); ++close) {
+        if (code[close] == '{') {
+          ++d;
+        } else if (code[close] == '}' && --d == 0) {
+          break;
+        }
+      }
+      if (close >= code.size()) {
+        break;
+      }
+      arms.push_back({cond, positive, open, close});
+      size_t next = close + 1;
+      while (next < code.size() && std::isspace((unsigned char)code[next])) {
+        ++next;
+      }
+      if (code.compare(next, 4, "else") != 0) {
+        break;
+      }
+      size_t after = next + 4;
+      while (after < code.size() && std::isspace((unsigned char)code[after])) {
+        ++after;
+      }
+      if (code.compare(after, 3, "if ") == 0) {
+        break;  // `else if` is its own condition; the outer loop reaches it.
+      }
+      positive = false;
+      open = code.find('{', next);
+    }
+  }
+  return arms;
+}
+
+const Arm* innermost_arm(const std::vector<Arm>& arms, size_t pos) {
+  const Arm* best = nullptr;
+  for (const auto& a : arms) {
+    if (pos < a.begin || pos > a.end) {
+      continue;
+    }
+    if (best == nullptr || (a.end - a.begin) < (best->end - best->begin)) {
+      best = &a;
+    }
+  }
+  return best;
+}
+
+std::string squeeze(const std::string& s) {
+  std::string out;
+  for (char c : s) {
+    if (!std::isspace((unsigned char)c)) {
+      out += c;
+    }
+  }
+  return out;
+}
+
+// `COND ? A : B`, split at the top level. Anything else is not a ternary.
+struct Ternary {
+  bool ok = false;
+  std::string cond;
+  std::string when_true;
+  std::string when_false;
+};
+
+Ternary as_ternary(const std::string& expr) {
+  Ternary t;
+  int depth = 0;
+  size_t q = std::string::npos;
+  for (size_t i = 0; i < expr.size(); ++i) {
+    if (expr[i] == '(') {
+      ++depth;
+    } else if (expr[i] == ')') {
+      --depth;
+    } else if (expr[i] == '?' && depth == 0) {
+      q = i;
+      break;
+    }
+  }
+  if (q == std::string::npos) {
+    return t;
+  }
+  depth = 0;
+  for (size_t i = q + 1; i < expr.size(); ++i) {
+    if (expr[i] == '(') {
+      ++depth;
+    } else if (expr[i] == ')') {
+      --depth;
+    } else if (expr[i] == '?' && depth == 0) {
+      return t;  // Nested ternary: not the narrow shape this judges.
+    } else if (expr[i] == ':' && depth == 0) {
+      if (i + 1 < expr.size() && expr[i + 1] == ':') {
+        ++i;  // A scope operator, not the ternary's colon.
+        continue;
+      }
+      t.ok = true;
+      t.cond = expr.substr(0, q);
+      t.when_true = expr.substr(q + 1, i - q - 1);
+      t.when_false = expr.substr(i + 1);
+      return t;
+    }
+  }
+  return t;
+}
+
+/* Does a conditionally-routed interface's DECLARATION agree with its routing?
+ *
+ * Decidable without evaluating the probe whenever both sides are written
+ * against the same expression: if MCP2515_CS() is `is_fd() ? GPIO_NUM_NC :
+ * GPIO_NUM_10`, the chip exists exactly when is_fd() is false, so the
+ * declaration must sit on the `else` of `if (is_fd())`. Same expression, other
+ * branch, and the board declares an add-on whose chip select is not routed.
+ */
+enum class Agreement { NotJudged, DeclaredFlat, Agrees, WrongBranch, Undecidable };
+
+Agreement declaration_agreement(const std::string& code, const std::string& iface, const std::string& cs_value,
+                                std::string* why) {
+  const Ternary cs = as_ternary(cs_value);
+  if (!cs.ok) {
+    return Agreement::NotJudged;
+  }
+  const bool nc_when_true = cs.when_true.find("GPIO_NUM_NC") != std::string::npos;
+  const bool nc_when_false = cs.when_false.find("GPIO_NUM_NC") != std::string::npos;
+  if (nc_when_true == nc_when_false) {
+    return Agreement::NotJudged;  // Routed on both branches, or on neither.
+  }
+  const bool routed_when_true = nc_when_false;
+
+  const std::vector<Arm> arms = conditional_arms(code);
+  const std::string token = "comm_interface::" + iface;
+  Agreement verdict = Agreement::NotJudged;
+  for (size_t at = code.find(token); at != std::string::npos; at = code.find(token, at + 1)) {
+    const size_t after = at + token.size();
+    if (after < code.size() && (std::isalnum((unsigned char)code[after]) || code[after] == '_')) {
+      continue;  // A prefix of a longer name: Mcp2518 inside Mcp2518_2.
+    }
+    const Arm* arm = innermost_arm(arms, at);
+    if (arm == nullptr) {
+      if (why != nullptr) {
+        *why = "declared outside any guard";
+      }
+      return Agreement::DeclaredFlat;
+    }
+    if (squeeze(arm->cond) != squeeze(cs.cond)) {
+      if (why != nullptr) {
+        *why = "guarded by `" + squeeze(arm->cond) + "`, routed on `" + squeeze(cs.cond) + "`";
+      }
+      return Agreement::Undecidable;
+    }
+    if (arm->positive != routed_when_true) {
+      if (why != nullptr) {
+        *why = std::string("declared on the `") + (arm->positive ? "if" : "else") + "` arm of `" + squeeze(cs.cond) +
+               "`, where the chip select is GPIO_NUM_NC";
+      }
+      return Agreement::WrongBranch;
+    }
+    verdict = Agreement::Agrees;
+  }
+  return verdict;
+}
+
 // The accessor's written expression, or "" when the board does not override it.
 std::string cs_expression(const Hal& h, const char* accessor) {
   std::smatch m;
@@ -277,8 +490,11 @@ TEST(HalInterfaceDeclaration, TheDeclarationAgreesWithConditionalRouting) {
      GPIO_NUM_10` - so on the FD fitment the board declared an add-on whose chip
      select is not routed, and named it "" so the dropdown hid it too.
 
-     The rule is narrow and decidable from source: if a chip select is routed on
-     only SOME branch, the interface may not be declared on ALL of them. */
+     The rule is narrow and decidable from source, and it is decidable further
+     than "is it guarded at all": when the declaration is guarded by the SAME
+     expression that picks the pins, which branch it sits on says whether the two
+     agree. Guarding it with the wrong branch declares the add-on on exactly the
+     fitment that does not route it - the original defect, wearing a guard. */
   for (const auto& h : halsWithDeclarations()) {
     const std::string code = hal_scan::code_only(hal_scan::available_interfaces_body(h.text));
     for (const auto& iface : h.declared) {
@@ -294,8 +510,72 @@ TEST(HalInterfaceDeclaration, TheDeclarationAgreesWithConditionalRouting) {
           << h.file << " declares " << iface << " unconditionally, but " << accessor << "() is " << value
           << " - on the branch where it is GPIO_NUM_NC the board declares an add-on it does not route. "
              "Guard the declaration with the same probe that guards the pins.";
+
+      std::string why;
+      const Agreement verdict = declaration_agreement(code, iface, value, &why);
+      EXPECT_NE(verdict, Agreement::WrongBranch)
+          << h.file << " guards " << iface << " with the same probe as " << accessor << "() = " << value
+          << ", but on the other branch: " << why
+          << ". The board declares an add-on it does not route on that fitment, which is the defect a guard "
+             "was supposed to remove.";
     }
   }
+}
+
+TEST(HalInterfaceDeclaration, AnInvertedGuardIsNotAgreement) {
+  /* The mutation this check exists for, run as a test rather than trusted: the
+     real hw_lilygo2can shapes, with the declaration moved to the other arm of
+     the same probe. Before the polarity check, the audit passed this - it is
+     guarded, and a guard was all it asked for. */
+  const std::string cs = "is_fd() ? GPIO_NUM_NC : GPIO_NUM_10";
+  const std::string right =
+      "{ std::vector<comm_interface> out = {comm_interface::CanNative};\n"
+      "  if (is_fd()) {\n    out.push_back(comm_interface::CanFdAddonMcp2518_2);\n"
+      "  } else {\n    out.push_back(comm_interface::CanAddonMcp2515);\n  }\n  return out; }";
+  const std::string inverted =
+      "{ std::vector<comm_interface> out = {comm_interface::CanNative};\n"
+      "  if (is_fd()) {\n    out.push_back(comm_interface::CanAddonMcp2515);\n"
+      "  } else {\n  }\n  return out; }";
+  const std::string other_probe =
+      "{ std::vector<comm_interface> out = {comm_interface::CanNative};\n"
+      "  if (has_addon()) {\n    out.push_back(comm_interface::CanAddonMcp2515);\n  }\n  return out; }";
+
+  std::string why;
+  EXPECT_EQ(declaration_agreement(right, "CanAddonMcp2515", cs, &why), Agreement::Agrees);
+  EXPECT_EQ(declaration_agreement(inverted, "CanAddonMcp2515", cs, &why), Agreement::WrongBranch) << why;
+  EXPECT_EQ(declaration_agreement(other_probe, "CanAddonMcp2515", cs, &why), Agreement::Undecidable) << why;
+  EXPECT_EQ(declaration_agreement("{ return {comm_interface::CanAddonMcp2515}; }", "CanAddonMcp2515", cs, &why),
+            Agreement::DeclaredFlat)
+      << why;
+}
+
+TEST(HalInterfaceDeclaration, ACommentBetweenACaseAndItsNameDoesNotHideTheInterface) {
+  /* The name scan matched a case label and its `return` only when nothing but
+     whitespace separated them. Three boards acquired a comment in exactly that
+     position - written by the change that added the naming rule - and dropped
+     out of the map, so the rule stopped covering the boards it was written for
+     and every mutation of their names survived. */
+  const std::string commented =
+      "    switch (comm) {\n"
+      "      case comm_interface::CanAddonMcp2515:\n"
+      "        /* Named, not blanked: the page drops blank names before it\n"
+      "           checks the declaration. */\n"
+      "        return \"CAN (MCP2515 add-on)\";\n"
+      "    }\n";
+  const auto names = names_in(commented);
+  ASSERT_EQ(names.count("CanAddonMcp2515"), 1u)
+      << "a comment between the case and its return took the interface out of the name scan";
+  EXPECT_EQ(names.at("CanAddonMcp2515"), "\"CAN (MCP2515 add-on)\"");
+
+  const std::string blanked =
+      "    switch (comm) {\n"
+      "      case comm_interface::CanAddonMcp2515:\n"
+      "        // Kept blank on purpose - return \"CAN (MCP2515 add-on)\" if this changes.\n"
+      "        return \"\";\n"
+      "    }\n";
+  ASSERT_EQ(names_in(blanked).count("CanAddonMcp2515"), 1u);
+  EXPECT_EQ(names_in(blanked).at("CanAddonMcp2515"), "\"\"")
+      << "the name a comment MENTIONS is not the name the arm returns";
 }
 
 TEST(HalInterfaceDeclaration, EveryDeclaredInterfaceIsNamed) {
@@ -396,8 +676,13 @@ TEST(HalInterfaceDeclaration, TheScanReportsWhatItCannotJudge) {
       }
       const std::string value = cs_expression(h, accessor);
       const bool cs_conditional = !value.empty() && is_conditional(value);
-      if (cs_conditional && !declared_unconditionally(code, iface)) {
-        unjudged.insert(h.file + ":" + iface);  // Both sides conditional: agreement is not statically decidable.
+      if (!cs_conditional || declared_unconditionally(code, iface)) {
+        continue;  // Decided by the two checks above.
+      }
+      std::string why;
+      const Agreement verdict = declaration_agreement(code, iface, value, &why);
+      if (verdict != Agreement::Agrees && verdict != Agreement::WrongBranch) {
+        unjudged.insert(h.file + ":" + iface + " (" + (why.empty() ? "shape not judged" : why) + ")");
       }
     }
   }
@@ -409,19 +694,52 @@ TEST(HalInterfaceDeclaration, TheScanReportsWhatItCannotJudge) {
                "decidable: "
             << (listed.empty() ? "(none)" : listed) << std::endl;
 
-  /* Two entries, both legitimately undecidable rather than merely unchecked, and
-     both on the one board that is two boards. hw_lilygo2can guards each of these
-     declarations with the same `is_fd()` probe that guards its pins - the 2515
-     on the non-FD arm, the second FD channel on the FD arm - so they agree by
-     construction. Proving that from source means evaluating the predicate, which
-     is the thing a source scan cannot do; what CAN be checked is that neither is
-     declared flat, and TheDeclarationAgreesWithConditionalRouting does that.
-     Every other board is now fully decided. */
-  const std::set<std::string> expected = {
-      "hw_lilygo2can.h:CanAddonMcp2515",
-      "hw_lilygo2can.h:CanFdAddonMcp2518_2",
-  };
+  /* Empty, and that is a change of instrument rather than of the boards. The two
+     entries this list used to carry - hw_lilygo2can's 2515 and its second FD
+     channel - were called undecidable because deciding them looked like
+     evaluating is_fd(). It is not: both declarations are guarded by the same
+     written expression that picks the pins, so the BRANCH they sit on settles
+     the question without evaluating anything, and declaration_agreement() does
+     that. What lands here now is a declaration guarded by a DIFFERENT expression
+     from its routing, which is the case that genuinely needs a human. */
+  const std::set<std::string> expected = {};
   EXPECT_EQ(unjudged, expected) << "the set of statically undecidable declarations changed. That is not "
                                    "automatically wrong, but it is never routine: either a board gained a "
-                                   "runtime probe (update this list and say why) or one lost its cover.";
+                                   "runtime probe this scan cannot pair with its routing (update this list "
+                                   "and say why) or one lost its cover.";
+}
+
+TEST(HalInterfaceDeclaration, ThePageDropsBlankNamesBeforeItChecksTheDeclaration) {
+  /* The premise every naming rule above rests on, asserted instead of assumed.
+     Three boards carry a comment saying the settings page drops blank-named
+     options BEFORE it consults the declaration, and that is why they must name
+     an interface they do not declare. Nothing tested it: the webserver is not
+     linked into the host suite (it reaches for FS.h and the async server), so
+     the page's behaviour was a claim in a comment, and a reordering there would
+     leave those comments describing code that no longer exists while the rule
+     they justify stayed in force.
+
+     Scanned rather than executed, for the same reason as everything else in this
+     file, and narrow: the blank-name filter runs first, and the exemption that
+     keeps a SELECTED-but-undeclared value in the list runs after it. */
+  const std::string source = read(webserver_dir() + "/settings_html.cpp");
+  const std::string body = hal_scan::code_only(hal_scan::body_of(source, "String options_for_comm_interface("));
+  ASSERT_FALSE(body.empty()) << "options_for_comm_interface() not found - the page moved, and the naming rules "
+                                "in this file cite its behaviour as their reason";
+
+  const size_t blank_filter = body.find("name[0]");
+  const size_t declared_check = body.find("declared");
+  ASSERT_NE(blank_filter, std::string::npos) << "the blank-name filter is gone from the option builder: " << body;
+  ASSERT_NE(declared_check, std::string::npos) << "the declaration check is gone from the option builder: " << body;
+  EXPECT_LT(blank_filter, declared_check)
+      << "the option builder now consults the declaration before it drops blank names. If a blank-named "
+         "option that IS the stored selection now survives, the rule that no board may un-name an interface "
+         "the base class names has lost its reason - revisit NoBoardBlanksAnInterfaceTheBaseClassNames and "
+         "the comments on hw_becom, hw_waveshare and hw_lilygo2can before relaxing anything.";
+
+  EXPECT_NE(squeeze(body).find("!declared&&type!=selected"), std::string::npos)
+      << "the exemption that keeps the currently SELECTED value in the list is gone, so a stale stored "
+         "interface can no longer be corrected from the page at all - naming it, which is what the three "
+         "boards above do, then buys nothing: "
+      << body;
 }

@@ -143,7 +143,10 @@ TEST(CanInterfaceAvailability, ThePopulatedFdChipIsNotHiddenByABlankName) {
   // The other half of the original defect: a declared interface still disappears from the page
   // if its display name is empty, because the option builder skips blank names. Declaring it and
   // naming it "" would look fixed and behave exactly as before.
-  const std::string source = read_source("hw_stark.h");
+  // Comments blanked: this walks from a case label to the next `return`, and a comment written
+  // between the two - which is where the house writes them, and what took three boards out of the
+  // sibling file's name scan - would otherwise be read as the arm.
+  const std::string source = hal_scan::without_comments(read_source("hw_stark.h"));
   const size_t at = source.find("case comm_interface::CanFdAddonMcp2518:");
   ASSERT_NE(at, std::string::npos) << "no name arm for the populated FD chip";
   const size_t ret = source.find("return", at);

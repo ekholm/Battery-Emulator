@@ -114,12 +114,18 @@ class StarkHal : public Esp32Hal {
     /* No MCP2515: this board routes no chip select for one - MCP2515_CS() is
        the base class's GPIO_NUM_NC - and "available" here means the chip
        select is routed, which is what lets a user fit the module. Declaring
-       it anyway was not cosmetic: init_CAN() trusts this list, so a stored
-       selection of that interface passed the availability guard and drove a
-       chip select at NC, which is the "autodetected crystal: 0MHz" failure
-       this whole declaration mechanism exists to stop - surviving on the very
-       board that motivated it. The empty name below only hid it from the
-       dropdown; a value already in NVS never goes through the dropdown. */
+       it anyway was not cosmetic, and what it costs is NOT the "autodetected
+       crystal: 0MHz" failure the phantom second MCP2518FD above produced:
+       that one has its chip select ROUTED, at pins where no chip answers. An
+       UNROUTED one never reaches a chip at all. alloc_pins() rejects any pin
+       below zero before anything is driven, so a stored selection of this
+       interface passes the availability guard, raises EVENT_GPIO_NOT_DEFINED
+       and returns false out of init_CAN() - from a block that sits ABOVE the
+       MCP2518FD blocks, so it takes this board's FD interfaces down with it.
+       That is the failure the guard at the top of init_CAN() was rewritten to
+       stop, reappearing one block below where its erase-and-continue can
+       reach. The empty name below only hid it from the dropdown; a value
+       already in NVS never goes through the dropdown. */
     return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanFdNative,
             comm_interface::CanFdAddonMcp2518};
   }

@@ -31,9 +31,15 @@
 
 namespace hal_scan {
 
-// The body of available_interfaces(), braces matched, comments and literals skipped.
-inline std::string available_interfaces_body(const std::string& source) {
-  const size_t at = source.find("available_interfaces()");
+/* The body of the function whose signature contains `signature`, braces matched,
+ * comments and literals skipped while matching.
+ *
+ * Parameterised because the page-side check needs the same extraction over
+ * settings_html.cpp, and re-deriving it a third time is precisely the mistake
+ * this header was created to stop.
+ */
+inline std::string body_of(const std::string& source, const std::string& signature) {
+  const size_t at = source.find(signature);
   if (at == std::string::npos) {
     return "";
   }
@@ -78,6 +84,11 @@ inline std::string available_interfaces_body(const std::string& source) {
     ++close;
   }
   return source.substr(open, close - open);
+}
+
+// The body of available_interfaces(), braces matched, comments and literals skipped.
+inline std::string available_interfaces_body(const std::string& source) {
+  return body_of(source, "available_interfaces()");
 }
 
 /* Everything outside comments and literals, with the removed spans blanked so
@@ -126,6 +137,65 @@ inline std::string code_only(const std::string& text) {
       }
       if (i < text.size()) {
         out += ' ';
+        ++i;
+      }
+      continue;
+    }
+    out += c;
+    ++i;
+  }
+  return out;
+}
+
+/* Comments blanked, literals kept - for the scans that need the string a case
+ * arm RETURNS, which code_only() would blank along with the comment beside it.
+ *
+ * The name scan had the raw-text version of the same defect code_only() exists
+ * to stop, one function over: it matched `case ...:` and `return ...;` only when
+ * nothing but whitespace separated them, so a comment written between the label
+ * and the arm removed that interface from the map entirely - the check then had
+ * nothing to judge and passed. Three boards acquired exactly such a comment in
+ * the commit that added the rule those checks enforce, so all three stopped
+ * being covered by it. House style here is long explanatory comments; a scan
+ * that reads raw text will keep meeting them.
+ */
+inline std::string without_comments(const std::string& text) {
+  std::string out;
+  out.reserve(text.size());
+  size_t i = 0;
+  while (i < text.size()) {
+    const char c = text[i];
+    if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
+      while (i < text.size() && text[i] != '\n') {
+        out += ' ';
+        ++i;
+      }
+      continue;
+    }
+    if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+      const size_t end = text.find("*/", i + 2);
+      const size_t stop = (end == std::string::npos) ? text.size() : end + 2;
+      for (; i < stop; ++i) {
+        out += (text[i] == '\n') ? '\n' : ' ';
+      }
+      continue;
+    }
+    if (c == '"' || c == '\'') {
+      // Copied through verbatim: a comment marker inside a literal is not a
+      // comment, and the literal itself is what the caller came for.
+      const char quote = c;
+      out += c;
+      ++i;
+      while (i < text.size() && text[i] != quote) {
+        if (text[i] == '\\' && i + 1 < text.size()) {
+          out += text[i];
+          ++i;
+        }
+        out += text[i];
+        ++i;
+      }
+      if (i < text.size()) {
+        out += text[i];
         ++i;
       }
       continue;
