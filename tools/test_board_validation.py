@@ -130,6 +130,14 @@ def main():
     expect_reject('canfd naming the retired INT0/INT1 pair',
                   stark.replace('cs: 18, int: 35', 'cs: 18, int: 35, int0: 36, int1: 39'),
                   'stark', 'can', 'unknown field', 'int0', 'int1')
+    # The MCP2515's interrupt requirement is now written the SAME way as the
+    # CAN-FD one above - a plain `requires` - and until this case it was the
+    # only one of the pair with no test: weakening `mcp2515`'s requires to
+    # ['cs'] passed the whole suite, measured. The two constraints are one
+    # shape now, so they get one guard each.
+    expect_reject('mcp2515 with no interrupt',
+                  lilygo.replace('cs: 18, int: 35, addon: mcp2515', 'cs: 18, addon: mcp2515'),
+                  'lilygo', 'can', 'mcp2515', 'int', board='lilygo')
 
     # Buses are declared once and referenced; a dangling or incomplete bus is
     # exactly the kind of thing the old flat pin map could not express.
