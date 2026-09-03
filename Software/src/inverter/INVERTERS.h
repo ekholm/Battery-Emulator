@@ -4,6 +4,7 @@
 #include "InverterProtocol.h"
 
 #include <stdint.h>
+#include <atomic>
 
 // Inverter contactor workaround modes
 enum inverter_contactor_mode_enum {
@@ -47,8 +48,16 @@ extern uint32_t inverter_modbus_watchdog_timeout_s;
 // Set by the inverter driver when the value above changed and needs persisting. The driver does not
 // touch NVM itself; the connectivity loop drains this into store_settings_inverter_watchdog(). It is
 // deliberately NOT the core loop: that task drives CAN, and a flash write blocks its caller for as
-// long as the operation takes. Set on one task and cleared on another, so it is volatile.
-extern volatile bool inverter_modbus_watchdog_changed;
+// long as the operation takes.
+//
+// Atomic, and the reason is ORDERING rather than tearing - a bool cannot tear. The producer writes
+// the period above and THEN raises this flag, on the core task and therefore on the other core; the
+// drainer takes the flag and then reads the period. Only a release store paired with an acquire read
+// makes the period's write visible to whoever observes the flag set. A volatile flag orders itself
+// against other volatile accesses only, so the plain store to the period could be observed after it,
+// and the drainer would then persist the OLD period and clear the flag - losing the new one silently
+// until an inverter declares a different value again.
+extern std::atomic<bool> inverter_modbus_watchdog_changed;
 // Should a non-zero RebootCommand in register 407 restart the emulator?
 extern bool user_selected_accept_inverter_reboot;
 // Inverter wall clock from registers 403-406, Unix epoch seconds. 0 = nothing received since boot.

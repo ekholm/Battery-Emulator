@@ -338,10 +338,13 @@ void store_settings_equipment_stop() {
 }
 
 void store_settings_inverter_watchdog() {
-  if (!inverter_modbus_watchdog_changed) {
+  // Take the flag and clear it in one operation. Clearing BEFORE the period is read is what makes a
+  // value arriving mid-write survive: it leaves the flag raised again and is written on the next
+  // pass. Acquire pairs with the driver's release store, so the period read below is the one the
+  // driver published.
+  if (!inverter_modbus_watchdog_changed.exchange(false, std::memory_order_acquire)) {
     return;
   }
-  inverter_modbus_watchdog_changed = false;
   BatteryEmulatorSettingsStore settings(false);
   // Never write a value NVM already holds. saveUInt() skips an unchanged key on its own, but it
   // writes when the key is missing, which would put the default into flash the first time an

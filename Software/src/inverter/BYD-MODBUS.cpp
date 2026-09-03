@@ -214,7 +214,7 @@ void BydModbusInverter::handle_inverter_control_data() {
   // WatchDogTimeout (402). The inverter declares the period it kicks register 401 with. Follow it, so
   // inverter-missing detection tracks the inverter instead of a hardcoded assumption. Only flagged
   // when it actually changes, so a boot with the value we already hold never writes NVM. The write
-  // itself belongs to the core loop, keeping this driver free of any storage dependency.
+  // itself belongs to the connectivity loop, keeping this driver free of any storage dependency.
   const uint32_t declared_timeout_s = mbPV[402];
   if (declared_timeout_s >= WATCHDOG_TIMEOUT_MIN_S && declared_timeout_s <= WATCHDOG_TIMEOUT_MAX_S &&
       declared_timeout_s != inverter_modbus_watchdog_timeout_s) {
@@ -222,7 +222,9 @@ void BydModbusInverter::handle_inverter_control_data() {
     logging.printf("Inverter changed the WatchDog Timeout from %u s to %u s\n", inverter_modbus_watchdog_timeout_s,
                    declared_timeout_s);
     inverter_modbus_watchdog_timeout_s = declared_timeout_s;
-    inverter_modbus_watchdog_changed = true;
+    // Release: the period above must be visible to anyone who sees this flag set. The drainer runs
+    // on the connectivity loop, which is pinned to the other core.
+    inverter_modbus_watchdog_changed.store(true, std::memory_order_release);
   }
 
   // UTC (403-406), a big-endian uint64 holding Unix epoch seconds. Kept for display only.
