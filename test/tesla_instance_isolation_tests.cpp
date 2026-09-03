@@ -164,3 +164,49 @@ TEST(TeslaInstanceIsolation, TheMainInstanceStillArmsTheUdsPartNumberQuery) {
 
   EXPECT_TRUE(sent_uds_handshake()) << "the main battery stopped sending the UDS part-number handshake";
 }
+
+/* The two ENDS of the guarded block, pinned individually.
+ *
+ * TheMainInstanceStillPublishesIntoTheExtendedStruct above only asks whether
+ * SOMETHING was written, which 476 writes make true even if one is gone. That
+ * left both boundaries unguarded: deleting the first extended write, or the
+ * last, passed the whole suite. The boundaries are exactly where a mistake is
+ * plausible, because the block is delimited by a hand-placed brace - a closing
+ * brace one write early silently stops that write for the MAIN battery, which
+ * is the pack whose page people actually read.
+ *
+ * Poison rather than a value comparison: these two fields are assigned from
+ * members that are zero on a battery which has seen no CAN, so "still 0xAB"
+ * distinguishes "never written" from "written as 0" and a zero-comparison
+ * would not. The bytes are read through memcpy because a bool holding 0xAB is
+ * not safely readable as a bool.
+ */
+namespace {
+uint8_t first_byte_of(const void* field) {
+  uint8_t byte;
+  memcpy(&byte, field, 1);
+  return byte;
+}
+}  // namespace
+
+TEST(TeslaInstanceIsolation, TheMainInstanceWritesBothEndsOfTheGuardedBlock) {
+  poison_extended();
+
+  TeslaBattery main_battery;
+  main_battery.update_values();
+
+  EXPECT_NE(first_byte_of(&datalayer_extended.tesla.hvil_status), kPoison)
+      << "the FIRST write inside the extended-struct guard did not happen - either it was dropped or "
+         "the guard now opens after it, and the main battery's advanced page loses that field";
+  /* Addressed as the array's last element rather than the literal index the
+     source writes, so this also fails if the array is ever grown without
+     growing the block of writes that fills it - which leaves the new tail
+     element rendering whatever was in memory. */
+  const size_t last_alert = (sizeof(datalayer_extended.tesla.CP_alertMatrixActive) /
+                             sizeof(datalayer_extended.tesla.CP_alertMatrixActive[0])) -
+                            1;
+  EXPECT_NE(first_byte_of(&datalayer_extended.tesla.CP_alertMatrixActive[last_alert]), kPoison)
+      << "the LAST write inside the extended-struct guard did not happen - either the closing brace "
+         "moved above it, making every write between there and the true end of the block dead for "
+         "the main battery, or the array grew without the writes that fill it";
+}
