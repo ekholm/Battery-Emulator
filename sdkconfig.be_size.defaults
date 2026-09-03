@@ -129,18 +129,22 @@ CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 # keepalive timeout is run against:
 #
 #   64 KB block erases (this option off), ~1.9 MB upload:
-#     100 f/s offered:  worst 195.8 ms, 30 intervals over 100 ms, 0 frames lost
-#    1000 f/s offered:  worst 108.7 ms,  9 intervals over 100 ms, 0 frames lost
+#     100 f/s offered:  worst 106.5 ms, 15 intervals over 100 ms, 0 frames lost
+#    1000 f/s offered:  worst 101.2 ms,  6 intervals over 100 ms, 0 frames lost
 #
-#   The slower, more realistic cadence is the worse one: there are 29 block
-#   erases in an upload of this size and at 100 f/s essentially every one of
-#   them is long enough to be a breach.
+#   4 KB sector erases (this option on), same rig, same image:
+#     100 f/s offered:  worst  30.5 ms,  0 intervals over 100 ms, 0 frames lost
+#    1000 f/s offered:  worst  29.0 ms,  0 intervals over 100 ms, 0 frames lost
 #
-#   4 KB sector erases (this option on): SUBJECT LEG PENDING
+#   The slower, more realistic cadence is the worse one without this option:
+#   there are 29 block erases in an upload of this size, and at 10 ms between
+#   frames half of them are long enough to be a breach on their own.
 #
 # The cost is real rather than slight, and it is the reason this is a deliberate
 # trade and not a free win: erasing 64 KB as sixteen sector commands takes
-# longer than one block command, so the upload runs slower.
+# longer than one block command, so the upload runs slower. Measured on the same
+# legs: 11.1-11.4 s becomes 18.2-18.9 s for a 1.89 MB image, about 64 % longer,
+# paid once per firmware update.
 #
 # That is the trade this firmware wants. It is a battery emulator on a live bus
 # and a late keepalive outranks a fast upload, and the exposure is bounded to
