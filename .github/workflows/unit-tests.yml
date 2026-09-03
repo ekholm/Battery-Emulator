@@ -24,6 +24,16 @@ jobs:
     - name: Check battery capacity detection list
       run: python3 tools/check_capacity_detection.py
 
+    # The ISR IRAM audit that gates every firmware build is a parser, and a
+    # parser's holes are invisible to the end-to-end evidence behind it: mutating
+    # firmware proves the audit catches what THAT image contains, and says
+    # nothing about a shape the image happens not to contain. These cases drive
+    # the classification over synthetic objdump and nm text, so they need no
+    # toolchain, no image and no board - which is why they belong in this job
+    # rather than beside the build that runs the audit for real.
+    - name: Unit-test the ISR IRAM audit
+      run: python3 -m unittest discover -s tools -p 'test_*.py' -v
+
     - name: Configure and build with CMake
       run: |
         cd test

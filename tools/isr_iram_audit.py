@@ -9,13 +9,17 @@ handler on those paths - and everything the handler CALLS - is resident too.
 Otherwise the interrupt that used to be merely masked becomes an instruction
 fetch from a disabled flash cache, i.e. a crash instead of data loss.
 
-The ROOTS are safe by construction: IRAM_ATTR is a section attribute, so a
-marked function cannot be emitted to flash. The exposure is a CALLEE - an
-unmarked helper somewhere down the chain, or a header function the compiler
-decided to emit out-of-line into .flash.text. That is not a source property and
-scanning the source cannot see it: at -Os this codebase emitted the MCP2515
-decode out-of-line on two of four envs from identical source. So this walks the
-real call graph in the LINKED IMAGE.
+The main exposure is a CALLEE - an unmarked helper somewhere down the chain, or
+a header function the compiler decided to emit out-of-line into .flash.text.
+That is not a source property and scanning the source cannot see it: at -Os this
+codebase emitted the MCP2515 decode out-of-line on two of four envs from
+identical source. So this walks the real call graph in the LINKED IMAGE.
+
+The roots are MOSTLY safe by construction - IRAM_ATTR is a section attribute, so
+a marked function cannot be emitted to flash - but "it is marked" is a fact about
+the source, and in this tree the attribute sits behind an #ifdef in the vendored
+FD driver. Since the image is already open, the walk checks residency of every
+function it visits, roots included, rather than assuming the attribute is there.
 
     tools/isr_iram_audit.py .pio/build/<env>/firmware.elf [preset ...]
 
@@ -36,7 +40,8 @@ of one driver.
 Only CODE matters: a literal-pool load of a DRAM address or a peripheral
 register base is fine with the cache off; an instruction fetch from .flash.text
 is not. So this reports only targets that land inside .flash.text - direct call
-targets, and l32r-loaded code pointers that a callx then jumps to.
+targets at any of the windowed ABI's four call widths, and l32r-loaded code
+pointers that a callx then jumps to.
 
 Exit 0 and "clean" means every call those interrupts make stays in IRAM.
 Exit 1 means flash-resident code is reachable, and the symbols are named.
@@ -233,7 +238,58 @@ def symbols(tc, elf):
     return syms, by_name
 
 
-def walk(tc, elf, preset, syms, by_name, in_flash, in_iram):
+# Every xtensa instruction that can move control somewhere else. The windowed
+# ABI has FOUR call widths, not two: gcc picks the one that fits the callee's
+# register need, and this toolchain emits call12 as readily as call8. Matching
+# `call\d` rather than `call\d+` therefore reads `call12` as no call at all -
+# its target is neither followed nor reported, which is a hole in exactly the
+# direction that makes a gate say "clean".
+CALL_RE = re.compile(r"\b(call\d+|callx\d+|j|jx)\b")
+# Every hex word the instruction references, however it is printed: the
+# instruction's own address, a direct target, and - because this binutils
+# annotates l32r with the word it loads - a literal that happens to be a code
+# pointer.
+HEXWORD_RE = re.compile(r"\b([0-9a-f]{8})\b")
+
+
+def line_targets(line, in_flash, in_iram, entry):
+    """(flash targets, iram targets) one disassembly line reaches.
+
+    Pure, so the classification this whole audit rests on can be driven from a
+    test with synthetic objdump text rather than only end-to-end against an
+    image. Every defect found in it so far was invisible end-to-end: a call
+    width the audited path happens not to use is a hole that no amount of
+    mutating real firmware reveals.
+
+    `entry` is the set of symbol addresses. objdump decodes each function's
+    trailing literal pool as instructions too, and a data word can disassemble
+    into a plausible-looking call into flash - so only a target that is exactly
+    a function ENTRY counts; anything landing mid-symbol is pool garbage.
+    """
+    is_call = CALL_RE.search(line) is not None
+    is_literal = "l32r" in line
+    flash, iram = [], []
+    for tok in HEXWORD_RE.findall(line):
+        t = int(tok, 16)
+        if t not in entry:
+            continue
+        if in_flash(t) and (is_call or is_literal):
+            flash.append(t)
+        elif in_iram(t) and is_call:
+            iram.append(t)
+    return flash, iram
+
+
+def objdump_disassembler(tc, elf):
+    """The real disassembler: one function's address range, decoded."""
+    def disassemble(addr, size):
+        return subprocess.run([tc + "objdump", "-d", "-C", "--start-address=%d" % addr,
+                               "--stop-address=%d" % (addr + size), elf],
+                              capture_output=True, text=True).stdout
+    return disassemble
+
+
+def walk(disassemble, preset, syms, by_name, in_flash, in_iram):
     """(walked, flash-resident targets, roots that inlined away) for one preset."""
     roots = PRESETS[preset]
     absent = [r for r in roots["taken"] if r not in by_name]
@@ -244,10 +300,6 @@ def walk(tc, elf, preset, syms, by_name, in_flash, in_iram):
                 preset, "\n".join("  " + r for r in absent)))
     inlined = [r for r in roots["may_inline"] if r not in by_name]
 
-    # objdump decodes each function's trailing literal pool as instructions too,
-    # and a data word can disassemble into a plausible-looking call4 into flash.
-    # A real call goes to a function ENTRY, so only a target that is exactly a
-    # symbol address counts; anything landing mid-symbol is pool garbage.
     entry = set(syms)
 
     def name_of(addr):
@@ -264,22 +316,25 @@ def walk(tc, elf, preset, syms, by_name, in_flash, in_iram):
             continue
         seen.add(name)
         addr, size = by_name[name]
-        dis = subprocess.run([tc + "objdump", "-d", "-C", "--start-address=%d" % addr,
-                              "--stop-address=%d" % (addr + size), elf],
-                             capture_output=True, text=True).stdout
-        for line in dis.splitlines():
-            # every hex word the instruction references, however it is printed
-            is_call = re.search(r"\b(call\d|callx\d|j|jx)\b", line) is not None
-            for tok in re.findall(r"\b([0-9a-f]{8})\b", line):
-                t = int(tok, 16)
-                if in_flash(t) and (is_call or "l32r" in line) and t in entry:
-                    bad.append((name, name_of(t), t))
-                elif in_iram(t) and is_call:
-                    n = name_of(t)
-                    if n in by_name and n not in seen:
-                        queue.append(n)
+        # A function on this path that is ITSELF in flash is the finding, not
+        # only its callees. The roots are meant to be safe by construction -
+        # IRAM_ATTR is a section attribute - but that is a property of the
+        # SOURCE, and the whole reason this tool reads the image is that source
+        # properties are not what ships: the attribute sits behind an #ifdef in
+        # the vendored FD driver, and a callee reached through an IRAM caller
+        # has no attribute at all. Checking costs one comparison.
+        if in_flash(addr):
+            bad.append((name, name, addr))
+            continue
+        for line in disassemble(addr, size).splitlines():
+            flash_targets, iram_targets = line_targets(line, in_flash, in_iram, entry)
+            for t in flash_targets:
+                bad.append((name, name_of(t), t))
+            for t in iram_targets:
+                n = name_of(t)
+                if n in by_name and n not in seen:
+                    queue.append(n)
     return seen, sorted(set(bad)), inlined
-
 
 def main(argv):
     ap = argparse.ArgumentParser(description="ISR IRAM residency audit of a linked image")
@@ -310,6 +365,7 @@ def main(argv):
     in_flash = lambda a: flash_lo <= a < flash_hi  # noqa: E731
     in_iram = lambda a: iram_lo <= a < iram_hi  # noqa: E731
     syms, by_name = symbols(tc, args.elf)
+    disassemble = objdump_disassembler(tc, args.elf)
 
     # The gate: the flag's whole effect is that this function is resident, so the
     # image answers "is the flag on" without a config file to go stale.
@@ -349,7 +405,7 @@ def main(argv):
 
     findings = {}
     for preset in presets:
-        seen, bad, inlined = walk(tc, args.elf, preset, syms, by_name, in_flash, in_iram)
+        seen, bad, inlined = walk(disassemble, preset, syms, by_name, in_flash, in_iram)
         print("%-11s walked %d IRAM function(s) reachable from its interrupt roots - %s" % (
             preset, len(seen), "%d flash-resident target(s)" % len(bad) if bad else "clean"))
         for r in inlined:
