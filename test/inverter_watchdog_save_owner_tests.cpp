@@ -95,12 +95,37 @@ TEST(InverterWatchdogSaveOwner, ExactlyOneTaskPerformsTheSave) {
   EXPECT_EQ(count, 1u) << "Software.cpp names the save " << count << " times; it is one task's job";
 }
 
-/* The flag crosses a task boundary now: the inverter driver sets it on the core
- * task and the connectivity loop clears it. A non-volatile bool would let the
- * compiler cache the read in the loop that polls it.
+/* The flag crosses a CORE boundary now: the inverter driver raises it on the
+ * core task (pinned to CORE_FUNCTION_CORE) and the connectivity loop takes it
+ * (pinned to WIFICORE). What has to hold is an ORDERING, not just a fresh read
+ * - the driver writes the period and THEN raises the flag, and the drainer must
+ * see the period the driver published rather than the previous one. A volatile
+ * flag orders itself only against other volatile accesses, so the plain store
+ * to the period may be observed after it; the drainer would then persist the
+ * old period and clear the flag, losing the new one until an inverter declares
+ * a different value again. Three tests: the flag's type, the driver's half of
+ * the release/acquire pairing, and the drainer's.
  */
-TEST(InverterWatchdogSaveOwner, TheFlagIsDeclaredVolatileBecauseTwoTasksTouchIt) {
-  EXPECT_NE(inverters_h().find("extern volatile bool inverter_modbus_watchdog_changed;"), std::string::npos);
+TEST(InverterWatchdogSaveOwner, TheFlagIsAtomicBecauseTwoCoresTouchIt) {
+  EXPECT_NE(inverters_h().find("extern std::atomic<bool> inverter_modbus_watchdog_changed;"), std::string::npos)
+      << "volatile is not enough here: it does not order the period's write against the flag's";
+}
+
+TEST(InverterWatchdogSaveOwner, TheDriverPublishesThePeriodBeforeRaisingTheFlag) {
+  const std::string src = read_source_at(__FILE__, "../Software/src/inverter/BYD-MODBUS.cpp");
+  const size_t period = src.find("inverter_modbus_watchdog_timeout_s = declared_timeout_s;");
+  ASSERT_NE(period, std::string::npos) << "the driver no longer publishes the period here";
+  const size_t flag = src.find("inverter_modbus_watchdog_changed.store(true, std::memory_order_release)");
+  ASSERT_NE(flag, std::string::npos) << "the flag is raised without a release store; the period may trail it";
+  EXPECT_LT(period, flag) << "the flag is raised before the period is written, which inverts the pairing";
+}
+
+TEST(InverterWatchdogSaveOwner, TheStoreTakesTheFlagWithAcquireInOneOperation) {
+  const std::string body = required_function_body(comm_nvm_cpp(), "void store_settings_inverter_watchdog(");
+  ASSERT_FALSE(body.empty());
+  EXPECT_NE(body.find("inverter_modbus_watchdog_changed.exchange(false, std::memory_order_acquire)"), std::string::npos)
+      << "a separate test-then-clear reopens the window the exchange closes, and drops the acquire "
+         "that pairs with the driver's release";
 }
 
 /* What the move must NOT change, part one: the store still clears the flag
@@ -110,7 +135,8 @@ TEST(InverterWatchdogSaveOwner, TheFlagIsDeclaredVolatileBecauseTwoTasksTouchIt)
 TEST(InverterWatchdogSaveOwner, TheStoreStillClearsTheFlagItself) {
   const std::string body = required_function_body(comm_nvm_cpp(), "void store_settings_inverter_watchdog(");
   ASSERT_FALSE(body.empty());
-  EXPECT_NE(body.find("inverter_modbus_watchdog_changed = false;"), std::string::npos);
+  EXPECT_NE(body.find("inverter_modbus_watchdog_changed.exchange(false"), std::string::npos)
+      << "the store no longer clears the flag itself; a value arriving mid-write would be swallowed";
 }
 
 /* What the move must NOT change, part two: the never-write-an-unchanged-value
