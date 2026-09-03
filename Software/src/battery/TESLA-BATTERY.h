@@ -19,12 +19,21 @@ class TeslaBattery : public CanBattery {
   // Use the default constructor to create the first or single battery.
   TeslaBattery() {
     datalayer_battery = &datalayer.battery;
+    datalayer_tesla = &datalayer_extended.tesla;
     allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
     previous_max_percentage = datalayer.battery.settings.max_percentage;
   }
   // Use this constructor for the second or third battery.
   TeslaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : CanBattery(targetCan) {
     datalayer_battery = datalayer_ptr;
+    /* There is ONE datalayer_extended.tesla, and both constructors used to write
+       it. On a double-Tesla setup the two packs interleaved into one struct and
+       the main battery's advanced page showed a mix of both. The second instance
+       therefore gets no extended struct at all, which is the shape ECMP and
+       Renault Zoe Gen2 already use - and NULL rather than a private copy on
+       purpose, so a page that would show the second pack's data shows nothing
+       instead of something plausible and wrong. */
+    datalayer_tesla = nullptr;
     allows_contactor_closing = nullptr;
     previous_max_percentage = datalayer_ptr->settings.max_percentage;
   }
@@ -47,13 +56,18 @@ class TeslaBattery : public CanBattery {
 
   bool supports_manual_balancing() { return true; }
 
-  BatteryHtmlRenderer& get_status_renderer() { return renderer; }
+  BatteryHtmlRenderer& get_status_renderer() {
+    renderer.set_extended(datalayer_tesla);
+    return renderer;
+  }
 
   static constexpr const char* NameSX = "Tesla Model S/X";
   static constexpr const char* Name3Y = "Tesla Model 3/Y";
 
  private:
   TeslaHtmlRenderer renderer;
+  // The extended struct this instance owns, or nullptr for a second/third pack.
+  DATALAYER_INFO_TESLA* datalayer_tesla;
 
  protected:
   /* Do not change anything below this line! */

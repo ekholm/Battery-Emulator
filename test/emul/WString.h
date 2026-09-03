@@ -14,7 +14,12 @@ class String {
  public:
   // Constructors
   String() = default;
-  String(const char* s) : data(s) {}
+  // Arduino's String treats a NULL char* as the empty string rather than
+  // faulting, and firmware relies on it: datalayer fields typed char* are NULL
+  // until the value has been received, and the web renderers concatenate them
+  // unconditionally. Constructing std::string from NULL throws instead, which
+  // made a page that renders fine on the ESP32 impossible to test on the host.
+  String(const char* s) : data(s ? s : "") {}
   String(const std::string& s) : data(s) {}
   String(const String& other) = default;
   String(String&& other) = default;
