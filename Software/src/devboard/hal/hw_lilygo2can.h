@@ -155,9 +155,8 @@ class LilyGo2CANHal : public Esp32Hal {
     // mode MCP2517_CS2 is routed and the second FD channel is real - and it is the
     // channel this board NAMES "CAN FD (MCP2518 add-on)", so hiding it hid a
     // working interface on a shipping env.
-    std::vector<comm_interface> out = {comm_interface::Modbus, comm_interface::RS485,
-                                       comm_interface::CanNative, comm_interface::CanAddonMcp2515,
-                                       comm_interface::CanFdAddonMcp2518};
+    std::vector<comm_interface> out = {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative,
+                                       comm_interface::CanAddonMcp2515, comm_interface::CanFdAddonMcp2518};
     if (is_fd()) {
       out.push_back(comm_interface::CanFdAddonMcp2518_2);
     }

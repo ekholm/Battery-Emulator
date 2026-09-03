@@ -111,8 +111,8 @@ class StarkHal : public Esp32Hal {
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
 
   std::vector<comm_interface> available_interfaces() {
-    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanAddonMcp2515,
-            comm_interface::CanFdNative, comm_interface::CanFdAddonMcp2518};
+    return {comm_interface::Modbus,          comm_interface::RS485,       comm_interface::CanNative,
+            comm_interface::CanAddonMcp2515, comm_interface::CanFdNative, comm_interface::CanFdAddonMcp2518};
   }
 
   virtual const char* name_for_comm_interface(comm_interface comm) {
