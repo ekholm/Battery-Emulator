@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "../Software/src/battery/TESLA-BATTERY.h"
 #include "../Software/src/datalayer/datalayer.h"
@@ -20,6 +21,10 @@
  * usual here - "instance 2 wrote nothing" also passes if update_values() has
  * stopped writing for everyone, so the first test exists to fail in that case.
  */
+// Defined in test/emul/can.cpp - every frame the emulated interface transmits.
+void clear_transmitted_frames();
+const std::vector<CAN_frame>& get_transmitted_frames();
+
 namespace {
 
 // A pattern no field would arrive at on its own, so any write is visible.
@@ -37,6 +42,39 @@ bool extended_is_untouched() {
     }
   }
   return true;
+}
+
+CAN_frame tesla_72a(uint8_t mux, const char* seven_chars) {
+  CAN_frame frame = {};
+  frame.ID = 0x72A;
+  frame.DLC = 8;
+  frame.data.u8[0] = mux;
+  for (uint8_t i = 0; i < 7; i++) {
+    frame.data.u8[1 + i] = static_cast<uint8_t>(seven_chars[i]);
+  }
+  return frame;
+}
+
+// The BMS query's opening handshake: 0x602, first three bytes 02 10 03.
+bool sent_uds_handshake() {
+  for (const CAN_frame& frame : get_transmitted_frames()) {
+    if (frame.ID == 0x602u && frame.data.u8[0] == 0x02 && frame.data.u8[1] == 0x10 && frame.data.u8[2] == 0x03) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Feeds a complete pack serial number, then runs long enough for the UDS state
+// machine to reach the wire.
+void run_until_uds_could_have_been_sent(TeslaBattery& battery) {
+  battery.handle_incoming_can_frame(tesla_72a(0x00, "TG32120"));
+  battery.handle_incoming_can_frame(tesla_72a(0x01, "2003AHX"));
+  battery.update_values();
+  clear_transmitted_frames();
+  for (unsigned long now = 0; now < 5000; now += 10) {
+    battery.transmit_can(now);
+  }
 }
 
 }  // namespace
@@ -102,4 +140,27 @@ TEST(TeslaInstanceIsolation, TheMainInstancesPageStillRendersItsData) {
   EXPECT_NE(html.find("Battery Beginning of Life: 137"), std::string::npos)
       << "the main battery's page lost its data - the nullptr branch is being taken for the instance "
          "that does own the extended struct";
+}
+
+TEST(TeslaInstanceIsolation, ASecondInstanceStillArmsTheUdsPartNumberQuery) {
+  /* The part-number query is armed inside what is now the extended-only block,
+     but it drives a UDS request on the wire rather than anything on the page.
+     It has to keep running for a pack with no extended struct, or the guard
+     would have silently taken a CAN feature away from the second battery. */
+  DATALAYER_BATTERY_TYPE second_pack = {};
+  TeslaBattery second_battery(&second_pack, CAN_NATIVE);
+
+  run_until_uds_could_have_been_sent(second_battery);
+
+  EXPECT_TRUE(sent_uds_handshake())
+      << "the second pack never sent the UDS part-number handshake - the extended-struct guard "
+         "swallowed a request that belongs on the wire, not on the web page";
+}
+
+TEST(TeslaInstanceIsolation, TheMainInstanceStillArmsTheUdsPartNumberQuery) {
+  TeslaBattery main_battery;
+
+  run_until_uds_could_have_been_sent(main_battery);
+
+  EXPECT_TRUE(sent_uds_handshake()) << "the main battery stopped sending the UDS part-number handshake";
 }
