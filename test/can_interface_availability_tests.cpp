@@ -129,7 +129,8 @@ TEST(CanInterfaceAvailability, TheBodyExtractorStopsAtTheFunctionsOwnBrace) {
       "  std::vector<comm_interface> available_interfaces() {\n"
       "    std::vector<comm_interface> out = {comm_interface::CanNative};\n"
       "    if (is_fd()) {\n      out.push_back(comm_interface::CanFdAddonMcp2518_2);\n    }\n"
-      "    return out;\n  }\n" + after;
+      "    return out;\n  }\n" +
+      after;
   EXPECT_NE(available_interfaces_body(conditional).find("CanFdAddonMcp2518_2"), std::string::npos)
       << "a push_back after the first brace group is invisible - the extractor truncated early";
 
@@ -138,22 +139,26 @@ TEST(CanInterfaceAvailability, TheBodyExtractorStopsAtTheFunctionsOwnBrace) {
   const std::string prose =
       "  std::vector<comm_interface> available_interfaces() {\n"
       "    // the list below is a { brace in prose\n"
-      "    return {comm_interface::CanNative};\n  }\n" + after;
+      "    return {comm_interface::CanNative};\n  }\n" +
+      after;
   EXPECT_EQ(available_interfaces_body(prose).find("CanFdAddonMcp2518"), std::string::npos)
       << "a brace in a comment ran the slice past the function, so text outside it satisfies the "
-         "positive checks: " << available_interfaces_body(prose);
+         "positive checks: "
+      << available_interfaces_body(prose);
 
   const std::string in_string =
       "  std::vector<comm_interface> available_interfaces() {\n"
       "    const char* shape = \"{\";\n"
-      "    return {comm_interface::CanNative};\n  }\n" + after;
+      "    return {comm_interface::CanNative};\n  }\n" +
+      after;
   EXPECT_EQ(available_interfaces_body(in_string).find("CanFdAddonMcp2518"), std::string::npos)
       << "a brace in a string literal ran the slice past the function: " << available_interfaces_body(in_string);
 
   const std::string block_comment =
       "  std::vector<comm_interface> available_interfaces() {\n"
       "    /* an unbalanced { in a block comment */\n"
-      "    return {comm_interface::CanNative};\n  }\n" + after;
+      "    return {comm_interface::CanNative};\n  }\n" +
+      after;
   EXPECT_EQ(available_interfaces_body(block_comment).find("CanFdAddonMcp2518"), std::string::npos)
       << "a brace in a block comment ran the slice past the function: " << available_interfaces_body(block_comment);
 }
@@ -249,8 +254,8 @@ TEST(CanInterfaceAvailability, NoBoardHidesAnInterfaceItsPinsDeclare) {
         continue;  // the board does not route that chip select at all
       }
       EXPECT_NE(body.find(interface), std::string::npos)
-          << board << " routes " << pin << " but does not declare " << interface
-          << ", so the settings page now hides it and init_CAN() refuses it";
+          << board << " routes " << pin << " but does not declare "
+          << interface << ", so the settings page now hides it and init_CAN() refuses it";
     }
   }
 }
