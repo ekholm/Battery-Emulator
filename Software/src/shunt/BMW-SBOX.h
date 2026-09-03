@@ -48,6 +48,14 @@ class BmwSbox : public CanShunt {
    *  span the second the published average claims to cover. **/
   static const uint8_t AVG_SAMPLE_COUNT = 10;
   static const unsigned long AVG_SAMPLE_INTERVAL_MS = 100;
+  // Naming the two was half the point; this is the other half.  They are one
+  // fact, and measured_avg1S_amperage_mA is named for it - change either alone
+  // and the published field still claims a second it no longer covers.  No host
+  // test can catch that: both constants are private, and every case here feeds
+  // samples through millis(), so it holds for any interval.  Assert it where it
+  // is actually checkable.
+  static_assert(AVG_SAMPLE_COUNT * AVG_SAMPLE_INTERVAL_MS == 1000,
+                "the sample window must span the one second measured_avg1S_amperage_mA reports");
 
   // Signed: the samples are discharge-negative currents copied from the int32_t
   // datalayer field, and an unsigned sum cannot be divided back into one.
