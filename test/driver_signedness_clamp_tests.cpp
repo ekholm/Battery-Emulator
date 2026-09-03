@@ -110,22 +110,31 @@ TEST_F(SboxSignednessTest, ChargeCurrentIsUnaffectedByTheSignedField) {
 // to (2^32-500)/10 = 429,496,679 mA and landed in the int32_t datalayer field
 // as roughly +429 kA — a discharge reported as a colossal charge.
 // millis must pass 100 for the averaging branch to run at all.
-TEST_F(SboxSignednessTest, OneDischargeSampleAveragesToItsOwnTenth) {
+//
+// RE-CUT: this case was `OneDischargeSampleAveragesToItsOwnTenth`, asserting
+// -50, because the divisor was the full window whether or not the window had
+// filled.  That was a characterization pin over a second defect, and fixing the
+// divisor is what re-cuts it — a sample now averages to itself.  The signedness
+// claim this case exists for is unchanged: what must not happen is the wrap.
+TEST_F(SboxSignednessTest, OneDischargeSampleAveragesToItself) {
   set_millis64(200);
   inject_current_frame(-500);
-  EXPECT_EQ(datalayer.shunt.measured_avg1S_amperage_mA, -50) << "the 1 s average must not wrap on a discharge sample";
+  EXPECT_EQ(datalayer.shunt.measured_avg1S_amperage_mA, -500) << "the 1 s average must not wrap on a discharge sample";
 }
 
-// The same averaging pass reads all ten slots from the first sample onward, so
-// the nine not yet written are live inputs, and `k` selects a slot before
-// anything has written it.  Neither had an initialiser.  It is not live garbage
+// The averaging pass reads every slot it counts as filled, and `k` and
+// `avg_samples` both select before anything has written them.  None of the
+// three had an initialiser.  It is not live garbage
 // today: `new BmwSbox()` in Shunts.cpp value-initializes, because BmwSbox
 // declares no constructor of its own — only its CanShunt base does.  That is an
 // accident of the allocation expression, and adding one constructor to this
 // class ends it — which is exactly how ECMP's identical cell array became live
 // garbage.  The sweep that zeroed this shape across the battery drivers never
-// reached the shunts, so this one is fixed here, on the same two declarations
-// the signedness fix was already rewriting.
+// reached the shunts, so this one is fixed here, on the same declarations the
+// signedness fix was already rewriting.
+//
+// `avg_samples` matters more than the others: it is the DIVISOR, so poison in
+// it both divides by a wrong number and runs the sum past the end of the array.
 //
 // Default-init placement-new on a poisoned buffer is the house pattern
 // (test/battery/memory_init_tests.cpp): it removes the value-initialisation
@@ -140,8 +149,8 @@ TEST(SboxMemoryInitTest, RollingAverageStartsZeroedNotHeapGarbage) {
   CAN_frame f = sbox_current_frame(-500);
   sbox->handle_incoming_can_frame(f);
 
-  EXPECT_EQ(datalayer.shunt.measured_avg1S_amperage_mA, -50)
-      << "the nine slots not yet written must be zero, not whatever the allocation left behind";
+  EXPECT_EQ(datalayer.shunt.measured_avg1S_amperage_mA, -500)
+      << "the sample count and the unwritten slots must start at zero, not at whatever the allocation left behind";
   sbox->~BmwSbox();
 }
 
