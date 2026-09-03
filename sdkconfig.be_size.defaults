@@ -125,6 +125,15 @@ CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 # block erases - one every 64 KB - and each one is a multi-hundred-millisecond
 # hole in whatever the emulator was transmitting.
 #
+# 29 rather than 28, and the difference is the uploader: ElegantOTA calls
+# Update.begin(UPDATE_SIZE_UNKNOWN), so `_size` is the PARTITION size and not
+# the image size. Every block-aligned offset the upload reaches therefore has a
+# whole block "left" behind it, the final partial block included, and the
+# unaligned-partition branches (`part_head_sectors` / `part_tail_sectors`) never
+# fire at all on a table whose app slots are on 64 KB boundaries. An uploader
+# that passed the real content length would erase 28 blocks and finish the tail
+# in sectors.
+#
 # MEASURED on a LilyGo T_2CAN pair (ESP32-S3) over a 500 kbit native link, one
 # board transmitting a paced stream while it takes the upload and the other
 # recording the interval between arrivals - the pack's view, which is the one a
