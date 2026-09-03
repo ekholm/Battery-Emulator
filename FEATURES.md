@@ -181,3 +181,43 @@ Branch [`tesla-legacy-100kwh-capacity`](https://github.com/ekholm/Battery-Emulat
 No behaviour change: the branch adds a test file and touches no driver. The original defect report is #2673, an owner running a Model X 100 kWh whose page read "Total capacity: 70.0 kWh".
 
 ---
+**Flash writes no longer starve the CAN receive FIFOs: a broker, sector erases, and the measurement that says what is left**
+Branch [`flash-write-interleave`](https://github.com/ekholm/Battery-Emulator/tree/flash-write-interleave) @ `55801b8c` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:flash-write-interleave)
+A flash program or erase parks both cores: the cache is off for the whole operation, no task runs, and nothing drains the CAN controllers' receive FIFOs. That is why frames go missing during a settings save or an OTA upload. This funnels every runtime flash write through a broker that drains CAN first, runs ONE operation, and yields so the drain happens again before the next - turning a storm into a train of short windows. It also switches OTA erases from 64 KB blocks to 4 KB sectors, and measures what is left: on a T-CAN485 the longest gap between CAN drains during an OTA falls from **319-332 ms to 81-82 ms**. It does not claim zero loss, and says exactly why.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+A flash program or erase parks both cores. The cache is off for the whole operation, no task runs, and nothing drains the CAN controllers' receive FIFOs - which is why frames go missing during a settings save or an OTA upload. The FIFOs are what has to cover the window, and today they are asked to cover a whole save rather than a single write.
+
+**The broker.** Every runtime flash write funnels through `run()`, which pre-drains (asks the CAN owner task to empty its queues, and waits until a pass that STARTED after the request says it has), runs one operation, then yields so the owner drains again before the next. A storm becomes a train of short windows with drainage between them. The platform arrives through a `Hooks` struct, so the policy is executed by the tests rather than read: the fixture is the clock, the yield and the CAN owner at once.
+
+**What it is routed through.** `BatteryEmulatorSettingsStore` brokers each put and each remove - one NVS key is the shortest flash operation that API can issue, so a save of N changed keys becomes N short windows instead of one stall as long as the save. Batching into a single commit would NOT have helped: Preferences commits per key and `nvs_commit()` is a no-op in IDF, so the entry is already in flash when `nvs_set_*` returns. Five settings routes in the webserver drove Preferences directly and would have bypassed the broker; they go through the store now. Reads are left alone - they run with the cache on and stall nothing.
+
+**Sector erases, and the honest price.** A flash erase is atomic; nothing on the LX6 can shorten a command once issued, and `SPI_FLASH_AUTO_SUSPEND` does not exist on this chip. So the erase unit IS the unit of CAN loss, and the two available units are an order of magnitude apart. Arduino's `UpdateClass` calls `partitionEraseRange()` on 64 KB boundaries whenever a whole block remains, so an OTA is a train of multi-hundred-millisecond stalls. `CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE` takes the sector branch instead - and the win is not only the shorter command, because `CONFIG_SPI_FLASH_YIELD_DURING_ERASE` re-enables the cache BETWEEN sectors, which is where the drain gets to run.
+
+Measured on a LilyGo T-CAN485 (classic ESP32, 4 MB), longest gap between two CAN drains during an OTA upload:
+
+| erase granularity | longest drain gap, three runs |
+|---|---|
+| 64 KB blocks | 319 / 332 / 330 ms |
+| 4 KB sectors | 82.5 / 81.0 / 81.6 ms |
+
+**The upload runs about half as fast** - erasing 64 KB as sixteen sector commands takes ~1.1 s where one block command takes ~0.33 s. A full 1.88 MB OTA still completes and verifies in 40 s, so the trade stands for a battery emulator on a live bus, but it is stated at its real size rather than as "slightly slower".
+
+**And it does not deliver zero loss on its own.** 81-82 ms is one sector erase on this part, and no ESP32 CAN controller has a receive FIFO that deep. The remaining residual belongs to a driver-side RAM ring, which this measurement says must be sized for 85+ ms rather than for the ~50 ms an erase was assumed to cost. That is the follow-on work, not this branch.
+
+**Two corrections that came out of reviewing it, both kept in the history because they change what the numbers mean:**
+
+- *The instrument was measuring the wrong thing.* The first silicon run reported a 1,071,517 µs "cache-off window". That number is real but it is not a window: with sector erases the driver serves one brokered call as a train of erase commands with the cache back ON between them. One call, many windows - and the instrument reported the call. It now measures the gap between two consecutive drains by the CAN owner, which is what the FIFOs actually have to cover and which counts every cause of starvation rather than only the ones the broker knows about.
+- *The pre-drain's promise was too broad.* The header said "empty every receive FIFO". Checked per driver, `receive_can()` reads a SOFTWARE queue on all three controller classes; the chips' hardware FIFOs are emptied by an ISR, or by a task an ISR wakes, and those are exactly what a cache-off window stops. The pre-drain is still worth doing - it buys the software queues headroom for the burst that lands when the window ends - but what the hardware FIFOs must survive is the window itself, which is why shortening the window is what moved the measured number.
+
+**Two defects fixed in review, each pinned by a mutation-checked test.** The nesting depth count was a plain `uint32_t` read-modify-written from every task that writes flash, and two of them do so concurrently in the ordinary case - `core_loop` saves the inverter watchdog setting from its 1 s branch on one core while the AsyncTCP task brokers OTA chunks on the other. A lost increment leaves the count stuck above zero and every write for the rest of the boot is treated as nested: no pre-drain, no gap, no measurement, and nothing in the log to say the broker stopped brokering. It is atomic now. Separately, the performance page's per-burst line ended in the LIFETIME drain-timeout count and the storm mirrors were never cleared when a new storm opened, so a fresh burst showed the finished one's worst numbers.
+
+**A known limitation, stated on `run()` rather than left to be discovered:** telling concurrency APART from nesting needs a caller-context hook the platform-free policy does not have, so a write issued by another task while one is in flight is treated as nested - it skips its own pre-drain and is charged to the window already open.
+
+**A method note for anyone repeating the measurement:** the first attempt measured no difference at all, because a `pio run` that does not print "Compile Arduino IDF libs" links the PREVIOUS sdkconfig's libraries. The generated sdkconfig said the option was on while the binary was built without it. Wipe `.pio/build/<env>` and the generated `sdkconfig.<env>`, and check for that line.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
