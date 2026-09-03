@@ -88,10 +88,10 @@ def main():
     expect_reject('an acknowledgement with no reason', 'ETH_MDC_PIN', 'no reason')
     bvt.NEW_SINCE_BASELINE = {b: dict(v) for b, v in shipped.items()}
 
-    # review R7: the exemption is a hatch in check 1, so pin that the checks
-    # AROUND it still bite - the DONE row asserts both, and an assertion nobody
-    # can re-run mechanically decays into a belief. Both cases mutate a real
-    # schema file and restore it; expect_reject re-runs the verifier in between.
+    # The exemption is a hatch in check 1, so pin that the checks AROUND it
+    # still bite: an assertion nobody can re-run mechanically decays into a
+    # belief. Both cases mutate a real schema file and restore it;
+    # expect_reject re-runs the verifier in between.
 
     # Check 1 for a baselined member: a changed pin is not verbatim any more.
     devkit_yaml = Path(bvt.ROOT) / 'Software' / 'boards' / 'devkit.yaml'

@@ -487,7 +487,7 @@ def main():
     # ...and an env in platformio.ini is not a build either. CI compiles what
     # its matrix lists, so a board whose env never reaches the workflow passes
     # the check above while nothing ever compiles it. The 3LB's matrix row was
-    # hand-added in the same commit as its env (item 31), which is precisely
+    # hand-added in the same commit as its env, which is precisely
     # the coupling nothing was checking - the next board gets it right only if
     # whoever adds it remembers two files.
     #

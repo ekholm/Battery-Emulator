@@ -245,7 +245,7 @@ INPUT_ONLY = {
 # --- Pad properties, per chip ----------------------------------------------
 # What the wizard's validator needs to know about a PAD, as opposed to a role.
 # Datasheet facts, kept here beside INPUT_ONLY/CHIP_ONLY_PINS so there is one
-# place to check them, and emitted into the runtime tables (spec 1) so the
+# place to check them, and emitted into the runtime tables so the
 # on-device validator and the static checkers cannot hold different beliefs.
 
 # Pads the ROM samples at reset. Legal to use, but a pull the wrong way stops
@@ -293,7 +293,7 @@ ADC1_CAPABLE = {
 # --- Role constraints, per (feature, role) ---------------------------------
 # Per (feature, role), NOT per feature: chademo.lock is a solenoid inside an
 # otherwise externally-driven feature, and a per-feature column would demote it
-# (spec 4, desk review point 6).
+# to a plain input.
 #
 # `dir` is the safety-relevant column - it is what makes "host-driven role on an
 # INPUT_ONLY pad" refusable - so every entry below is taken from how the
@@ -996,11 +996,11 @@ def update_pin_sidecar(sidecar, roles):
 
 
 def pin_rows(declared, sidecar_path):
-    """Emit spec 2's per-role settings rows: the PIN_SETTINGS_ROWS(S_INT)
+    """Emit the per-role settings rows: the PIN_SETTINGS_ROWS(S_INT)
     macro the settings table splices in, plus the role map and per-profile
     declared defaults the audit and the wizard read. The key is an address
     (PIN<id>, zero-padded), never a mnemonic - NVS caps keys at 15 chars with
-    no headroom, and numeric keys cannot drift or collide (spec 2)."""
+    no headroom, and numeric keys cannot drift or collide."""
     roles = movable_roles(declared)
     import json as _json
     sidecar = update_pin_sidecar(load_pin_sidecar(sidecar_path), roles.keys())
@@ -1061,7 +1061,7 @@ def pin_rows(declared, sidecar_path):
 
 
 def runtime_tables(declared):
-    """Emit spec 1's runtime tables: pad inventory, role defaults, role constraints.
+    """Emit the runtime tables: pad inventory, role defaults, role constraints.
 
     One generated TU compiled into the union image, so the on-device validator
     reads the SAME facts the static checkers do. Pad properties are per chip and
