@@ -11,13 +11,13 @@
 
 #include "Arduino.h"
 
-/* wq311 - decode arithmetic, evidence first.
+/* decode arithmetic, evidence first.
  *
  * Every test here either proves a FIX whose evidence is named at the fix site
  * (the driver's own declaration, its own guards, its own captured frames, the
  * datalayer's documented units, or plain C++ semantics), or pins CURRENT
  * BEHAVIOUR for a suspicion no trace, datasheet or sibling settles - the
- * withdrawn BMW-PHEV DTC claim (R284) is why the second kind changes nothing.
+ * withdrawn BMW-PHEV DTC claim is why the second kind changes nothing.
  */
 namespace {
 
@@ -108,7 +108,7 @@ TEST(ImievDecode, EachTemperatureChannelReadsItsOwnByte) {
   EXPECT_EQ(datalayer.battery.status.temperature_max_dC, 400);
 }
 
-// R311: the frame above pins channel 3 (it carries the maximum there), but a
+// Note: the frame above pins channel 3 (it carries the maximum there), but a
 // temp2-only revert to u8[1] survived it - channel 3 still supplied the 40 C.
 // Here channel 2 alone carries the maximum, so each channel is now pinned
 // independently.

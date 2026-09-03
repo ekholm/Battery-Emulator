@@ -13,7 +13,7 @@
   - GWM_FuelPumpEnableDataControl_PMZ (0x1F8 non cyclic)
   - GWM_IgnitionAuthDataTarget_PMZ (0x004 non cyclic)
   - GWM_PMZ_A (0x008 10ms cyclic)
-  - GWM_PMZ_B -F, G-I, Immo, K-P 
+  - GWM_PMZ_B -F, G-I, Immo, K-P
     - 0x010 10ms
     - 0x090 10ms
     - 0x108 20ms
@@ -34,7 +34,7 @@
     - 0x210 100ms
     - 0x300 200ms
     - 0x440 180ms
-    - 0x0c0 10ms 
+    - 0x0c0 10ms
   - PCM_PMZ_C_Hybrid C, D, H, M
     - 0x030 15ms
     - 0x304 180ms

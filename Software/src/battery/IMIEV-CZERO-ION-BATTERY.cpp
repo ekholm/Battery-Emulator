@@ -59,7 +59,7 @@ void ImievCZeroIonBattery::
 
   //Map all cell voltages to the global array
   for (int i = 0; i < 88; ++i) {
-    // lroundf, not a truncating cast (wq311): 3.7f * 1000 is 3699.99..., and
+    // lroundf, not a truncating cast : 3.7f * 1000 is 3699.99..., and
     // the cast showed 3699 mV for a cell the decode meant as 3700.
     datalayer.battery.status.cell_voltages_mV[i] = (uint16_t)lroundf(cell_voltages[i] * 1000);
   }
@@ -125,7 +125,7 @@ void ImievCZeroIonBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       if (rx_frame.data.u8[1] != 0) {  // Only update temperatures if value is available
         temp1 = rx_frame.data.u8[1] - 50.0f;
       }
-      // Each channel reads its own byte (wq311): temp2 and temp3 used to read
+      // Each channel reads its own byte : temp2 and temp3 used to read
       // u8[1] while GUARDING on u8[2]/u8[3] - the guards say which byte was
       // meant, so channels 2 and 3 mirrored channel 1 instead of their own
       // sensors.

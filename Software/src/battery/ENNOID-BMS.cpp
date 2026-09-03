@@ -36,7 +36,7 @@ void EnnoidBms::update_values() {
   // in the MIN field, made the max one degree COLDER than the min, and skipped
   // the x10 the dC fields document (150 = 15.0 C) - so 21 C displayed as
   // 2.1 C with max < min. Keep the author's synthetic 1-degree spread, in the
-  // right order and the right unit (wq311).
+  // right order and the right unit .
   datalayer.battery.status.temperature_min_dC = (tBattHi - 1) * 10;
 
   datalayer.battery.status.temperature_max_dC = tBattHi * 10;

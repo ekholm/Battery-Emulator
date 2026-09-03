@@ -93,7 +93,7 @@ void RelionBattery::update_values() {
   // Charge power is manually set from webserver, and ramped down at high soc from inverter function
   datalayer.battery.status.max_charge_power_W = datalayer.battery.status.override_charge_power_W;
 
-  // min from the min (wq311): min_cell_temperature was decoded and then never
+  // min from the min : min_cell_temperature was decoded and then never
   // used - both datalayer fields carried the maximum.
   datalayer_battery->status.temperature_min_dC = min_cell_temperature * 10;
 
@@ -132,7 +132,7 @@ void RelionBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
     case 0x02048100:  ///Temperatures min/max 2048100 [8] 47 01 01 47 01 01 00 00
       datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       max_cell_temperature = rx_frame.data.u8[0] - 50;
-      // u8[3], not u8[2] (wq311). The case's own captured frame 47 01 01 47 01
+      // u8[3], not u8[2] . The case's own captured frame 47 01 01 47 01
       // 01 reads as two (value, id, id) triplets - the same shape ID3 uses for
       // the cell voltages - and u8[2] is an id byte: 0x01 - 50 would be a
       // constant -49 C. u8[3] is the second value byte, 0x47 = 21 C.
