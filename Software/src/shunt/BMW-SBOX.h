@@ -46,10 +46,13 @@ class BmwSbox : public CanShunt {
 
   // Signed: the samples are discharge-negative currents copied from the int32_t
   // datalayer field, and an unsigned sum cannot be divided back into one.
-  int32_t avg_mA_array[10];
-  int32_t avg_sum;
+  // Zeroed: the average divides by 10 from the very first sample, so the nine
+  // slots not yet written are read on every pass, and k picks a slot before
+  // anything has written it.
+  int32_t avg_mA_array[10] = {0};
+  int32_t avg_sum = 0;
 
-  uint8_t k;  //avg array pointer
+  uint8_t k = 0;  //avg array pointer
 
   uint8_t CAN100_cnt = 0;
 

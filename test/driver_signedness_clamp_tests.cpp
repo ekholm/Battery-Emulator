@@ -18,6 +18,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
+#include <new>
 #include <vector>
 
 #include <Arduino.h>
@@ -49,6 +51,20 @@ const CAN_frame* last_frame_with_id(uint32_t id) {
 
 // ── BMW-SBOX: the shunt that derives the deci-amp field and averages it ──
 
+// 0x200 carries the current as three little-endian bytes.  The driver reads
+// them shifted one byte HIGH and divides by 256, which is how a 24-bit value
+// sign-extends into int32_t — the reason a discharge frame decodes negative at
+// all, and so the premise of every test below.
+CAN_frame sbox_current_frame(int32_t mA) {
+  uint32_t raw = static_cast<uint32_t>(mA);
+  return CAN_frame{.FD = false,
+                   .ext_ID = false,
+                   .DLC = 3,
+                   .ID = 0x200,
+                   .data = {static_cast<uint8_t>(raw & 0xFF), static_cast<uint8_t>((raw >> 8) & 0xFF),
+                            static_cast<uint8_t>((raw >> 16) & 0xFF)}};
+}
+
 class SboxSignednessTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -67,16 +83,8 @@ class SboxSignednessTest : public ::testing::Test {
     sbox = nullptr;
   }
 
-  // 0x200 carries the current as three little-endian bytes:
-  // mA = data[2]<<16 | data[1]<<8 | data[0].
   void inject_current_frame(int32_t mA) {
-    uint32_t raw = static_cast<uint32_t>(mA);
-    CAN_frame f = {.FD = false,
-                   .ext_ID = false,
-                   .DLC = 3,
-                   .ID = 0x200,
-                   .data = {static_cast<uint8_t>(raw & 0xFF), static_cast<uint8_t>((raw >> 8) & 0xFF),
-                            static_cast<uint8_t>((raw >> 16) & 0xFF)}};
+    CAN_frame f = sbox_current_frame(mA);
     sbox->handle_incoming_can_frame(f);
   }
 
@@ -106,6 +114,35 @@ TEST_F(SboxSignednessTest, OneDischargeSampleAveragesToItsOwnTenth) {
   set_millis64(200);
   inject_current_frame(-500);
   EXPECT_EQ(datalayer.shunt.measured_avg1S_amperage_mA, -50) << "the 1 s average must not wrap on a discharge sample";
+}
+
+// The same averaging pass reads all ten slots from the first sample onward, so
+// the nine not yet written are live inputs, and `k` selects a slot before
+// anything has written it.  Neither had an initialiser.  It is not live garbage
+// today: `new BmwSbox()` in Shunts.cpp value-initializes, because BmwSbox
+// declares no constructor of its own — only its CanShunt base does.  That is an
+// accident of the allocation expression, and adding one constructor to this
+// class ends it — which is exactly how ECMP's identical cell array became live
+// garbage.  The sweep that zeroed this shape across the battery drivers never
+// reached the shunts, so this one is fixed here, on the same two declarations
+// the signedness fix was already rewriting.
+//
+// Default-init placement-new on a poisoned buffer is the house pattern
+// (test/battery/memory_init_tests.cpp): it removes the value-initialisation
+// accident, leaving the NSDMIs as the only thing that can zero these members.
+TEST(SboxMemoryInitTest, RollingAverageStartsZeroedNotHeapGarbage) {
+  alignas(BmwSbox) static unsigned char buf[sizeof(BmwSbox)];
+  memset(buf, 0x42, sizeof(buf));
+  BmwSbox* sbox = new (buf) BmwSbox;  // no parentheses: default-init, NSDMIs only
+
+  datalayer.shunt.measured_avg1S_amperage_mA = 12345;  // so a no-op cannot pass
+  set_millis64(200);
+  CAN_frame f = sbox_current_frame(-500);
+  sbox->handle_incoming_can_frame(f);
+
+  EXPECT_EQ(datalayer.shunt.measured_avg1S_amperage_mA, -50)
+      << "the nine slots not yet written must be zero, not whatever the allocation left behind";
+  sbox->~BmwSbox();
 }
 
 // ── BYD-CAN in shunt mode: the other writer of the same field ──
@@ -182,7 +219,9 @@ TEST_F(ChevyVoltClampTest, OverLimitCurrentIsClampedAndTheVoltageSurvives) {
   ASSERT_NE(f, nullptr);
   uint16_t encoded_volts = static_cast<uint16_t>((f->data.u8[2] << 8) | f->data.u8[3]);
   EXPECT_EQ(encoded_volts, 500u) << "the requested voltage must survive a current clamp";
-  EXPECT_EQ(f->data.u8[1], 220) << "the over-limit current must actually be clamped to 11.5 A";
+  // 220, not 230: setpoint_HV_IDC is a uint16_t, so the 11.5 A ceiling lands as
+  // 11 A. Pre-existing, and it errs downward — noted, not changed here.
+  EXPECT_EQ(f->data.u8[1], 220) << "the over-limit current must actually be clamped";
 }
 
 // The power clamp still works after the current clamp stopped corrupting the
