@@ -94,9 +94,7 @@ class LilyGo2CANHal : public Esp32Hal {
   virtual gpio_num_t MCP2517_SDI() { return is_fd() ? GPIO_NUM_11 : GPIO_NUM_42; }
   virtual gpio_num_t MCP2517_SDO() { return is_fd() ? GPIO_NUM_13 : GPIO_NUM_37; }
   virtual gpio_num_t MCP2517_CS() { return is_fd() ? GPIO_NUM_10 : GPIO_NUM_41; }
-  virtual gpio_num_t MCP2517_INT() { return is_fd() ? GPIO_NUM_NC : GPIO_NUM_39; }
-  virtual gpio_num_t MCP2517_INT0() { return is_fd() ? GPIO_NUM_9 : GPIO_NUM_NC; }
-  virtual gpio_num_t MCP2517_INT1() { return is_fd() ? GPIO_NUM_3 : GPIO_NUM_NC; }
+  virtual gpio_num_t MCP2517_INT() { return is_fd() ? GPIO_NUM_8 : GPIO_NUM_39; }
 
   virtual gpio_num_t MCP2517_SCK2() { return is_fd() ? GPIO_NUM_38 : GPIO_NUM_NC; }
   virtual gpio_num_t MCP2517_SDI2() { return is_fd() ? GPIO_NUM_42 : GPIO_NUM_NC; }
@@ -108,11 +106,10 @@ class LilyGo2CANHal : public Esp32Hal {
     if (user_selected_gpioopt1 == GPIOOPT1::ESTOP_BMS_POWER) {
       return GPIO_NUM_2;
     }
-    // GPIO3 is used as INT1 on a T-2CAN FD (MCP2518), so use GPIO45 instead.
-    return is_fd() ? GPIO_NUM_45 : GPIO_NUM_3;
+    return GPIO_NUM_3;
   }
   // Pins to be latched across a reset/OTA reboot (RTC-capable pins only): BMS_POWER is either GPIO2, GPIO3, or GPIO45
-  virtual std::vector<gpio_num_t> reset_hold_pins() { return {GPIO_NUM_2, is_fd() ? GPIO_NUM_45 : GPIO_NUM_3}; }
+  virtual std::vector<gpio_num_t> reset_hold_pins() { return {GPIO_NUM_2, GPIO_NUM_3}; }
 
 #ifndef SMALL_FLASH_DEVICE
   // i2c display
