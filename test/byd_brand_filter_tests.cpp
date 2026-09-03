@@ -107,3 +107,47 @@ TEST(BydBrandFilter, AFrameRequestingIdentificationDoesNotPopulateTheName) {
   f.data.u8[0] = 0x01;
   EXPECT_EQ(brand_after(f), "") << "the request branch sends data, it does not read a name";
 }
+
+/* THE DESTINATION IS NEVER CLEARED BETWEEN FRAMES, so a rejected byte has to clear its
+ * own slot rather than merely be skipped.
+ *
+ * The helper above memsets the brand before every call, which is right for pinning one
+ * frame's behaviour and is exactly why this case needs its own: production has no such
+ * reset. Two frames in a row, the second name shorter than the first, and the leftover
+ * tail of the first is read as part of the second - "GoodWes" then "SMA" produced
+ * "SMAdWes", a brand string that never appeared on any wire.
+ *
+ * Like the truncation case this is NEWLY reachable: while the broken filter accepted
+ * almost nothing the array was almost never written, so there was nothing to leave behind.
+ */
+TEST(BydBrandFilter, AShorterNameDoesNotInheritTheTailOfTheOneBefore) {
+  std::memset(datalayer.system.info.inverter_brand, 0, sizeof(datalayer.system.info.inverter_brand));
+  BydCanInverter inverter;
+
+  inverter.map_can_frame_to_variable(identification_frame("GoodWes"));
+  ASSERT_EQ(std::string(datalayer.system.info.inverter_brand), "GoodWes") << "the long name first";
+
+  inverter.map_can_frame_to_variable(identification_frame("SMA"));
+  EXPECT_EQ(std::string(datalayer.system.info.inverter_brand), "SMA")
+      << "the shorter name kept the previous one's tail - the brand reported is a splice of "
+         "two frames rather than anything the inverter sent";
+}
+
+/* The range's INTERIOR, which nothing else pins.
+ *
+ * `> 0x40 && < 0x7B` is not "letters": it also admits 0x5B-0x60, the six punctuation bytes
+ * between 'Z' and 'a'. That matters because the obvious tidy-up - swapping the range for
+ * isalpha() - still accepts 'A' and 'z' and still rejects 0x40 and 0x7B, so it passes the
+ * bounds case above while silently changing what the filter does. The bounds test was the
+ * sole cover for the whole guard; this shares it.
+ */
+TEST(BydBrandFilter, TheRangeIsAByteRangeAndNotALetterTest) {
+  CAN_frame f = identification_frame("AAAAAAA");
+  const uint8_t between_Z_and_a[6] = {0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60};
+  for (int i = 0; i < 6; i++) {
+    f.data.u8[i + 1] = between_Z_and_a[i];
+  }
+  EXPECT_EQ(brand_after(f), "[\\]^_`A")
+      << "the inherited guard is a byte range, so the six non-letters between 'Z' and 'a' "
+         "are accepted; a letters-only test would pass every other case in this file";
+}
