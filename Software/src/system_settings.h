@@ -38,7 +38,13 @@
 */
 #define MAX_AMOUNT_CELLS 192
 
-// AsyncTCP should only need a 4k stack (default is 16k)
-#define CONFIG_ASYNC_TCP_STACK_SIZE 4096
+// AsyncTCP should only need a 4k stack (default is 16k).
+// The second name is not redundant: AsyncTCP.h defines CONFIG_ASYNC_TCP_STACK_SIZE
+// itself if nothing got there first, so comparing that macro against itself would
+// pass at the library's 16384 too. BE_ASYNC_TCP_STACK_SIZE is set only here, which
+// is what lets AsyncTCP.h's guard tell "the project's value won" from "the
+// library's fallback won".
+#define BE_ASYNC_TCP_STACK_SIZE 4096
+#define CONFIG_ASYNC_TCP_STACK_SIZE BE_ASYNC_TCP_STACK_SIZE
 
 #endif
