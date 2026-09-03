@@ -261,7 +261,16 @@ class Esp32Hal {
    * the wrong text is what the user reads for the life of the board.
    *
    * Separate storage is what makes that unrepresentable rather than merely
-   * unlikely: there is no longer a slot two events can both write. */
+   * unlikely: there is no longer a slot two events can both write.
+   *
+   * WITHIN one event the newest failure still wins, and that is forced rather
+   * than preferred: set_event() overwrites the event's `data` with each
+   * occurrence's value on purpose, `data` here is the pin number, and the
+   * events page renders it in the cell immediately before the message. Keeping
+   * the FIRST failure's names would put the latest failure's pin beside the
+   * first failure's components - two halves of one row describing different
+   * failures. The occurrence counter beside them is what tells the user there
+   * were others. */
   String gpio_conflict_claimant;
   String gpio_conflict_holder;
   String gpio_undefined_claimant;

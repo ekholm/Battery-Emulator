@@ -110,3 +110,25 @@ TEST_F(GpioEventNamesFixture, ALaterConflictReplacesTheEarlierOnesNames) {
   EXPECT_NE(message.find("Display"), std::string::npos) << message;
   EXPECT_NE(message.find("Shunt"), std::string::npos) << message;
 }
+
+/* The names and the pin number are two halves of one row on the events page, and
+ * set_event() makes the pin the LATEST occurrence's by design. So the names have
+ * to move with it - this is what forces last-write-wins within an event, and
+ * nothing else here would notice if the two came apart.
+ */
+TEST_F(GpioEventNamesFixture, TheNamesDescribeTheSameFailureAsThePinNumber) {
+  esp32hal->alloc_pins("Battery", GPIO_NUM_18);
+  esp32hal->alloc_pins("Shunt", GPIO_NUM_19);
+  ASSERT_FALSE(esp32hal->alloc_pins("Charger", GPIO_NUM_18));
+
+  ASSERT_FALSE(esp32hal->alloc_pins("Display", GPIO_NUM_19));
+
+  const EVENTS_STRUCT_TYPE* entry = get_event_pointer(EVENT_GPIO_CONFLICT);
+  ASSERT_NE(entry, nullptr);
+  EXPECT_EQ(entry->data, (uint8_t)GPIO_NUM_19) << "the event carries the newest failure's pin";
+  const std::string message = message_for(EVENT_GPIO_CONFLICT);
+  EXPECT_NE(message.find("The pin used by 'Display' is already allocated by 'Shunt'"), std::string::npos)
+      << "the message must name the components of the failure whose pin the event carries, not an "
+         "earlier one: "
+      << message;
+}
