@@ -10,6 +10,7 @@
 #include "ACAN_ESP32_CANMessage.h"
 #include "ACAN_ESP32_Buffer16.h"
 #include "ACAN_ESP32_AcceptanceFilters.h"
+#include "ACAN_ESP32_RxSlot.h"
 
 //------------------------------------------------------------------------------
 //   ESP32 CAN class
@@ -72,7 +73,9 @@ class ACAN_ESP32 {
 
   public: bool available (void) const ;
   public: bool receive (CANMessage & outMessage) ;
-  public: void getReceivedMessage (CANMessage & outFrame) ;
+  //--- Returns false when the slot held no frame - see ACAN_ESP32_RxSlot.h.
+  //    outFrame is then untouched and must not be delivered.
+  public: bool getReceivedMessage (CANMessage & outFrame) ;
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   //    Receive buffer

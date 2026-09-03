@@ -354,12 +354,19 @@ void IRAM_ATTR ACAN_ESP32::isr (void * inUserArgument) {
 
   portENTER_CRITICAL (&portMux) ;
   const uint32_t interrupt = myDriver->TWAI_INT_RAW_REG () ;
-  if ((interrupt & TWAI_OVERRUN_INT_ST) != 0) {
-     //--- After a data overrun the FIFO read pointer is no longer trustworthy
-     //    (post-overrun reads cross frame boundaries - the errata IDF handles
-     //    with CONFIG_TWAI_ERRATA_FIX_RX_FIFO_CORRUPT). Drain instead of read.
+//--- Which handlers this interrupt calls, and why the read is not simply the
+//    overrun's `else` any more: ACAN_ESP32_RxSlot::plan().
+  const ACAN_ESP32_RxSlot::Dispatch dispatch =
+    ACAN_ESP32_RxSlot::plan (interrupt, twaiHasRxStatus) ;
+  if (dispatch.handleOverrun) {
+     //--- On the classic ESP32 the FIFO read pointer is no longer trustworthy
+     //    after a data overrun (post-overrun reads cross frame boundaries -
+     //    the errata IDF handles with CONFIG_TWAI_ERRATA_FIX_RX_FIFO_CORRUPT),
+     //    so this drains instead of reading. On Miss-Status silicon it drains
+     //    nothing.
      myDriver->handleOverrunInterrupt () ;
-  }else if ((interrupt & TWAI_RX_INT_ST) != 0) {
+  }
+  if (dispatch.readSlot) {
      myDriver->handleRXInterrupt () ;
   }
   if ((interrupt & TWAI_TX_INT_ST) != 0) {
@@ -386,7 +393,9 @@ void IRAM_ATTR ACAN_ESP32::handleTXInterrupt (void) {
 
 void IRAM_ATTR ACAN_ESP32::handleRXInterrupt (void) {
   CANMessage frame;
-  getReceivedMessage (frame) ;
+  if (!getReceivedMessage (frame)) {
+    return ;
+  }
   switch (mAcceptedFrameFormat) {
   case ACAN_ESP32_Filter::standard :
     if (!frame.ext) {
@@ -407,19 +416,30 @@ void IRAM_ATTR ACAN_ESP32::handleRXInterrupt (void) {
 //------------------------------------------------------------------------------
 
 void IRAM_ATTR ACAN_ESP32::handleOverrunInterrupt (void) {
-//--- Recovery mirrors IDF's twai_hal_clear_rx_fifo_overrun(): release every
+//--- The whole-FIFO drain belongs to the CLASSIC ESP32 and to it alone. There,
+//    recovery mirrors IDF's twai_hal_clear_rx_fifo_overrun(): release every
 //    buffered message until the RX message counter reads zero (kept polling -
 //    a frame can arrive while clearing), then issue the clear-data-overrun
-//    command. The drained frames are DISCARDED, not delivered: on this
+//    command. The drained frames are DISCARDED, not delivered: on that
 //    controller the frame boundaries in the FIFO are unreliable once an
 //    overrun has occurred, and delivering them is exactly the interleaved-
 //    garbage corruption this recovery exists to stop.
 //    The loop is bounded at twice the 64-message counter range so a
 //    misbehaving counter degrades to a missed drain, never a hung ISR.
+//
+//    On silicon that reports Miss Status the FIFO is NOT corrupt after an
+//    overrun: the controller marks the slot of each frame it could not store
+//    and leaves the rest intact, so draining here would throw away the real
+//    frames queued behind the lost ones. Those slots are skipped one at a time
+//    by getReceivedMessage() instead, which is what IDF does on these targets
+//    (twai_hal_read_rx_fifo() under SOC_TWAI_SUPPORTS_RX_STATUS). The
+//    clear-data-overrun command still runs, so the status bit does not latch.
   uint32_t dropped = 0 ;
-  while (((TWAI_RX_MSG_CNT_REG () & 0x7F) != 0) && (dropped < 128)) {
-    TWAI_CMD_REG () = TWAI_RELEASE_BUF ;
-    dropped += 1 ;
+  if (!twaiHasRxStatus) {
+    while (((TWAI_RX_MSG_CNT_REG () & 0x7F) != 0) && (dropped < 128)) {
+      TWAI_CMD_REG () = TWAI_RELEASE_BUF ;
+      dropped += 1 ;
+    }
   }
   TWAI_CMD_REG () = TWAI_CLR_OVERRUN ;
   mHardwareRxOverrunCount += 1 ;
@@ -446,34 +466,23 @@ bool ACAN_ESP32::receive (CANMessage & outMessage) {
 
 //------------------------------------------------------------------------------
 
-void IRAM_ATTR ACAN_ESP32::getReceivedMessage (CANMessage & outFrame) {
-  const uint32_t frameInfo = TWAI_FRAME_INFO () ;
-
-  outFrame.len = frameInfo & 0xF;
-  if (outFrame.len > 8) {
-    outFrame.len = 8 ;
+bool IRAM_ATTR ACAN_ESP32::getReceivedMessage (CANMessage & outFrame) {
+//--- The decode lives in ACAN_ESP32_RxSlot.h so a host test can drive it
+//    against a fake register window; it is always inlined, so nothing new is
+//    placed outside IRAM.
+  const ACAN_ESP32_RxSlot::Outcome outcome = ACAN_ESP32_RxSlot::read (
+    (volatile uint32_t *) twaiBaseAddress,
+    twaiHasRxStatus,
+    outFrame
+  ) ;
+  if (outcome == ACAN_ESP32_RxSlot::Outcome::overrunPlaceholder) {
+    //--- The slot stood in for a frame the controller could not store. It is
+    //    released, not delivered, and the frames queued behind it are read by
+    //    the interrupts that follow.
+    mHardwareRxOverrunDroppedFrameCount += 1 ;
+    return false ;
   }
-  outFrame.rtr = (frameInfo & TWAI_RTR) != 0 ;
-  outFrame.ext = (frameInfo & TWAI_FRAME_FORMAT_EFF) != 0 ;
-
-  if (!outFrame.ext) { //--- Standard Frame
-    outFrame.id  = uint32_t (TWAI_ID_SFF(0)) << 3 ;
-    outFrame.id |= uint32_t (TWAI_ID_SFF(1)) >> 5 ;
-
-    for (uint8_t i=0 ; i<outFrame.len ; i++) {
-      outFrame.data[i] = uint8_t (TWAI_DATA_SFF (i)) ;
-    }
-  }else{ //--- Extended Frame
-    outFrame.id  = uint32_t (TWAI_ID_EFF(0)) << 21 ;
-    outFrame.id |= uint32_t (TWAI_ID_EFF(1)) << 13 ;
-    outFrame.id |= uint32_t (TWAI_ID_EFF(2)) <<  5 ;
-    outFrame.id |= uint32_t (TWAI_ID_EFF(3)) >>  3 ;
-    for (uint8_t i=0 ; i<outFrame.len ; i++) {
-      outFrame.data [i] = uint8_t (TWAI_DATA_EFF (i)) ;
-    }
-  }
-
-  TWAI_CMD_REG () = TWAI_RELEASE_BUF ;
+  return true ;
 }
 
 //------------------------------------------------------------------------------

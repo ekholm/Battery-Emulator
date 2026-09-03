@@ -83,3 +83,20 @@
 #endif
 
 //------------------------------------------------------------------------------
+//   Does this controller report Miss Status (SR.8)?
+//
+//   Derived from the SoC capability IDF's own driver switches on rather than
+//   from a target list here, so a new target inherits the right receive path
+//   without an edit. SOC_TWAI_SUPPORTS_RX_STATUS is 1 on the S2, S3, C3, C6
+//   and H2, and is not defined at all for the classic ESP32.
+//------------------------------------------------------------------------------
+
+#include <soc/soc_caps.h>
+
+#if defined (SOC_TWAI_SUPPORTS_RX_STATUS) && SOC_TWAI_SUPPORTS_RX_STATUS
+  static const bool twaiHasRxStatus = true ;
+#else
+  static const bool twaiHasRxStatus = false ;
+#endif
+
+//------------------------------------------------------------------------------
