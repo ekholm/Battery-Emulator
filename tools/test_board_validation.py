@@ -8,9 +8,8 @@ nonzero exit whose message names the board, the feature and the field - and
 requires that no header was touched.
 
 The accepted cases pin the requirement shapes that exist in the drivers, so a
-later simplification that flattened one of them fails here: the CAN-FD
-interrupt is INT *or* INT0+INT1; a pin that is chosen at runtime still counts
-as present; a pin declared NC does not.
+later simplification that flattened one of them fails here: a pin that is
+chosen at runtime still counts as present; a pin declared NC does not.
 
 Usage: python3 tools/test_board_validation.py
 """
@@ -116,14 +115,21 @@ def main():
     expect_accept('late-bound pin satisfies a requirement',
                   stark.replace('positive: 32', 'positive: setting'))
 
-    # CAN-FD interrupt: INT, or INT0+INT1, and half of the pair is not enough.
+    # CAN-FD interrupt: INT, and nothing else. #2867 measured that the
+    # MCP2518FD is driven from its single nINT on every board this firmware
+    # supports, and the HAL lost its split-pair getters with it, so a
+    # declaration naming INT0/INT1 describes wiring the tree cannot honour.
+    # The reject is the guard against quietly reintroducing the pair - if the
+    # role map ever grows the keys back, this case starts accepting.
     expect_reject('canfd with no interrupt', drop(stark, r', int: 35'),
                   'stark', 'can', 'mcp2518fd', 'int')
-    expect_accept('canfd with INT0+INT1 instead of INT',
-                  drop(stark, r', int: 35').replace('cs: 18', 'cs: 18, int0: 36, int1: 39'))
-    expect_reject('canfd with only half of INT0/INT1',
-                  drop(stark, r', int: 35').replace('cs: 18', 'cs: 18, int0: 36'),
-                  'stark', 'can', 'int')
+    # INT stays declared here on purpose: with it present the only thing wrong
+    # with the declaration is the pair itself, so the case cannot pass by
+    # falling through to the missing-INT error the way it would if INT were
+    # dropped too.
+    expect_reject('canfd naming the retired INT0/INT1 pair',
+                  stark.replace('cs: 18, int: 35', 'cs: 18, int: 35, int0: 36, int1: 39'),
+                  'stark', 'can', 'unknown field', 'int0', 'int1')
 
     # Buses are declared once and referenced; a dangling or incomplete bus is
     # exactly the kind of thing the old flat pin map could not express.

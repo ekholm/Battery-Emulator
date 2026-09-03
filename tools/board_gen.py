@@ -71,12 +71,12 @@ FEATURES = {
         },
         # comm_can.cpp CANFD_NATIVE / CANFD_ADDON_MCP2518 are the same code
         # path on the same chip - "native" means soldered to the board, not an
-        # ESP32 peripheral - so they are one driver here. The interrupt is INT,
-        # or INT0+INT1 when the part is wired that way. A second instance needs
+        # ESP32 peripheral - so they are one driver here. The part is driven
+        # from its single nINT on every board this firmware supports, so INT is
+        # the only interrupt a declaration may name. A second instance needs
         # its own bus pins only when it sits on a different bus (:236).
         'mcp2518fd': {
-            'instances': [{'cs': 'MCP2517_CS', 'int': 'MCP2517_INT',
-                           'int0': 'MCP2517_INT0', 'int1': 'MCP2517_INT1'},
+            'instances': [{'cs': 'MCP2517_CS', 'int': 'MCP2517_INT'},
                           {'cs': 'MCP2517_CS2', 'int': 'MCP2517_INT2'},
                           {'cs': 'MCP2517_CS3', 'int': 'MCP2517_INT3'},
                           {'cs': 'MCP2517_CS4', 'int': 'MCP2517_INT4'}],
@@ -87,8 +87,7 @@ FEATURES = {
             # needs those getters added first.
             'bus': [{'clk': 'MCP2517_SCK', 'mosi': 'MCP2517_SDI', 'miso': 'MCP2517_SDO'},
                     {'clk': 'MCP2517_SCK2', 'mosi': 'MCP2517_SDI2', 'miso': 'MCP2517_SDO2'}],
-            'requires': ['cs'],
-            'one_of': [['int'], ['int0', 'int1']],
+            'requires': ['cs', 'int'],
             'scalars': [{'freq': ('uint32_t', 'MCP2517_FREQ'), 'spi_bus': ('uint8_t', 'MCP2517_BUS'),
                          'clkodiv': ('int', 'MCP2517_CLKODIV')},
                         {'freq': ('uint32_t', 'MCP2517_FREQ2'), 'spi_bus': ('uint8_t', 'MCP2517_BUS2')}],
@@ -303,7 +302,7 @@ ADC1_CAPABLE = {
 #          ap_button.pin           debounce_button.cpp          pinMode(pin, INPUT)
 #          chademo.ct              CHADEMO-CT.cpp               pinMode(ct_pin, INPUT) + analogReadMilliVolts
 #          chademo.pin4/pin7       CHADEMO-BATTERY.cpp:907-908  pinMode(..., INPUT)
-#          can.int/int0/int1       mcp2515_lite.cpp:144         pinMode(_int_pin, INPUT_PULLUP)
+#          can.int                 mcp2515_lite.cpp:144         pinMode(_int_pin, INPUT_PULLUP)
 #   DRIVES chademo.pin2/pin10/lock CHADEMO-BATTERY.cpp          pinMode(..., OUTPUT)
 #          contactors.*            contactor control            pinMode(pos/neg/prec/..., OUTPUT)
 #          precharge_auto.hia4v1   precharge_control.cpp        pinMode(hia4v1_pin, OUTPUT)
@@ -331,8 +330,6 @@ ROLE_DIRECTION = {
     ('chademo', 'lock'): DIR_DRIVES,
     ('can', 'rx'): DIR_READS,
     ('can', 'int'): DIR_READS,
-    ('can', 'int0'): DIR_READS,
-    ('can', 'int1'): DIR_READS,
     ('can', 'bus.miso'): DIR_READS,
     ('rs485', 'rx'): DIR_READS,
     ('sd_mmc', 'miso'): DIR_READS,
@@ -344,7 +341,7 @@ ROLE_DIRECTION = {
 
 # Roles that need a pad property beyond direction.
 ROLE_NEEDS_ADC = {('chademo', 'ct')}
-ROLE_NEEDS_INTERRUPT = {('can', 'int'), ('can', 'int0'), ('can', 'int1')}
+ROLE_NEEDS_INTERRUPT = {('can', 'int')}
 # A role whose level must survive a reset: only RTC pads can hold one.
 ROLE_NEEDS_RTC_HOLD = {('contactors', 'bms_power')}
 
@@ -678,13 +675,6 @@ def validate(board, data, addons=None):
             for name in spec.get('requires', []):
                 if not present(field(name)):
                     errors.append(f'{where} needs "{name}", which the board does not define')
-            for group in spec.get('one_of', []):
-                if any(all(present(field(n)) for n in g) for g in spec['one_of']):
-                    break
-            else:
-                if 'one_of' in spec:
-                    shapes = ' or '.join('+'.join(g) for g in spec['one_of'])
-                    errors.append(f'{where} needs {shapes}, none of which the board defines')
             if 'bus' in spec:
                 if bus_name is None:
                     errors.append(f'{where} is on a bus but declares no "bus:"')

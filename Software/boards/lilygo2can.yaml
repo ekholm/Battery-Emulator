@@ -17,7 +17,7 @@ rs485:
 can:
   - {driver: native, tx: 7, rx: 6}
   - {driver: mcp2515, bus: SPI1, cs: variant, int: variant, rst: variant, freq: 16000000}
-  - {driver: mcp2518fd, bus: SPI1, cs: variant, int: variant, int0: variant, int1: variant, freq: is_fd() ? 40000000 : 0}
+  - {driver: mcp2518fd, bus: SPI1, cs: variant, int: variant, freq: is_fd() ? 40000000 : 0}
   - {driver: mcp2518fd, bus: SPI1, cs: variant, int: variant, spi_bus: DEFAULT_MCP2515_BUS}
 chademo:
   - {pin2: 16, pin10: 15, pin7: 47, pin4: 4, lock: 40, ct: 5}
