@@ -140,6 +140,46 @@ class Walk(unittest.TestCase):
         with self.assertRaises(audit.AuditDidNotRun):
             audit.walk(dis, "_test", syms, by_name, in_flash, in_iram)
 
+    def test_a_may_inline_root_is_covered_whether_or_not_it_survives(self):
+        """The contract that decides where a root belongs.
+
+        The FD library's isr() is address-taken nowhere - the trampolines are
+        what ACAN2517FD::begin() registers - so it is a may_inline root. This is
+        the pair of cases that says nothing is lost by classifying it that way:
+        out-of-line it is walked as the trampoline's callee, and inlined away
+        its body is inside the trampoline's own disassembly, which is walked
+        regardless. Classified as `taken` instead, the second case is not a
+        finding but a refusal to run, and the image is fine.
+        """
+        audit.PRESETS["_test"] = {"taken": ["tramp()"], "may_inline": ["lib_isr()"]}
+        self.addCleanup(audit.PRESETS.pop, "_test")
+
+        out_of_line = {
+            "tramp()": (0x40081000, ["  40081000:\t0\tcall8\t40082000 <lib_isr()>"]),
+            "lib_isr()": (0x40082000, ["  40082000:\t0\tcall8\t400d1000 <victim()>"]),
+            "victim()": (0x400D1000, []),
+        }
+        syms, by_name, dis = self.build(out_of_line)
+        seen, bad, inlined = audit.walk(dis, "_test", syms, by_name, in_flash, in_iram)
+        self.assertEqual(inlined, [])
+        self.assertEqual([d for _, d, _ in bad], ["victim()"])
+
+        # the same image with the call absorbed into the trampoline
+        absorbed = {
+            "tramp()": (0x40081000, ["  40081000:\t0\tcall8\t400d1000 <victim()>"]),
+            "victim()": (0x400D1000, []),
+        }
+        syms, by_name, dis = self.build(absorbed)
+        seen, bad, inlined = audit.walk(dis, "_test", syms, by_name, in_flash, in_iram)
+        self.assertEqual(inlined, ["lib_isr()"])
+        self.assertEqual([d for _, d, _ in bad], ["victim()"],
+                         "the absorbed body must still be audited")
+
+        # and what the other classification would have done to that same image
+        audit.PRESETS["_test"] = {"taken": ["tramp()", "lib_isr()"], "may_inline": []}
+        with self.assertRaises(audit.AuditDidNotRun):
+            audit.walk(dis, "_test", syms, by_name, in_flash, in_iram)
+
     def test_a_missing_may_inline_root_is_reported_and_does_not_fail(self):
         audit.PRESETS["_test"] = {"taken": ["root()"], "may_inline": ["helper()"]}
         self.addCleanup(audit.PRESETS.pop, "_test")
@@ -147,6 +187,39 @@ class Walk(unittest.TestCase):
         seen, bad, inlined = audit.walk(dis, "_test", syms, by_name, in_flash, in_iram)
         self.assertEqual(inlined, ["helper()"])
         self.assertEqual(bad, [])
+
+
+class PresetClassification(unittest.TestCase):
+    """A change-detector, deliberately, over a table that is entirely judgement.
+
+    `taken` and `may_inline` are not two ways of saying the same thing: a taken
+    root MUST be in the image or the verdict is vacuous, and a may_inline root
+    must NOT be required or a fine build fails. Which list a name belongs in is
+    decided by one question - does this project hand that function's ADDRESS to
+    an interrupt allocator - and the answer is in the source, where no test here
+    can reach. So these pin the answers, and a change to them is meant to cost a
+    re-reading of the comment above each preset rather than pass silently.
+    """
+
+    def test_the_fd_roots_are_the_two_registered_trampolines(self):
+        """comm_can.cpp passes canfd_isr and canfd_2_isr to ACAN2517FD::begin();
+        the library's own isr() is an ordinary call from inside them and is
+        address-taken nowhere, so requiring it out-of-line would fail a build
+        whose only sin was letting the compiler absorb four instructions."""
+        self.assertEqual(audit.PRESETS["fd"]["taken"], ["canfd_isr()", "canfd_2_isr()"])
+        self.assertIn("ACAN2517FD::isr()", audit.PRESETS["fd"]["may_inline"])
+
+    def test_the_taken_and_may_inline_lists_never_overlap(self):
+        for name, preset in audit.PRESETS.items():
+            self.assertEqual(set(preset["taken"]) & set(preset["may_inline"]), set(),
+                             "%s lists a root as both" % name)
+
+    def test_every_preset_has_at_least_one_taken_root(self):
+        """A preset with no taken root cannot fail vacuously-clean: there is
+        nothing whose absence would tell it that it is describing the wrong
+        image."""
+        for name, preset in audit.PRESETS.items():
+            self.assertTrue(preset["taken"], "%s would pass vacuously" % name)
 
 
 class SdkconfigCrossCheck(unittest.TestCase):
