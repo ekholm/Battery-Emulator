@@ -1,4 +1,5 @@
 #include "IMIEV-CZERO-ION-BATTERY.h"
+#include <cmath>
 #include <cstring>  //for unit tests
 #include "../communication/can/comm_can.h"
 #include "../datalayer/datalayer.h"
@@ -58,15 +59,17 @@ void ImievCZeroIonBattery::
 
   //Map all cell voltages to the global array
   for (int i = 0; i < 88; ++i) {
-    datalayer.battery.status.cell_voltages_mV[i] = (uint16_t)(cell_voltages[i] * 1000);
+    // lroundf, not a truncating cast (wq311): 3.7f * 1000 is 3699.99..., and
+    // the cast showed 3699 mV for a cell the decode meant as 3700.
+    datalayer.battery.status.cell_voltages_mV[i] = (uint16_t)lroundf(cell_voltages[i] * 1000);
   }
   datalayer.battery.info.number_of_cells = 88;
   if (max_volt_cel > 2.2f) {  // Only update cellvoltage when we have a value
-    datalayer.battery.status.cell_max_voltage_mV = (uint16_t)(max_volt_cel * 1000);
+    datalayer.battery.status.cell_max_voltage_mV = (uint16_t)lroundf(max_volt_cel * 1000);
   }
 
   if (min_volt_cel > 2.2f) {  // Only update cellvoltage when we have a value
-    datalayer.battery.status.cell_min_voltage_mV = (uint16_t)(min_volt_cel * 1000);
+    datalayer.battery.status.cell_min_voltage_mV = (uint16_t)lroundf(min_volt_cel * 1000);
   }
 
   if (min_temp_cel > -49) {  // Only update temperature when we have a value
@@ -122,11 +125,15 @@ void ImievCZeroIonBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       if (rx_frame.data.u8[1] != 0) {  // Only update temperatures if value is available
         temp1 = rx_frame.data.u8[1] - 50.0f;
       }
+      // Each channel reads its own byte (wq311): temp2 and temp3 used to read
+      // u8[1] while GUARDING on u8[2]/u8[3] - the guards say which byte was
+      // meant, so channels 2 and 3 mirrored channel 1 instead of their own
+      // sensors.
       if (rx_frame.data.u8[2] != 0) {
-        temp2 = rx_frame.data.u8[1] - 50.0f;
+        temp2 = rx_frame.data.u8[2] - 50.0f;
       }
       if (rx_frame.data.u8[3] != 0) {
-        temp3 = rx_frame.data.u8[1] - 50.0f;
+        temp3 = rx_frame.data.u8[3] - 50.0f;
       }
 
       voltage1 = (((rx_frame.data.u8[4] * 256.0f + rx_frame.data.u8[5]) * 0.005f) + 2.1f);

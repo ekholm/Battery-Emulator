@@ -38,8 +38,11 @@ class ImievCZeroIonBattery : public CanBattery {
   float BMU_Current = 0;
   float BMU_PackVoltage = 0;
   float BMU_Power = 0;
-  float cell_voltages[88];      //array with all the cellvoltages
-  float cell_temperatures[88];  //array with all the celltemperatures
+  // Zero-initialized (wq311): these are instance members of a new'ed object,
+  // so without the initializer min/max scans below read indeterminate heap
+  // bytes until every sensor has reported once.
+  float cell_voltages[88] = {};      //array with all the cellvoltages
+  float cell_temperatures[88] = {};  //array with all the celltemperatures
   float max_volt_cel = 3.70f;
   float min_volt_cel = 3.70f;
   float max_temp_cel = 20.00f;

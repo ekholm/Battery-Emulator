@@ -109,7 +109,11 @@ void RangeRoverPhevBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       PwrGpCounter = (rx_frame.data.u8[1] & 0x3C) >> 2;
       VoltageExt = (((rx_frame.data.u8[1] & 0x03) << 8) | rx_frame.data.u8[2]);
       VoltageBus = (((rx_frame.data.u8[3] & 0x03) << 8) | rx_frame.data.u8[4]);
-      CurrentExt = ((rx_frame.data.u8[5] << 8) | (rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
+      // 24-bit field per this driver's own declaration (0 - 16777215, offset
+      // -209715.175): the old assembly shifted BOTH high bytes by 8, so bytes 5
+      // and 6 collided in one lane and the value never left 16 bits - against a
+      // midpoint offset of 8,388,600 every reading decoded as a huge negative.
+      CurrentExt = ((rx_frame.data.u8[5] << 16) | (rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
       break;
     case 0x104:  // 20ms
       HVIsolationTestRunning = (rx_frame.data.u8[2] & 0x10) >> 4;

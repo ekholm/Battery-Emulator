@@ -83,8 +83,11 @@ class TeslaLegacyBattery : public CanBattery {
   uint16_t battery_BrickVoltageMin = 0;
   uint8_t battery_BrickTempMaxNum = 0;
   uint8_t battery_BrickTempMinNum = 0;
-  uint8_t battery_BrickModelTMax = 0;
-  uint8_t battery_BrickModelTMin = 0;
+  // int16_t, not uint8_t (wq311): the decode is (raw * 0.5) - 40, whose own
+  // range is -40..+87.5 C - a subzero pack wrapped to ~+215 C and the datalayer
+  // then showed ~2150 dC.
+  int16_t battery_BrickModelTMax = 0;
+  int16_t battery_BrickModelTMin = 0;
   uint8_t battery_BrickVoltageMaxNum = 0;
   uint8_t battery_BrickVoltageMinNum = 0;
   //0x5D2

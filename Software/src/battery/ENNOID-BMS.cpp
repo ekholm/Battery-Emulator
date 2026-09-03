@@ -32,9 +32,14 @@ void EnnoidBms::update_values() {
   // Discharge power is manually set
   datalayer.battery.status.max_discharge_power_W = datalayer.battery.status.override_discharge_power_W;
 
-  datalayer.battery.status.temperature_min_dC = tBattHi;
+  // The protocol reports only the HIGH temperature, and the old lines put it
+  // in the MIN field, made the max one degree COLDER than the min, and skipped
+  // the x10 the dC fields document (150 = 15.0 C) - so 21 C displayed as
+  // 2.1 C with max < min. Keep the author's synthetic 1-degree spread, in the
+  // right order and the right unit (wq311).
+  datalayer.battery.status.temperature_min_dC = (tBattHi - 1) * 10;
 
-  datalayer.battery.status.temperature_max_dC = tBattHi - 1;
+  datalayer.battery.status.temperature_max_dC = tBattHi * 10;
 
   datalayer.battery.info.number_of_cells = NoOfCells;  // 1-192S
 
