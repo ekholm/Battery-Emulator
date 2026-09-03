@@ -44,8 +44,10 @@ class BmwSbox : public CanShunt {
   unsigned long LastAvgTime = 0;       // Last current storage time
   unsigned long ShuntLastSeen = 0;
 
-  uint32_t avg_mA_array[10];
-  uint32_t avg_sum;
+  // Signed: the samples are discharge-negative currents copied from the int32_t
+  // datalayer field, and an unsigned sum cannot be divided back into one.
+  int32_t avg_mA_array[10];
+  int32_t avg_sum;
 
   uint8_t k;  //avg array pointer
 

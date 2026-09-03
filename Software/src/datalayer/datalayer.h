@@ -281,8 +281,8 @@ struct DATALAYER_SHUNT_TYPE {
 
   /** measured voltage in deciVolts. 4200 = 420.0 V */
   uint16_t measured_voltage_dV = 0;
-  /** measured amperage in deciAmperes. 300 = 30.0 A */
-  uint16_t measured_amperage_dA = 0;
+  /** measured amperage in deciAmperes. 300 = 30.0 A, -300 = 30.0 A discharge */
+  int16_t measured_amperage_dA = 0;
 
   /** True if contactors are precharging state */
   bool precharging = false;
