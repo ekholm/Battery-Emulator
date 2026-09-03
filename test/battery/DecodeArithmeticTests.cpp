@@ -108,6 +108,21 @@ TEST(ImievDecode, EachTemperatureChannelReadsItsOwnByte) {
   EXPECT_EQ(datalayer.battery.status.temperature_max_dC, 400);
 }
 
+// R311: the frame above pins channel 3 (it carries the maximum there), but a
+// temp2-only revert to u8[1] survived it - channel 3 still supplied the 40 C.
+// Here channel 2 alone carries the maximum, so each channel is now pinned
+// independently.
+TEST(ImievDecode, Channel2AloneCanCarryTheMaximum) {
+  reset_battery_state();
+  ImievCZeroIonBattery battery;
+
+  // temps 10 / 40 / 20 C: the maximum sits in u8[2], channel 2's own byte.
+  battery.handle_incoming_can_frame(frame(0x6E1, {0x01, 0x3C, 0x5A, 0x46, 0x00, 0x00, 0x00, 0x00}));
+  battery.update_values();
+
+  EXPECT_EQ(datalayer.battery.status.temperature_max_dC, 400) << "channel 2 mirroring channel 1 would report 20 C here";
+}
+
 // FIX, evidence: float semantics alone. 0.005f and 2.1f are not exact in
 // binary, so a cell the decode means as 3.700 V arrives as 3.69999...f, and
 // the truncating cast published 3699 mV. Round, don't truncate.
