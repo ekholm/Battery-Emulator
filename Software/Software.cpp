@@ -121,6 +121,28 @@ void connectivity_loop(void*) {
 
     webserver_tick();
 
+    /* An inverter told us to use a different watchdog period, and the value is
+       persisted HERE rather than on the core task.
+
+       Storage stays out of the driver so no inverter protocol has to depend on
+       NVM - that part is unchanged. What moved is which task pays for the
+       write. The core task drives CAN, and a settings write blocks whatever
+       task issues it for as long as the flash operation takes: measured on a
+       T-CAN485 at 4.6 ms typically and 98.6 ms when the NVS page compacts,
+       which is the same magnitude as a flash block erase. Paid on the CAN task
+       that is a receive gap; paid here it delays a WiFi poll and a webserver
+       tick, against an MQTT watchdog of 60 s and a task watchdog this loop
+       feeds every iteration.
+
+       Only the drain moved: the driver still sets the flag, and the flag is
+       still cleared inside store_settings_inverter_watchdog() rather than here,
+       so a value that arrives while this is running is not swallowed - it
+       leaves the flag set and is written on the next pass.
+    */
+    if (inverter_modbus_watchdog_changed) {
+      store_settings_inverter_watchdog();
+    }
+
     END_TIME_MEASUREMENT_MAX(wifi, datalayer.system.status.wifi_task_10s_max_us);
 
     mqtt_loop_watchdog.panic_if_exceeded_ms(60000, "MQTT task watchdog reset triggered!");
@@ -671,12 +693,6 @@ void core_loop(void*) {
       // Update values heading towards inverter
       if (inverter) {
         inverter->update_values();
-      }
-
-      if (inverter_modbus_watchdog_changed) {
-        // An inverter told us to use a different watchdog period. Storage is done here rather than
-        // in the driver, so no inverter protocol has to depend on NVM.
-        store_settings_inverter_watchdog();
       }
 
       update_restart_progress();  // Check if we need to restart the ESP32

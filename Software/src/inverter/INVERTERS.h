@@ -45,8 +45,10 @@ static const uint32_t MODBUS_INV_WATCHDOG_DEFAULT_S = 60;
 // Live watchdog period. Restored from NVM at boot, re-persisted whenever register 402 brings a new value.
 extern uint32_t inverter_modbus_watchdog_timeout_s;
 // Set by the inverter driver when the value above changed and needs persisting. The driver does not
-// touch NVM itself; the core loop drains this into store_settings_inverter_watchdog().
-extern bool inverter_modbus_watchdog_changed;
+// touch NVM itself; the connectivity loop drains this into store_settings_inverter_watchdog(). It is
+// deliberately NOT the core loop: that task drives CAN, and a flash write blocks its caller for as
+// long as the operation takes. Set on one task and cleared on another, so it is volatile.
+extern volatile bool inverter_modbus_watchdog_changed;
 // Should a non-zero RebootCommand in register 407 restart the emulator?
 extern bool user_selected_accept_inverter_reboot;
 // Inverter wall clock from registers 403-406, Unix epoch seconds. 0 = nothing received since boot.
