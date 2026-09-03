@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <initializer_list>
+
 #include "../../Software/src/battery/TESLA-LEGACY-BATTERY.h"
 #include "../../Software/src/datalayer/datalayer.h"
 
@@ -27,11 +29,11 @@ namespace {
  */
 constexpr uint16_t kCacAtNew85kWhRaw = 2316;
 
-CAN_frame tesla_cacmin_frame(uint16_t raw_cac) {
+CAN_frame tesla_cacmin_frame(uint16_t raw_cac, uint8_t byte0 = 0) {
   CAN_frame frame = {};
   frame.DLC = 8;
   frame.ID = 0x7E2;
-  frame.data.u8[0] = 0;
+  frame.data.u8[0] = byte0;
   frame.data.u8[2] = static_cast<uint8_t>((raw_cac & 0x0F) << 4);
   frame.data.u8[3] = static_cast<uint8_t>((raw_cac >> 4) & 0xFF);
   return frame;
@@ -46,6 +48,20 @@ uint16_t reported_soh_pptt(uint16_t raw_cac) {
   TeslaLegacyBattery battery;
   battery.setup();
   battery.handle_incoming_can_frame(tesla_cacmin_frame(raw_cac));
+  battery.update_values();
+  return datalayer.battery.status.soh_pptt;
+}
+
+/* Same, but for a sequence of frames, so a rejected one can be shown not to
+ * displace an accepted one.
+ */
+uint16_t reported_soh_pptt_after(std::initializer_list<CAN_frame> frames) {
+  datalayer.battery.status.soh_pptt = 0;
+  TeslaLegacyBattery battery;
+  battery.setup();
+  for (CAN_frame frame : frames) {
+    battery.handle_incoming_can_frame(frame);
+  }
   battery.update_values();
   return datalayer.battery.status.soh_pptt;
 }
@@ -91,4 +107,16 @@ TEST(TeslaLegacySoh, ASmallerPackStillUnderReportsAndTheClampCannotHelp) {
 
   EXPECT_EQ(5000, reported);
   EXPECT_LT(reported, 10000);
+}
+
+/* The driver takes CACmin off 0x7E2 only when byte 0 is zero, and nothing in
+ * the tree documents what that byte is - so this pins the behaviour, not a
+ * reading of its meaning. It is here because a mutation earned it: opening the
+ * gate to every 0x7E2 frame passed the whole suite, which means a change to
+ * that condition could not be told apart from no change at all.
+ */
+TEST(TeslaLegacySoh, A7E2FrameWithANonZeroFirstByteDoesNotDisplaceTheCac) {
+  const uint16_t reported = reported_soh_pptt_after({tesla_cacmin_frame(1737), tesla_cacmin_frame(2700, 0x01)});
+
+  EXPECT_EQ(7500, reported);
 }
