@@ -105,10 +105,19 @@ PRESETS = {
                        "ACAN_ESP32::internalSendMessage(CANMessage const&)"],
     },
     "fd": {
-        # The trampolines are passed to ACAN2517FD::begin() by address and the
-        # library's isr() is out-of-line, so all three must be present.
-        "taken": ["canfd_isr()", "canfd_2_isr()", "ACAN2517FD::isr()"],
-        "may_inline": [],
+        # Only the trampolines are handed over by address - comm_can.cpp passes
+        # them to ACAN2517FD::begin(), which registers them with
+        # attachInterrupt(). The library's isr() is an ordinary non-virtual call
+        # from inside those trampolines and is address-taken nowhere, so it is a
+        # may_inline root by this table's own definition and not a taken one.
+        # It is out-of-line in every image built so far only because it lives in
+        # another translation unit; the tree has no -flto today, and turning it
+        # on would let two two-instruction trampolines absorb it and fail a
+        # perfectly good build. Either way it is covered: walked as a callee of
+        # canfd_isr() when it is out-of-line, and inside canfd_isr()'s own
+        # disassembly when it is not.
+        "taken": ["canfd_isr()", "canfd_2_isr()"],
+        "may_inline": ["ACAN2517FD::isr()"],
     },
     "mcp2515": {
         "taken": ["MCP2515_Lite::mcp2515_isr_handler(void*)"],
