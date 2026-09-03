@@ -218,7 +218,6 @@ class TeslaHtmlRenderer : public BatteryHtmlRenderer {
     static const char* const BMS_powerLimitState[] = {"NOT_CALCULATED_FOR_DRIVE", "CALCULATED_FOR_DRIVE"};
     //static const char* const HVP_status[] = {"INVALID", "NOT_AVAILABLE", "STALE", "VALID"};
     static const char* const HVP_contactor[] = {"NOT_ACTIVE", "ACTIVE", "COMPLETED"};
-    static const char* const falseTrue[] = {"False", "True"};
     static const char* const noYes[] = {"No", "Yes"};
 
     //Main battery info
@@ -378,17 +377,12 @@ class TeslaHtmlRenderer : public BatteryHtmlRenderer {
     appendFault(content, "PCS Faulted", datalayer_extended.tesla.PCS_dcdcFaulted);
     appendFault(content, "Output Is Limited", datalayer_extended.tesla.PCS_dcdcOutputIsLimited);
     content += "<h4>Max Output Current Allowed: " + String(PCS_dcdcMaxOutputCurrentAllowed) + " A</h4>";
-    content +=
-        "<h4>Precharge Rty Cnt: " + lookupName(falseTrue, datalayer_extended.tesla.PCS_dcdcPrechargeRtyCnt) + "</h4>";
-    content += "<h4>12V Support Rty Cnt: " + lookupName(falseTrue, datalayer_extended.tesla.PCS_dcdc12VSupportRtyCnt) +
-               "</h4>";
-    content +=
-        "<h4>Discharge Rty Cnt: " + lookupName(falseTrue, datalayer_extended.tesla.PCS_dcdcDischargeRtyCnt) + "</h4>";
+    content += "<h4>Precharge Rty Cnt: " + String(datalayer_extended.tesla.PCS_dcdcPrechargeRtyCnt) + "</h4>";
+    content += "<h4>12V Support Rty Cnt: " + String(datalayer_extended.tesla.PCS_dcdc12VSupportRtyCnt) + "</h4>";
+    content += "<h4>Discharge Rty Cnt: " + String(datalayer_extended.tesla.PCS_dcdcDischargeRtyCnt) + "</h4>";
     appendFault(content, "PWM Enable Line", datalayer_extended.tesla.PCS_dcdcPwmEnableLine);
     appendFault(content, "Supporting Fixed LV Target", datalayer_extended.tesla.PCS_dcdcSupportingFixedLvTarget);
-    content +=
-        "<h4>Precharge Restart Cnt: " + lookupName(falseTrue, datalayer_extended.tesla.PCS_dcdcPrechargeRestartCnt) +
-        "</h4>";
+    content += "<h4>Precharge Restart Cnt: " + String(datalayer_extended.tesla.PCS_dcdcPrechargeRestartCnt) + "</h4>";
     content += "<h4>Initial Precharge Substate: " +
                lookupName(PCS_dcdcSubState, datalayer_extended.tesla.PCS_dcdcInitialPrechargeSubState) + "</h4>";
     //0x3C4 PCS_info

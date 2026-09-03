@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include "../Software/src/battery/TESLA-BATTERY.h"
 #include "../Software/src/battery/TESLA-HTML.h"
 #include "../Software/src/datalayer/datalayer_extended.h"
 
@@ -117,9 +118,18 @@ TEST(TeslaHtmlLookupBounds, AnOutOfRangeDcdcSubStateIsNamedNotDereferenced) {
   EXPECT_TRUE(contains(content, "<h4>Initial Precharge Substate: UNKNOWN(31)</h4>"));
 }
 
-// falseTrue[2], selected by four retry COUNTERS of 3 and 4 bits. Any retry beyond the first
-// already indexes past the end.
-TEST(TeslaHtmlLookupBounds, AnOutOfRangeRetryCountIsNamedNotDereferenced) {
+/* The four PCS retry COUNTERS render as numbers, not as a two-entry table.
+ *
+ * They are counts the parser lifts straight out of 0x224 - 3-bit and 4-bit fields - and they
+ * used to index falseTrue[], so ONE retry read "True" and two read past the end of a two-entry
+ * table. Bounding that made it safe (UNKNOWN(2) and up) without making it right: a count is not
+ * a boolean, and the labels already say "Rty Cnt".
+ *
+ * Rendering the number changes what 0 and 1 display too - from "False"/"True" to "0"/"1" - which
+ * is the deliberate part. The page now says how many retries there were, which is the only
+ * reading of these fields that was ever true.
+ */
+TEST(TeslaHtmlLookupBounds, TheRetryCountersRenderTheCountRatherThanABoolean) {
   String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
     tesla.PCS_dcdcPrechargeRtyCnt = 7;
     tesla.PCS_dcdc12VSupportRtyCnt = 15;
@@ -127,10 +137,27 @@ TEST(TeslaHtmlLookupBounds, AnOutOfRangeRetryCountIsNamedNotDereferenced) {
     tesla.PCS_dcdcPrechargeRestartCnt = 7;
   });
 
-  EXPECT_TRUE(contains(content, "<h4>Precharge Rty Cnt: UNKNOWN(7)</h4>"));
-  EXPECT_TRUE(contains(content, "<h4>12V Support Rty Cnt: UNKNOWN(15)</h4>"));
-  EXPECT_TRUE(contains(content, "<h4>Discharge Rty Cnt: UNKNOWN(15)</h4>"));
-  EXPECT_TRUE(contains(content, "<h4>Precharge Restart Cnt: UNKNOWN(7)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Precharge Rty Cnt: 7</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>12V Support Rty Cnt: 15</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Discharge Rty Cnt: 15</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Precharge Restart Cnt: 7</h4>"));
+
+  EXPECT_FALSE(contains(content, "Rty Cnt: True")) << "a count must never render as a boolean word";
+  EXPECT_FALSE(contains(content, "Rty Cnt: UNKNOWN")) << "and it is a number, so no value is out of range";
+}
+
+/* The values the old two-entry table could represent are exactly where the change is visible to
+ * a user, so pin them: 0 and 1 stop saying False/True.
+ */
+TEST(TeslaHtmlLookupBounds, TheCountsZeroAndOneRenderAsNumbersToo) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
+    tesla.PCS_dcdcPrechargeRtyCnt = 0;
+    tesla.PCS_dcdc12VSupportRtyCnt = 1;
+  });
+
+  EXPECT_TRUE(contains(content, "<h4>Precharge Rty Cnt: 0</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>12V Support Rty Cnt: 1</h4>"));
+  EXPECT_FALSE(contains(content, "Rty Cnt: False"));
 }
 
 /* hvilStatusState[16] and contactorState[12] are the two tables the wire cannot overrun (4-bit
@@ -219,3 +246,45 @@ TEST(TeslaHtmlLookupBounds, EverySaturatedFieldNamesItsValue) {
 }
 
 }  // namespace
+
+/* The parser half: HVP_currentSenseMia masked TWO bits where its own DBC comment says one.
+ *
+ * Bit 58 is currentSenseMia; bit 59 is shuntRefVoltageMismatch, parsed one line below. With a
+ * two-bit mask the page reported current-sense MIA whenever the ref-voltage bit was set on its
+ * own - a wrong diagnosis rather than a crash, which is why nothing caught it. Every sibling MIA
+ * field in the same block masks a single bit; this one was alone in being wrong.
+ *
+ * Driven through the real frame handler on 0x7AA mux 1, so it exercises the parser rather than a
+ * restatement of the arithmetic.
+ */
+TEST(TeslaParserBitWidths, CurrentSenseMiaReadsOnlyItsOwnBit) {
+  TeslaBattery battery;
+
+  auto hvp_mux0 = [](uint8_t byte7) {
+    CAN_frame f{};
+    f.ID = 0x7AA;
+    f.DLC = 8;
+    f.data.u8[0] = 0;  // HVP_debugMessageMultiplexer = 0, the block carrying the MIA bits
+    f.data.u8[7] = byte7;
+    return f;
+  };
+
+  // Only the neighbour's bit (59) set: current-sense MIA must stay false.
+  battery.handle_incoming_can_frame(hvp_mux0(1u << 3));
+  battery.update_values();  // the datalayer copy lives here, not in the frame handler
+  EXPECT_FALSE(datalayer_extended.tesla.HVP_currentSenseMia)
+      << "the ref-voltage-mismatch bit alone must not report current-sense MIA";
+  EXPECT_TRUE(datalayer_extended.tesla.HVP_shuntRefVoltageMismatch) << "and its own field must be set";
+
+  // Only its own bit (58) set.
+  battery.handle_incoming_can_frame(hvp_mux0(1u << 2));
+  battery.update_values();
+  EXPECT_TRUE(datalayer_extended.tesla.HVP_currentSenseMia);
+  EXPECT_FALSE(datalayer_extended.tesla.HVP_shuntRefVoltageMismatch);
+
+  // Neither.
+  battery.handle_incoming_can_frame(hvp_mux0(0));
+  battery.update_values();
+  EXPECT_FALSE(datalayer_extended.tesla.HVP_currentSenseMia);
+  EXPECT_FALSE(datalayer_extended.tesla.HVP_shuntRefVoltageMismatch);
+}
