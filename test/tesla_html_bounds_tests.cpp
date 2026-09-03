@@ -1,0 +1,191 @@
+#include <gtest/gtest.h>
+
+#include <functional>
+
+#include "../Software/src/battery/TESLA-HTML.h"
+#include "../Software/src/datalayer/datalayer_extended.h"
+
+#include "Arduino.h"
+
+namespace {
+
+// The Tesla renderer indexes thirteen static tables with fields the CAN parser fills straight
+// from bit slices of a frame. Every field below is wider than the table it selects from, so a
+// pack that reports a code the table has no entry for reads past the end: on the host that is a
+// wild pointer handed to String(), on the ESP32 the same. These tests pin the bound at the only
+// place it is observable - the rendered text.
+//
+// The datalayer is a global shared by every test, so each case starts from the power-on state.
+String render_with_tesla_state(const std::function<void(DATALAYER_INFO_TESLA&)>& set_fields) {
+  datalayer_extended.tesla = DATALAYER_INFO_TESLA{};
+  set_fields(datalayer_extended.tesla);
+  TeslaHtmlRenderer renderer;
+  return renderer.get_status_html();
+}
+
+bool contains(const String& haystack, const char* needle) {
+  return haystack.str().find(needle) != std::string::npos;
+}
+
+// A freshly set-up battery has published nothing yet: every field is zero and battery_manufactureDate
+// is still the null pointer it powers on as. Rendering that must produce a page, not a crash.
+TEST(TeslaHtmlLookupBounds, AFreshlySetUpTeslaRenders) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {});
+
+  EXPECT_TRUE(contains(content, "<h4>BMS State: STANDBY</h4>"));
+}
+
+// contactorText[13], selected by a 4-bit field (0x20A byte 1, low nibble).
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeContactorSetStateIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.packContactorSetState = 15; });
+
+  EXPECT_TRUE(contains(content, "<h4>HVP Contactor State: UNKNOWN(15)</h4>"));
+}
+
+// BMS_contactorState[7], selected by a 3-bit field (0x212 byte 1).
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeBmsContactorStateIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.BMS_contactorState = 7; });
+
+  EXPECT_TRUE(contains(content, "<h4>BMS Contactor State: UNKNOWN(7)</h4>"));
+}
+
+// BMS_state[10], selected by a 4-bit signal. The DBC even documents a code 10 ("BMS_DIAG") the
+// table has no entry for.
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeBmsStateIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.BMS_state = 10; });
+
+  EXPECT_TRUE(contains(content, "<h4>BMS State: UNKNOWN(10)</h4>"));
+}
+
+// BMS_hvState[7], selected by a 3-bit field (0x212 byte 2).
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeBmsHvStateIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.BMS_hvState = 7; });
+
+  EXPECT_TRUE(contains(content, "<h4>BMS HV State: UNKNOWN(7)</h4>"));
+}
+
+// BMS_uiChargeStatus[6], selected by a 3-bit signal.
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeUiChargeStatusIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.BMS_uiChargeStatus = 7; });
+
+  EXPECT_TRUE(contains(content, "<h4>BMS UI Charge Status: UNKNOWN(7)</h4>"));
+}
+
+// BMS_powerLimitState[2], selected by a 1-bit field - exactly covered, so the bound must not fire.
+TEST(TeslaHtmlLookupBounds, AnInRangePowerLimitStateStillRendersItsLabel) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.BMS_powerLimitState = 1; });
+
+  EXPECT_TRUE(contains(content, "<h4>Power Limit State: CALCULATED_FOR_DRIVE</h4>"));
+}
+
+// HVP_contactor[3], selected by a 2-bit field (0x20A byte 3, top two bits).
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeContactorRequestStatusIsNamedNotDereferenced) {
+  String content =
+      render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.battery_packCtrsRequestStatus = 3; });
+
+  EXPECT_TRUE(contains(content, "<h4>Contactors Request Status: UNKNOWN(3)</h4>"));
+}
+
+// PCS_dcdcStatus[3], selected by three separate 2-bit fields (0x224 byte 0).
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeDcdcStatusIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
+    tesla.PCS_dcdcPrechargeStatus = 3;
+    tesla.PCS_dcdc12VSupportStatus = 3;
+    tesla.PCS_dcdcHvBusDischargeStatus = 3;
+  });
+
+  EXPECT_TRUE(contains(content, "<h4>Precharge Status: UNKNOWN(3)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>12V Support Status: UNKNOWN(3)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>HV Bus Discharge Status: UNKNOWN(3)</h4>"));
+}
+
+// PCS_dcdcMainState[7], selected by a 4-bit field assembled from two bytes of 0x224.
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeDcdcMainStateIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) { tesla.PCS_dcdcMainState = 15; });
+
+  EXPECT_TRUE(contains(content, "<h4>Main State: UNKNOWN(15)</h4>"));
+}
+
+// PCS_dcdcSubState[18], selected by two separate 5-bit fields (0x224 bytes 1 and 7).
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeDcdcSubStateIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
+    tesla.PCS_dcdcSubState = 31;
+    tesla.PCS_dcdcInitialPrechargeSubState = 31;
+  });
+
+  EXPECT_TRUE(contains(content, "<h4>Sub State: UNKNOWN(31)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Initial Precharge Substate: UNKNOWN(31)</h4>"));
+}
+
+// falseTrue[2], selected by four retry COUNTERS of 3 and 4 bits. Any retry beyond the first
+// already indexes past the end.
+TEST(TeslaHtmlLookupBounds, AnOutOfRangeRetryCountIsNamedNotDereferenced) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
+    tesla.PCS_dcdcPrechargeRtyCnt = 7;
+    tesla.PCS_dcdc12VSupportRtyCnt = 15;
+    tesla.PCS_dcdcDischargeRtyCnt = 15;
+    tesla.PCS_dcdcPrechargeRestartCnt = 7;
+  });
+
+  EXPECT_TRUE(contains(content, "<h4>Precharge Rty Cnt: UNKNOWN(7)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>12V Support Rty Cnt: UNKNOWN(15)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Discharge Rty Cnt: UNKNOWN(15)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Precharge Restart Cnt: UNKNOWN(7)</h4>"));
+}
+
+// hvilStatusState[16] and contactorState[12] are the two tables the wire cannot overrun (4-bit
+// into 16, 3-bit into 12). The bound must leave their real labels alone at the top code.
+TEST(TeslaHtmlLookupBounds, TheExactlyCoveredTablesStillRenderTheirTopLabels) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
+    tesla.hvil_status = 15;
+    tesla.packContNegativeState = 7;
+    tesla.packContPositiveState = 7;
+  });
+
+  EXPECT_TRUE(contains(content, "<h4>HVIL Status: UNKNOWN(15)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Negative Contactor: WELDED</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Positive Contactor: WELDED</h4>"));
+}
+
+// The wire can only reach the widths above, but nothing in the renderer depends on that: a
+// corrupted or future-widened field must still name its value rather than dereference whatever
+// sits past the table. 255 is the widest a uint8_t field can carry.
+TEST(TeslaHtmlLookupBounds, EverySaturatedFieldNamesItsValue) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
+    tesla.hvil_status = 255;
+    tesla.packContactorSetState = 255;
+    tesla.BMS_contactorState = 255;
+    tesla.packContNegativeState = 255;
+    tesla.packContPositiveState = 255;
+    tesla.battery_packCtrsRequestStatus = 255;
+    tesla.BMS_state = 255;
+    tesla.BMS_hvState = 255;
+    tesla.BMS_uiChargeStatus = 255;
+    tesla.BMS_powerLimitState = 255;
+    tesla.PCS_dcdcPrechargeStatus = 255;
+    tesla.PCS_dcdc12VSupportStatus = 255;
+    tesla.PCS_dcdcHvBusDischargeStatus = 255;
+    tesla.PCS_dcdcMainState = 255;
+    tesla.PCS_dcdcSubState = 255;
+    tesla.PCS_dcdcInitialPrechargeSubState = 255;
+    tesla.PCS_dcdcPrechargeRtyCnt = 255;
+    tesla.PCS_dcdc12VSupportRtyCnt = 255;
+    tesla.PCS_dcdcDischargeRtyCnt = 255;
+    tesla.PCS_dcdcPrechargeRestartCnt = 255;
+  });
+
+  EXPECT_TRUE(contains(content, "<h4>HVIL Status: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>HVP Contactor State: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>BMS Contactor State: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Negative Contactor: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Positive Contactor: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Contactors Request Status: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>BMS State: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>BMS HV State: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>BMS UI Charge Status: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Power Limit State: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Main State: UNKNOWN(255)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Sub State: UNKNOWN(255)</h4>"));
+}
+
+}  // namespace
