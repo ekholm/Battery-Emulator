@@ -405,13 +405,32 @@ Agreement declaration_agreement(const std::string& code, const std::string& ifac
       }
       return Agreement::DeclaredFlat;
     }
-    if (squeeze(arm->cond) != squeeze(cs.cond)) {
+    /* A leading `!` is polarity, not a different probe. Without this, the
+       correct guard written as `if (!is_fd())` compares unequal to the routing's
+       `is_fd()` and the pair is called undecidable - so a legitimate restyle of
+       working code turns the scan's "nothing I cannot judge" assertion red.
+       Measured during review: rewriting hw_lilygo2can's guard as `!is_fd()`,
+       arms swapped and behaviour identical, failed TheScanReportsWhatItCannotJudge.
+       Strip it from both sides and carry it in the polarity instead. */
+    bool arm_positive = arm->positive;
+    std::string arm_cond = squeeze(arm->cond);
+    while (!arm_cond.empty() && arm_cond[0] == '!') {
+      arm_cond.erase(0, 1);
+      arm_positive = !arm_positive;
+    }
+    bool routed_positive = routed_when_true;
+    std::string routing_cond = squeeze(cs.cond);
+    while (!routing_cond.empty() && routing_cond[0] == '!') {
+      routing_cond.erase(0, 1);
+      routed_positive = !routed_positive;
+    }
+    if (arm_cond != routing_cond) {
       if (why != nullptr) {
         *why = "guarded by `" + squeeze(arm->cond) + "`, routed on `" + squeeze(cs.cond) + "`";
       }
       return Agreement::Undecidable;
     }
-    if (arm->positive != routed_when_true) {
+    if (arm_positive != routed_positive) {
       if (why != nullptr) {
         *why = std::string("declared on the `") + (arm->positive ? "if" : "else") + "` arm of `" + squeeze(cs.cond) +
                "`, where the chip select is GPIO_NUM_NC";
@@ -547,6 +566,28 @@ TEST(HalInterfaceDeclaration, AnInvertedGuardIsNotAgreement) {
   EXPECT_EQ(declaration_agreement("{ return {comm_interface::CanAddonMcp2515}; }", "CanAddonMcp2515", cs, &why),
             Agreement::DeclaredFlat)
       << why;
+
+  /* The same two boards written with the negation on the guard instead of on
+     the arms. `!is_fd()` is the SAME probe, so these must land on the same two
+     verdicts - otherwise a correct board is reported as unjudgeable the day
+     someone restyles it, and the empty "cannot judge" list is a property of
+     today's spelling rather than of the code. */
+  const std::string negated_right =
+      "{ std::vector<comm_interface> out = {comm_interface::CanNative};\n"
+      "  if (!is_fd()) {\n    out.push_back(comm_interface::CanAddonMcp2515);\n"
+      "  } else {\n    out.push_back(comm_interface::CanFdAddonMcp2518_2);\n  }\n  return out; }";
+  const std::string negated_inverted =
+      "{ std::vector<comm_interface> out = {comm_interface::CanNative};\n"
+      "  if (!is_fd()) {\n  } else {\n    out.push_back(comm_interface::CanAddonMcp2515);\n  }\n  return out; }";
+  EXPECT_EQ(declaration_agreement(negated_right, "CanAddonMcp2515", cs, &why), Agreement::Agrees) << why;
+  EXPECT_EQ(declaration_agreement(negated_inverted, "CanAddonMcp2515", cs, &why), Agreement::WrongBranch) << why;
+
+  /* And the negation on the ROUTING side, which is the same argument from the
+     other end: `!is_fd() ? GPIO_NUM_10 : GPIO_NUM_NC` routes the chip on
+     exactly the boards `is_fd() ? GPIO_NUM_NC : GPIO_NUM_10` does. */
+  const std::string negated_cs = "!is_fd() ? GPIO_NUM_10 : GPIO_NUM_NC";
+  EXPECT_EQ(declaration_agreement(right, "CanAddonMcp2515", negated_cs, &why), Agreement::Agrees) << why;
+  EXPECT_EQ(declaration_agreement(inverted, "CanAddonMcp2515", negated_cs, &why), Agreement::WrongBranch) << why;
 }
 
 TEST(HalInterfaceDeclaration, ACommentBetweenACaseAndItsNameDoesNotHideTheInterface) {
@@ -729,8 +770,21 @@ TEST(HalInterfaceDeclaration, ThePageDropsBlankNamesBeforeItChecksTheDeclaration
 
   const size_t blank_filter = body.find("name[0]");
   const size_t declared_check = body.find("declared");
-  ASSERT_NE(blank_filter, std::string::npos) << "the blank-name filter is gone from the option builder: " << body;
-  ASSERT_NE(declared_check, std::string::npos) << "the declaration check is gone from the option builder: " << body;
+  /* These two say "not found in the spelling this scan matches", not "gone": a
+     source scan cannot tell a removed filter from a rewritten one, and saying
+     the stronger thing would send the next reader looking for a defect that is
+     not there. Measured during review: respelling `name[0]` as `*name` fails
+     this test with the old message, which asserted the filter had been removed
+     while it sat three lines away. */
+  ASSERT_NE(blank_filter, std::string::npos)
+      << "no `name[0]` blank-name filter in the option builder. Either it was removed - in which case the "
+         "naming rules in this file have lost their reason - or it was respelled, in which case update this "
+         "scan: "
+      << body;
+  ASSERT_NE(declared_check, std::string::npos)
+      << "no `declared` declaration check in the option builder. Removed, or respelled - this scan cannot "
+         "tell which, and both need a human: "
+      << body;
   EXPECT_LT(blank_filter, declared_check)
       << "the option builder now consults the declaration before it drops blank names. If a blank-named "
          "option that IS the stored selection now survives, the rule that no board may un-name an interface "
@@ -738,8 +792,10 @@ TEST(HalInterfaceDeclaration, ThePageDropsBlankNamesBeforeItChecksTheDeclaration
          "the comments on hw_becom, hw_waveshare and hw_lilygo2can before relaxing anything.";
 
   EXPECT_NE(squeeze(body).find("!declared&&type!=selected"), std::string::npos)
-      << "the exemption that keeps the currently SELECTED value in the list is gone, so a stale stored "
-         "interface can no longer be corrected from the page at all - naming it, which is what the three "
-         "boards above do, then buys nothing: "
+      << "the exemption that keeps the currently SELECTED value in the list is not written as "
+         "`!declared && type != selected` any more. If it was REMOVED, a stale stored interface can no longer "
+         "be corrected from the page at all and naming it - which is what the three boards above do - buys "
+         "nothing. If it was only reordered or respelled, update this scan; it matches one spelling and "
+         "cannot tell the two apart: "
       << body;
 }
