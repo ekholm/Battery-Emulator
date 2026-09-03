@@ -389,6 +389,24 @@ std::string body_of(const std::string& source, const std::string& signature) {
   return "";
 }
 
+// The braced block introduced by `opener`, brace-matched from its `{`.
+std::string brace_block_after(const std::string& source, const std::string& opener) {
+  const size_t at = source.find(opener);
+  if (at == std::string::npos) {
+    return "";
+  }
+  const size_t open = source.find('{', at);
+  int depth = 0;
+  for (size_t i = open; i < source.size(); ++i) {
+    if (source[i] == '{') {
+      ++depth;
+    } else if (source[i] == '}' && --depth == 0) {
+      return source.substr(open, i - open + 1);
+    }
+  }
+  return "";
+}
+
 }  // namespace
 
 TEST(AcanRxSlotWiring, TheInterruptTakesBothItsCallsFromPlan) {
@@ -427,10 +445,15 @@ TEST(AcanRxSlotWiring, TheWholeFifoDrainStaysOnClassicSiliconOnly) {
       << "the drain is no longer gated on the target: on Miss-Status silicon it throws away the real "
          "frames queued behind the lost ones, which is half the defect";
   /* The clear-data-overrun command is OUTSIDE that gate on purpose - it runs on
-     both targets, so the status bit cannot latch. */
-  const size_t gate = handler.find("if (!twaiHasRxStatus) {");
-  const size_t clear = handler.find("TWAI_CLR_OVERRUN");
-  ASSERT_NE(clear, std::string::npos) << "the clear-data-overrun command is gone";
-  EXPECT_GT(clear, gate) << "the clear-data-overrun command has moved inside the classic-only gate, so on "
-                            "Miss-Status silicon the overrun status would latch";
+     both targets, so the status bit cannot latch. Comparing POSITIONS is not
+     enough and a mutation proved it: the command moved inside the gate still
+     sits after the `if`, so an ordering test passes. What has to be asked is
+     whether it is inside the gate's BRACES. */
+  ASSERT_NE(handler.find("TWAI_CLR_OVERRUN"), std::string::npos) << "the clear-data-overrun command is gone";
+  const std::string gated = brace_block_after(handler, "if (!twaiHasRxStatus) {");
+  ASSERT_FALSE(gated.empty());
+  EXPECT_EQ(gated.find("TWAI_CLR_OVERRUN"), std::string::npos)
+      << "the clear-data-overrun command has moved inside the classic-only gate, so on Miss-Status "
+         "silicon nothing clears the overrun status and it latches: "
+      << gated;
 }
