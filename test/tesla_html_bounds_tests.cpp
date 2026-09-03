@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include "../Software/src/battery/TESLA-BATTERY.h"
 #include "../Software/src/battery/TESLA-HTML.h"
 #include "../Software/src/datalayer/datalayer_extended.h"
 
@@ -117,9 +118,18 @@ TEST(TeslaHtmlLookupBounds, AnOutOfRangeDcdcSubStateIsNamedNotDereferenced) {
   EXPECT_TRUE(contains(content, "<h4>Initial Precharge Substate: UNKNOWN(31)</h4>"));
 }
 
-// falseTrue[2], selected by four retry COUNTERS of 3 and 4 bits. Any retry beyond the first
-// already indexes past the end.
-TEST(TeslaHtmlLookupBounds, AnOutOfRangeRetryCountIsNamedNotDereferenced) {
+/* The four PCS retry COUNTERS render as numbers, not as a two-entry table.
+ *
+ * They are counts the parser lifts straight out of 0x224 - 3-bit and 4-bit fields - and they
+ * used to index falseTrue[], so ONE retry read "True" and two read past the end of a two-entry
+ * table. Bounding that made it safe (UNKNOWN(2) and up) without making it right: a count is not
+ * a boolean, and the labels already say "Rty Cnt".
+ *
+ * Rendering the number changes what 0 and 1 display too - from "False"/"True" to "0"/"1" - which
+ * is the deliberate part. The page now says how many retries there were, which is the only
+ * reading of these fields that was ever true.
+ */
+TEST(TeslaHtmlLookupBounds, TheRetryCountersRenderTheCountRatherThanABoolean) {
   String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
     tesla.PCS_dcdcPrechargeRtyCnt = 7;
     tesla.PCS_dcdc12VSupportRtyCnt = 15;
@@ -127,10 +137,27 @@ TEST(TeslaHtmlLookupBounds, AnOutOfRangeRetryCountIsNamedNotDereferenced) {
     tesla.PCS_dcdcPrechargeRestartCnt = 7;
   });
 
-  EXPECT_TRUE(contains(content, "<h4>Precharge Rty Cnt: UNKNOWN(7)</h4>"));
-  EXPECT_TRUE(contains(content, "<h4>12V Support Rty Cnt: UNKNOWN(15)</h4>"));
-  EXPECT_TRUE(contains(content, "<h4>Discharge Rty Cnt: UNKNOWN(15)</h4>"));
-  EXPECT_TRUE(contains(content, "<h4>Precharge Restart Cnt: UNKNOWN(7)</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Precharge Rty Cnt: 7</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>12V Support Rty Cnt: 15</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Discharge Rty Cnt: 15</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>Precharge Restart Cnt: 7</h4>"));
+
+  EXPECT_FALSE(contains(content, "Rty Cnt: True")) << "a count must never render as a boolean word";
+  EXPECT_FALSE(contains(content, "Rty Cnt: UNKNOWN")) << "and it is a number, so no value is out of range";
+}
+
+/* The values the old two-entry table could represent are exactly where the change is visible to
+ * a user, so pin them: 0 and 1 stop saying False/True.
+ */
+TEST(TeslaHtmlLookupBounds, TheCountsZeroAndOneRenderAsNumbersToo) {
+  String content = render_with_tesla_state([](DATALAYER_INFO_TESLA& tesla) {
+    tesla.PCS_dcdcPrechargeRtyCnt = 0;
+    tesla.PCS_dcdc12VSupportRtyCnt = 1;
+  });
+
+  EXPECT_TRUE(contains(content, "<h4>Precharge Rty Cnt: 0</h4>"));
+  EXPECT_TRUE(contains(content, "<h4>12V Support Rty Cnt: 1</h4>"));
+  EXPECT_FALSE(contains(content, "Rty Cnt: False"));
 }
 
 /* hvilStatusState[16] and contactorState[12] are the two tables the wire cannot overrun (4-bit
@@ -219,3 +246,40 @@ TEST(TeslaHtmlLookupBounds, EverySaturatedFieldNamesItsValue) {
 }
 
 }  // namespace
+
+/* A field that reads a neighbouring signal's bits: BMS_hvacPowerBudget is
+ * 10 bits at 50, so byte 7 contributes only its LOW NIBBLE, and byte 7 bits 4-5 are
+ * BMS_inverterTQF - a different signal. Reading byte 7 unmasked folded that signal
+ * into the power budget and let a 10-bit field report far more.
+ *
+ * Worth knowing why nobody noticed: the page's render of this field is commented out
+ * with the note "Not giving useable data". The value was seen to be wrong and the
+ * display was removed rather than the cause found.
+ */
+TEST(TeslaParserBitWidths, HvacPowerBudgetDoesNotAbsorbTheInverterTorqueFlag) {
+  TeslaBattery battery;
+
+  auto limit_frame = [](uint8_t byte6, uint8_t byte7) {
+    CAN_frame f{};
+    f.ID = 0x252;  // BMS_powerAvailable
+    f.DLC = 8;
+    f.data.u8[6] = byte6;
+    f.data.u8[7] = byte7;
+    return f;
+  };
+
+  // Budget bits all zero, but the neighbouring torque flag set in bits 4-5.
+  CAN_frame f = limit_frame(0x00, 0x30);
+  battery.handle_incoming_can_frame(f);
+  battery.update_values();
+  EXPECT_EQ(datalayer_extended.tesla.BMS_hvacPowerBudget, 0u)
+      << "the inverter torque flag sits in byte 7 bits 4-5 and must not reach this field";
+  EXPECT_EQ(datalayer_extended.tesla.BMS_inverterTQF, 3u) << "and it must still reach its own";
+
+  // The field's own maximum: byte 6 bits 2-7 and byte 7 bits 0-3 all set = 10 bits.
+  f = limit_frame(0xFC, 0x0F);
+  battery.handle_incoming_can_frame(f);
+  battery.update_values();
+  EXPECT_EQ(datalayer_extended.tesla.BMS_hvacPowerBudget, 0x3FFu)
+      << "a 10-bit field's maximum is 1023; a larger value means a neighbour leaked in";
+}
