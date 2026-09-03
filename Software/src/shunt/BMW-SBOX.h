@@ -44,15 +44,20 @@ class BmwSbox : public CanShunt {
   unsigned long LastAvgTime = 0;       // Last current storage time
   unsigned long ShuntLastSeen = 0;
 
+  /** One current sample per AVG_SAMPLE_INTERVAL_MS; AVG_SAMPLE_COUNT of them
+   *  span the second the published average claims to cover. **/
+  static const uint8_t AVG_SAMPLE_COUNT = 10;
+  static const unsigned long AVG_SAMPLE_INTERVAL_MS = 100;
+
   // Signed: the samples are discharge-negative currents copied from the int32_t
   // datalayer field, and an unsigned sum cannot be divided back into one.
-  // Zeroed: the average divides by 10 from the very first sample, so the nine
-  // slots not yet written are read on every pass, and k picks a slot before
-  // anything has written it.
-  int32_t avg_mA_array[10] = {0};
+  // Zeroed: the slots not yet written are summed on every pass, and k and
+  // avg_samples are both read before anything has written them.
+  int32_t avg_mA_array[AVG_SAMPLE_COUNT] = {0};
   int32_t avg_sum = 0;
 
-  uint8_t k = 0;  //avg array pointer
+  uint8_t k = 0;            //avg array pointer
+  uint8_t avg_samples = 0;  //slots filled so far; the divisor, capped at AVG_SAMPLE_COUNT
 
   uint8_t CAN100_cnt = 0;
 

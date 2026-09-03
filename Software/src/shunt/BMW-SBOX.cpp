@@ -41,18 +41,27 @@ void BmwSbox::handle_incoming_can_frame(CAN_frame rx_frame) {
     datalayer.shunt.measured_amperage_dA = datalayer.shunt.measured_amperage_mA / 100;
 
     /** Calculate 1S avg current **/
-    if (LastAvgTime + 100 < currentTime) {
+    if (LastAvgTime + AVG_SAMPLE_INTERVAL_MS < currentTime) {
       LastAvgTime = currentTime;
-      if (k > 9) {
+      if (k >= AVG_SAMPLE_COUNT) {
         k = 0;
       }
       avg_mA_array[k] = datalayer.shunt.measured_amperage_mA;
       k++;
+      /* Divide by the samples actually taken, not by the full window: until the
+       * array has filled, the empty slots are not zero-current readings, and
+       * averaging them in reports a fraction of the real current.  The sum
+       * still runs over the whole array - the unfilled slots are zero and
+       * contribute nothing - so the divisor is the only thing that changes.
+       */
+      if (avg_samples < AVG_SAMPLE_COUNT) {
+        avg_samples++;
+      }
       avg_sum = 0;
-      for (uint8_t i = 0; i < 10; i++) {
+      for (uint8_t i = 0; i < AVG_SAMPLE_COUNT; i++) {
         avg_sum = avg_sum + avg_mA_array[i];
       }
-      datalayer.shunt.measured_avg1S_amperage_mA = avg_sum / 10;
+      datalayer.shunt.measured_avg1S_amperage_mA = avg_sum / avg_samples;
     }
   } else if (rx_frame.ID == 0x210)  //SBOX input (battery side) voltage
   {
