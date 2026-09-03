@@ -288,3 +288,41 @@ TEST(TeslaParserBitWidths, CurrentSenseMiaReadsOnlyItsOwnBit) {
   EXPECT_FALSE(datalayer_extended.tesla.HVP_currentSenseMia);
   EXPECT_FALSE(datalayer_extended.tesla.HVP_shuntRefVoltageMismatch);
 }
+
+/* The same defect class as CurrentSenseMiaReadsOnlyItsOwnBit, found by re-running
+ * this branch's own sweep with a statement-aware extractor: BMS_hvacPowerBudget is
+ * 10 bits at 50, so byte 7 contributes only its LOW NIBBLE, and byte 7 bits 4-5 are
+ * BMS_inverterTQF - a different signal. Reading byte 7 unmasked folded that signal
+ * into the power budget and let a 10-bit field report far more.
+ *
+ * Worth knowing why nobody noticed: the page's render of this field is commented out
+ * with the note "Not giving useable data". The value was seen to be wrong and the
+ * display was removed rather than the cause found.
+ */
+TEST(TeslaParserBitWidths, HvacPowerBudgetDoesNotAbsorbTheInverterTorqueFlag) {
+  TeslaBattery battery;
+
+  auto limit_frame = [](uint8_t byte6, uint8_t byte7) {
+    CAN_frame f{};
+    f.ID = 0x252;  // BMS_powerAvailable
+    f.DLC = 8;
+    f.data.u8[6] = byte6;
+    f.data.u8[7] = byte7;
+    return f;
+  };
+
+  // Budget bits all zero, but the neighbouring torque flag set in bits 4-5.
+  CAN_frame f = limit_frame(0x00, 0x30);
+  battery.handle_incoming_can_frame(f);
+  battery.update_values();
+  EXPECT_EQ(datalayer_extended.tesla.BMS_hvacPowerBudget, 0u)
+      << "the inverter torque flag sits in byte 7 bits 4-5 and must not reach this field";
+  EXPECT_EQ(datalayer_extended.tesla.BMS_inverterTQF, 3u) << "and it must still reach its own";
+
+  // The field's own maximum: byte 6 bits 2-7 and byte 7 bits 0-3 all set = 10 bits.
+  f = limit_frame(0xFC, 0x0F);
+  battery.handle_incoming_can_frame(f);
+  battery.update_values();
+  EXPECT_EQ(datalayer_extended.tesla.BMS_hvacPowerBudget, 0x3FFu)
+      << "a 10-bit field's maximum is 1023; a larger value means a neighbour leaked in";
+}

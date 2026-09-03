@@ -1346,8 +1346,13 @@ void TeslaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       BMS_maxStationaryHeatPower =
           (((rx_frame.data.u8[5] & 0x03) << 8) |
            rx_frame.data.u8[4]);  //32|10@1+ (0.01,0) [0|10.23] "kW"  //Example 500 * 0.01 = 5kW
+      /* Byte 7 carries only the TOP FOUR bits of this field - the signal is 10 bits
+         starting at 50, so bits 50-55 are byte 6 and bits 56-59 are byte 7's low
+         nibble. Byte 7's bits 4-5 are a different signal entirely, BMS_inverterTQF
+         below, so reading the byte unmasked folded that signal into this value and
+         let a 10-bit field report up to 14 bits. */
       BMS_hvacPowerBudget =
-          (((rx_frame.data.u8[7] << 6) |
+          ((((rx_frame.data.u8[7] & 0x0F) << 6) |
             ((rx_frame.data.u8[6] & 0xFC) >> 2)));  //50|10@1+ (0.02,0) [0|20.46] "kW"  //Example 1000 * 0.02 = 20kW?
       BMS_notEnoughPowerForHeatPump =
           ((rx_frame.data.u8[5] >> 2) & (0x01U));  //BMS_notEnoughPowerForHeatPump : 42|1@1+ (1,0) [0|1] ""  Receiver
