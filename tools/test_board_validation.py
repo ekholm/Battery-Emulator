@@ -53,6 +53,11 @@ def run(board, text):
             shutil.copy(src, addons / src.name)
         for src in HEADERS.glob('hw_*.h'):
             shutil.copy(src, headers / src.name)
+        # hal.h too: the generator reads the base class from it to decide which
+        # getters are `virtual`, and a sandbox without it falls back to marking
+        # every one virtual - which would make these cases exercise a shape the
+        # real run never emits.
+        shutil.copy(HEADERS / 'hal.h', headers / 'hal.h')
         before = {p.name: p.read_text(encoding='utf-8') for p in headers.iterdir()}
         (boards / f'{board}.yaml').write_text(text, encoding='utf-8')
         proc = subprocess.run(
@@ -82,6 +87,26 @@ def expect_accept(case, text, board='stark'):
     rc, output, _, _ = run(board, text)
     if rc != 0:
         failures.append(f'{case}: rejected a valid declaration\n    {output.strip()}')
+
+
+def expect_keyword(case, board, text, header, getter, virtual):
+    """The emitted keyword for one getter. `virtual` on a member the base class
+    does not declare is a NEW slot on a leaf class rather than an override, so
+    it costs a vtable entry and an emitted body for something nothing calls -
+    64 bytes of image on the one board that has any. The rule is therefore not
+    cosmetic and is pinned from both sides."""
+    rc, output, _, produced = run(board, text)
+    if rc != 0:
+        failures.append(f'{case}: generator refused\n    {output.strip()}')
+        return
+    lines = [ln for ln in produced[header].splitlines() if f' {getter}()' in ln]
+    if len(lines) != 1:
+        failures.append(f'{case}: expected exactly one {getter}() line, got {lines}')
+        return
+    is_virtual = lines[0].lstrip().startswith('virtual ')
+    if is_virtual != virtual:
+        want = 'virtual' if virtual else 'non-virtual'
+        failures.append(f'{case}: {getter}() should be emitted {want}\n    {lines[0].strip()}')
 
 
 def drop(text, pattern):
@@ -644,6 +669,20 @@ def main():
         failures.append('esp32 pad 32 lost its ADC1 flag')
     if pad_rows.get('esp32', {}).get(25, 0) & 32:
         failures.append('esp32 pad 25 gained an ADC1 flag - 25 is ADC2, which WiFi owns')
+
+    # The virtual keyword is derived from hal.h, and both directions matter.
+    # The Edge101's Ethernet getters are the only members any declaration emits
+    # that Esp32Hal does not declare, so they are the whole no-side of the rule;
+    # a pin the base DOES declare is the yes-side, and pinning it is what keeps
+    # a broken hal.h parse - which would return an empty member set and read as
+    # "nothing is a base member" - from passing as a fix.
+    edge = (BOARDS / 'dfrobot_edge101.yaml').read_text(encoding='utf-8')
+    expect_keyword('ethernet getter is not a new virtual', 'dfrobot_edge101', edge,
+                   'hw_dfrobot_edge101.h', 'ETH_MDC_PIN', virtual=False)
+    expect_keyword('ethernet scalar is not a new virtual', 'dfrobot_edge101', edge,
+                   'hw_dfrobot_edge101.h', 'ETH_PHY_ADDR', virtual=False)
+    expect_keyword('a base member stays virtual', 'dfrobot_edge101', edge,
+                   'hw_dfrobot_edge101.h', 'CAN_TX_PIN', virtual=True)
 
     if failures:
         print(f'board validation: {len(failures)} FAILED')

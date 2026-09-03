@@ -798,29 +798,87 @@ def validate(board, data, addons=None):
 # Emission
 # --------------------------------------------------------------------------
 
-def _pin_line(getter, value, comments):
+# The base every board HAL derives from. A generated getter that names a member
+# of this class OVERRIDES it and costs nothing; one that does not is a NEW
+# virtual on a leaf class, and `virtual` there buys a vtable slot and an emitted
+# body for a function nothing calls. That is not free and it is not visible in
+# the declaration: the Edge101's five ETH_* getters - hardware no hw_*.h had
+# expressed before the schema could - grew that board's image by 64 bytes while
+# every other board stayed byte-for-byte equivalent.
+#
+# So the keyword is DERIVED from hal.h rather than carried per feature. A hand
+# written style would be a second copy of hal.h's member list, and getting it
+# wrong here is silent in a way `override` is not: `override` without a base
+# virtual fails to compile, while a spurious `virtual` only costs bytes and a
+# missing one only shadows.
+BASE_CLASS = 'Esp32Hal'
+
+# A zero-argument member of the base class: `virtual const char* name() = 0;`,
+# `virtual duration BOOTUP_TIME() { ... }`, `virtual bool system_booted_up();`.
+# The type prefix is what keeps a call like `allocated_pins.end()` out - a dot
+# cannot appear in it.
+BASE_MEMBER = re.compile(
+    r'^\s*(?:virtual\s+)?[\w:<>*&\s]+?\b(\w+)\s*\(\s*\)\s*(?:const\s*)?(?:=\s*0\s*)?[;{]')
+
+
+def base_members(headers):
+    """Names of the zero-arg members `BASE_CLASS` declares, read from hal.h.
+
+    An empty set means hal.h was not found, and the caller keeps the old
+    all-virtual emission: that is the shape that is always CORRECT and only
+    sometimes wasteful, so a missing base is a cost, never a miscompile."""
+    path = Path(headers) / 'hal.h'
+    if not path.exists():
+        return set()
+    names, depth, inside = set(), 0, False
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not inside and re.match(rf'^class\s+{BASE_CLASS}\b', line):
+            inside = True
+        if inside:
+            match = BASE_MEMBER.match(line)
+            if match and depth <= 1:
+                names.add(match.group(1))
+            depth += line.count('{') - line.count('}')
+            if depth <= 0 and '}' in line:
+                break
+    return names
+
+
+def _style(getter, base):
+    """`virtual` for a getter the base class declares, plain for one it does
+    not. With no base to consult, `virtual` - see base_members()."""
+    return 'virtual ' if (not base or getter in base) else ''
+
+
+def _pin_line(getter, value, comments, base=None):
     if value is None or str(value) in LATE_BOUND or candidate_pads(value):
         # Not declared, chosen at runtime, or placed on a candidate set the
         # runtime picks from: the getter is hand-written, not generated.
         return None
     num = 'NC' if str(value) == 'NC' else str(value)
-    line = f'  virtual gpio_num_t {getter}() {{ return GPIO_NUM_{num}; }}'
+    line = f'  {_style(getter, base)}gpio_num_t {getter}() {{ return GPIO_NUM_{num}; }}'
     if getter in comments:
         line += '  ' + comments[getter]
     return line
 
 
-def _scalar_line(sspec, value):
-    """A scalar getter. The optional third element picks `override` over
-    `virtual`, for getters the base class already declares."""
+def _scalar_line(sspec, value, base=None):
+    """A scalar getter. The optional third element picks `override`, which is
+    the explicit form of "the base class declares this" and is kept as written;
+    everything else takes the derived keyword."""
     ctype, getter = sspec[0], sspec[1]
-    style = sspec[2] if len(sspec) > 2 else 'virtual'
+    style = sspec[2] if len(sspec) > 2 else None
     if style == 'override':
         return f'  {ctype} {getter}() override {{ return {value}; }}'
-    return f'  virtual {ctype} {getter}() {{ return {value}; }}'
+    return f'  {_style(getter, base)}{ctype} {getter}() {{ return {value}; }}'
 
 
-def block(board, data):
+def block(board, data, base=None):
+    """The generated text for one board. `base` is the base class's member
+    names (see base_members); None reads them from the tree's own hal.h, so a
+    caller that just wants the block gets the same text the generator writes."""
+    if base is None:
+        base = base_members(HEADERS)
     comments = data.get('comments', {})
     lines = [BEGIN.format(board=board), NOTE, '',
              f'  const char* name() {{ return "{data["name"]}"; }}']
@@ -842,17 +900,17 @@ def block(board, data):
                             first_bus = inst2.get('bus')
                 if index == 0 or inst.get('bus') != first_bus:
                     for name, getter in spec['bus'][index].items():
-                        line = _pin_line(getter, bus.get(name), comments)
+                        line = _pin_line(getter, bus.get(name), comments, base)
                         if line:
                             emitted.append(line)
             for name, getter in fields.items():
-                line = _pin_line(getter, inst.get(name), comments)
+                line = _pin_line(getter, inst.get(name), comments, base)
                 if line:
                     emitted.append(line)
             for name, sspec in (spec.get('scalars', [{}] * (index + 1))[index]
                                 if index < len(spec.get('scalars', [])) else {}).items():
                 if name in inst:
-                    emitted.append(_scalar_line(sspec, inst[name]))
+                    emitted.append(_scalar_line(sspec, inst[name], base))
         if emitted:
             guard = FEATURES[feature].get('guard')
             lines.append('')
@@ -1182,6 +1240,11 @@ def main():
 
     hal_cpp = headers / 'hal.cpp'
     HAL_MACROS = hal_cpp.read_text(encoding='utf-8') if hal_cpp.exists() else ''
+    base = base_members(headers)
+    if not base:
+        print(f'note: no {BASE_CLASS} in {headers}/hal.h - emitting every getter '
+              'virtual, which is correct but costs a vtable slot for any member '
+              'the base does not declare', file=sys.stderr)
 
     try:
         addons = load_addons(boards.parent / 'addons' if '--boards' in argv else None)
@@ -1203,7 +1266,7 @@ def main():
                 errors.append(f'{board}: header {data["header"]} not found')
                 continue
             text = target.read_text(encoding='utf-8')
-            updates.append((target, text, splice(text, block(board, data))))
+            updates.append((target, text, splice(text, block(board, data, base))))
             declared.append((board, data))
         except DeclError as exc:
             errors.append(f'{path.stem}: {exc}' if not str(exc).startswith(path.stem) else str(exc))

@@ -72,7 +72,28 @@ NEW_SINCE_BASELINE = {
 
 # Any member defined on one line: virtual T NAME() { ... }  /  const char* name()
 MEMBER = re.compile(r'^\s*(?:virtual\s+)?[\w:<>*\s]+?\b(\w+)\(\)\s*(?:\{|$)')
-CODE = re.compile(r'^\s{2}(?:const char\*|virtual)\s')
+
+
+def is_code(line):
+    """Is this generated line a member definition rather than scaffolding?
+
+    Derived from MEMBER, deliberately. This used to be its own regex listing
+    the tokens a definition could start with - `const char*` or `virtual` -
+    and the day the generator learned to emit a getter with neither (a member
+    the base class does not declare, which must NOT be virtual), five real
+    getters stopped being checked and the tool still reported green. That is
+    the same failure this file's header warns about one paragraph up: a check
+    that carries its own idea of what the thing looks like drifts away from
+    the thing. The scaffolding is comments, blank lines and the #ifdef guards,
+    and all three are cheap to name; a member definition is whatever MEMBER
+    says one is.
+    """
+    if not line.startswith('  ') or line.startswith('#'):
+        return False
+    stripped = line.strip()
+    if not stripped or stripped.startswith('//'):
+        return False
+    return MEMBER.match(line) is not None
 
 
 def baseline(ref, header):
@@ -111,7 +132,7 @@ def main():
         # 1. verbatim, for everything that HAS an original to be verbatim from
         original_names = members(original)
         acknowledged = NEW_SINCE_BASELINE.get(board, {})
-        emitted = [ln for ln in generated.splitlines() if CODE.match(ln)]
+        emitted = [ln for ln in generated.splitlines() if is_code(ln)]
         emitted_new = set()
         for line in emitted:
             member = MEMBER.match(line)
