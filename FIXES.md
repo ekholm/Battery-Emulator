@@ -72,13 +72,13 @@ Branch [`battery-instance-support-parity`](https://github.com/ekholm/Battery-Emu
 ---
 
 **Tesla: two advanced-page fields that report the wrong thing**
-Branch [`tesla-page-meaning`](https://github.com/ekholm/Battery-Emulator/tree/tesla-page-meaning) @ `00357e8e` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-page-meaning) · includes the lookup-bounds fix beneath it
+Branch [`tesla-page-meaning`](https://github.com/ekholm/Battery-Emulator/tree/tesla-page-meaning) @ `9ef0977d` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-page-meaning) · includes the lookup-bounds fix beneath it
 `HVP_currentSenseMia` was parsed with a two-bit mask on a one-bit field, so it read `Yes` whenever the neighbouring ref-voltage-mismatch bit was set alone - every sibling MIA field in the block masks a single bit correctly; this one was alone in being wrong. The review sweep found a second field of the same class the original fix had missed. Four PCS retry counters (3- and 4-bit) were rendered through a two-entry False/True table, so one retry read `True` and higher counts had no meaning; they now render as the numbers their labels ("Rty Cnt") always promised. Beneath it, the contained bounds fix: every lookup table on the page is bounded, an out-of-range value is named (`UNKNOWN(n)`) instead of dereferenced, and the emul String is null-guarded where Arduino's guards.
 
 ---
 
 **Tesla: a second battery stops corrupting the first battery's page**
-Branch [`tesla-instance-parity`](https://github.com/ekholm/Battery-Emulator/tree/tesla-instance-parity) @ `e59c0065` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-instance-parity)
+Branch [`tesla-instance-parity`](https://github.com/ekholm/Battery-Emulator/tree/tesla-instance-parity) @ `c72c916b` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-instance-parity)
 `TESLA-BATTERY.cpp` wrote the shared `datalayer_extended.tesla` struct from every instance - 483 sites, both constructors - so a double-Tesla setup interleaved two packs into one advanced page. Each instance now carries its own extended-struct pointer, set at construction and null for the second battery: the pattern ECMP and Renault Zoe Gen2 already use. The hoisted UDS part-number trigger is covered, and both ends of the guarded extended block are pinned by test.
 
 ---
@@ -90,25 +90,25 @@ When the inverter commanded the contactor open, the state machine reset but `inv
 ---
 
 **BYD-CAN: the brand filter tested one byte and stored another**
-Branch [`byd-brand-filter`](https://github.com/ekholm/Battery-Emulator/tree/byd-brand-filter) @ `e20461df` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:byd-brand-filter)
+Branch [`byd-brand-filter`](https://github.com/ekholm/Battery-Emulator/tree/byd-brand-filter) @ `02fe696a` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:byd-brand-filter)
 The inverter-name filter had two independent defects that composed into "never correct on any input": both comparisons were `>` (so the printable range it was written to accept was exactly what it rejected), and the guard tested `u8[i]` while the body stored `u8[i + 1]`. Both fixed, and the review added the half a fix alone would have missed: a rejected byte clears its slot rather than leaving the previous scan's character behind. This deliberately does not decide the byte-0 mux question - see [FINDINGS.md](FINDINGS.md) - it makes the current reading self-consistent.
 
 ---
 
 **Hostname: stop copying it on every read**
-Branch [`hostname-no-copy`](https://github.com/ekholm/Battery-Emulator/tree/hostname-no-copy) @ `e8a0aaeb` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:hostname-no-copy)
+Branch [`hostname-no-copy`](https://github.com/ekholm/Battery-Emulator/tree/hostname-no-copy) @ `19dab10f` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:hostname-no-copy)
 `custom_hostname` was an `std::string` in a tree whose consumers speak Arduino `String`, so every read paid a conversion copy. It becomes a `String`, both accessors return `const String&`, and all five call sites bind for free - `MDNS.begin()` and `html_escape()` take the reference directly. The quieter win: the file is now host-testable at all, and ships with its tests.
 
 ---
 
 **AsyncTCP: the 4 KB stack request is real - proven from the emitted code, and now made explicit**
-Branch [`asynctcp-stack-claim`](https://github.com/ekholm/Battery-Emulator/tree/asynctcp-stack-claim) @ `da39586e` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:asynctcp-stack-claim)
+Branch [`asynctcp-stack-claim`](https://github.com/ekholm/Battery-Emulator/tree/asynctcp-stack-claim) @ `8be78bef` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:asynctcp-stack-claim)
 The suspicion was that `CONFIG_ASYNC_TCP_STACK_SIZE 4096` never reached the library, leaving its 16 KB default to win. Refuted twice over: `AsyncTCP.h`'s first include is `system_settings.h` itself, and the emitted object code builds the task-creation argument as 4096 (the counterfactual was also built and read). The change makes the ask explicit - `BE_ASYNC_TCP_STACK_SIZE`, mapped onto the library's config name - and adds a text-reading regression test that reddens if either define disappears. It deliberately does not pin which include supplies the value, since two paths do today.
 
 ---
 
 **GPIO events: each failure names its own component**
-Branch [`gpio-event-names`](https://github.com/ekholm/Battery-Emulator/tree/gpio-event-names) @ `0d5afd2c` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:gpio-event-names)
+Branch [`gpio-event-names`](https://github.com/ekholm/Battery-Emulator/tree/gpio-event-names) @ `41996dbb` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:gpio-event-names)
 `alloc_pins()` wrote one shared name pair for both GPIO events, and the message string is read back live on every publish - events page, MQTT, ESP-NOW. So a missing-pin failure after a pin conflict re-pointed the conflict's message at the wrong component, and vice versa. Each event now owns its names; the shared pair is gone rather than left behind.
 
 ---
@@ -126,7 +126,7 @@ Two drivers raised safety events on conditions that could not occur: the Kia/Hyu
 ---
 
 **Decode arithmetic: five values fixed, three pinned**
-Branch [`driver-decode-arithmetic`](https://github.com/ekholm/Battery-Emulator/tree/driver-decode-arithmetic) @ `f3205ecd` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-decode-arithmetic)
+Branch [`driver-decode-arithmetic`](https://github.com/ekholm/Battery-Emulator/tree/driver-decode-arithmetic) @ `4af083c4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-decode-arithmetic)
 Range Rover PHEV's 24-bit current read against the driver's own declared range; TESLA-LEGACY wrapped subzero temperatures (the decode's own range is -40..+87.5 C); IMIEV had swapped channels, mV rounding loss, and - found during testing - uninitialised 88-entry instance arrays publishing heap reads until every sensor reports; RELION-LV's minimum temperature was decoded but never wired. Three further suspicions are pinned as correct-as-is by characterization tests with the evidence named, so the next reader does not re-litigate them.
 
 ---
@@ -144,13 +144,13 @@ A sweep sorted ten suspect arrays by liveness: four are whole-array memcpys into
 ---
 
 **Shunt: three values that corrupt instead of going missing**
-Branch [`driver-signedness-clamps`](https://github.com/ekholm/Battery-Emulator/tree/driver-signedness-clamps) @ `d52de5de` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-signedness-clamps) · stacked under `sbox-average-divisor`
+Branch [`driver-signedness-clamps`](https://github.com/ekholm/Battery-Emulator/tree/driver-signedness-clamps) @ `42e96464` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-signedness-clamps) · stacked under `sbox-average-divisor`
 Three driver defects with the same shape: a signedness or width error that turns a real measurement into a plausible wrong number. The main one: `datalayer.shunt.measured_amperage_dA` was `uint16_t`, so every discharge current wrapped - a -50 A discharge read as ~65,486 dA. Now `int16_t`, matching `battery.status.current_dA`, the same quantity and unit already signed in-tree. The audit behind it found the field has two writers and zero in-tree readers, which is what makes the root fix safe to take first. Also: BMW-SBOX's rolling-average members go signed (`avg_mA_array`, `avg_sum` - the division then signs itself), and a review commit zero-initialises them and pins that.
 
 ---
 
 **BMW-SBOX: the "1 second average" divides by 10 before 10 samples exist**
-Branch [`sbox-average-divisor`](https://github.com/ekholm/Battery-Emulator/tree/sbox-average-divisor) @ `94ebec55` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:sbox-average-divisor) · includes the entry above
+Branch [`sbox-average-divisor`](https://github.com/ekholm/Battery-Emulator/tree/sbox-average-divisor) @ `450b6dc7` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:sbox-average-divisor) · includes the entry above
 `BMW-SBOX` fills one average slot per 100 ms and unconditionally publishes `avg_sum / 10`, so for the first second - and after any gap in `0x200` frames - the average reads a tenth to nine tenths of the true current. Live, not theoretical: Kostal transmits `measured_avg1S_amperage_mA` to the inverter whenever an S-BOX is configured. The divisor becomes the count of samples actually taken, capped at the window. The judgement is stated rather than hidden: publish the average over the samples that exist, because the field carries no validity flag - "publish nothing" means the consumer keeps reading the initial 0 A, which is the same defect class in a quieter coat. An average over real samples converges inside the second.
 
 ---
