@@ -49,6 +49,24 @@ extern "C" {
 #ifndef CONFIG_ASYNC_TCP_STACK
 #define CONFIG_ASYNC_TCP_STACK CONFIG_ASYNC_TCP_STACK_SIZE
 #endif
+
+/* The task below is created with CONFIG_ASYNC_TCP_STACK, and this project asks for
+ * 4096 rather than the 16384 above. That only works while system_settings.h has
+ * been seen before this point - today by two independent paths, the include above
+ * and hal.h's own chain through datalayer.h. Neither is guaranteed by anything, and
+ * losing both is silent: the task simply takes four times the stack, with no error
+ * and no visible change at the call site.
+ *
+ * So check the value the preprocessor actually arrived at, rather than the order the
+ * includes happen to be in. This fires wherever the setting is lost, by any route.
+ */
+#if !defined(BE_ASYNC_TCP_STACK_SIZE)
+#error \
+    "system_settings.h has not been seen by the time AsyncTCP.h picks a task stack size, so the library's 16384 fallback is in force instead of the size this project asks for. Include system_settings.h above this point."
+#elif CONFIG_ASYNC_TCP_STACK != BE_ASYNC_TCP_STACK_SIZE
+#error \
+    "the AsyncTCP task would be created with a stack size other than the one system_settings.h asks for - something defined CONFIG_ASYNC_TCP_STACK or CONFIG_ASYNC_TCP_STACK_SIZE first."
+#endif
 #ifndef CONFIG_ASYNC_TCP_PRIORITY
 #define CONFIG_ASYNC_TCP_PRIORITY 3
 #endif
