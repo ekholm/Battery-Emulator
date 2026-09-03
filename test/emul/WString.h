@@ -44,6 +44,9 @@ class String {
   // Accessor
   const std::string& str() const { return data; }
 
+  // Arduino String::isEmpty()
+  bool isEmpty() const { return data.empty(); }
+
   // Comparison operators
   bool operator==(const String& rhs) const { return data == rhs.data; }
 

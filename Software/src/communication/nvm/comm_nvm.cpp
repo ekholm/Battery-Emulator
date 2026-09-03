@@ -280,7 +280,7 @@ void init_stored_settings() {
   ha_autodiscovery_topic = settings.getString("HADISCTOPIC", "homeassistant").c_str();
   mqtt_transmit_all_cellvoltages = settings.getBool("MQTTCELLV", false);
   mqtt_publish_heap_metrics = settings.getBool("MQTTHEAP", false);
-  custom_hostname = settings.getString("HOSTNAME").c_str();
+  custom_hostname = settings.getString("HOSTNAME");
 
   migrate_static_ip_settings(settings);
   wifi_static_IP_enabled = settings.getBool("STATICIP", false);
