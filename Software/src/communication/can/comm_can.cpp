@@ -108,10 +108,12 @@ bool init_CAN() {
   /* Refuse an interface this board does not have, rather than initialising it and failing
    * obscurely (wq202 / FOLLOWUPS L38).
    *
-   * Selecting an absent interface used to drive a chip select at pins where nothing answers and
-   * report it as "autodetected crystal: 0MHz" followed by "CAN-FD 2 Configuration error 0x1" -
-   * a message about a crystal, for a chip that is not fitted. The board already declares what
-   * it has; consult it first and say so plainly.
+   * Selecting an interface whose chip select IS routed but carries no chip used to report
+   * "autodetected crystal: 0MHz" followed by "CAN-FD 2 Configuration error 0x1" - a message
+   * about a crystal, for a chip that is not fitted. Selecting one whose chip select is NOT
+   * routed fails differently and worse: alloc_pins() refuses the negative pin below, so that
+   * block returns false out of init_CAN() and every interface initialised after it is lost
+   * too. The board already declares what it has; consult it first and say so plainly.
    */
   const auto available = esp32hal->available_interfaces();
   for (auto it = can_receivers.begin(); it != can_receivers.end();) {
