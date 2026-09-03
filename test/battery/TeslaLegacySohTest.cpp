@@ -17,8 +17,9 @@
  *
  * The clamp is the whole fix available today: it stops the over-100 % report.
  * It cannot correct a SMALLER pack, which reads too low for the same reason and
- * needs the per-hwID CAC table that does not exist yet. The last test below
- * pins that limitation so nobody reads the clamp as more than it is.
+ * needs the per-hwID CAC table that does not exist yet.
+ * ASmallerPackStillUnderReportsAndTheClampCannotHelp pins that limitation so
+ * nobody reads the clamp as more than it is.
  */
 
 namespace {
@@ -98,11 +99,17 @@ TEST(TeslaLegacySoh, OneCountAboveTheReferenceIsAlreadyClamped) {
 }
 
 /* What the clamp does NOT fix, asserted so the limitation is on the record and
- * not just in a comment: a 60 kWh pack's CAC-at-new is well under 231.6 Ah, so
- * a healthy one reports far below 100 % and the clamp is silent about it.
+ * not just in a comment: a pack whose CAC-at-new is below 231.6 Ah reports below
+ * 100 % even when it is healthy, and the clamp is silent about it.
  */
 TEST(TeslaLegacySoh, ASmallerPackStillUnderReportsAndTheClampCannotHelp) {
-  /* A brand-new 60 kWh pack, whose CAC-at-new is about half the reference. */
+  /* Half the reference. The value is chosen because it divides exactly, NOT
+   * because a pack of any particular size is known to have it - the per-capacity
+   * CAC-at-new figures are not in this tree and are not invented here. Scaling
+   * the one pair the driver does contain, 85 kWh to 231.6 Ah, would put a 60 kWh
+   * pack near 163 Ah rather than 115.8; what this case asserts is the SHAPE, not
+   * a pack.
+   */
   const uint16_t reported = reported_soh_pptt(1158);
 
   EXPECT_EQ(5000, reported);
@@ -119,4 +126,50 @@ TEST(TeslaLegacySoh, A7E2FrameWithANonZeroFirstByteDoesNotDisplaceTheCac) {
   const uint16_t reported = reported_soh_pptt_after({tesla_cacmin_frame(1737), tesla_cacmin_frame(2700, 0x01)});
 
   EXPECT_EQ(7500, reported);
+}
+
+/* ---------------------------------------------------------------------------
+ * The starting state is the same number the clamp produces, and that is a trap.
+ *
+ * Four of the cases above expect 10000 pptt, and 10000 pptt is also what the
+ * driver publishes having decoded nothing at all: BMS_CAC_min initialises to
+ * 23160000, which IS the 231.6 Ah reference. So the reference case and the three
+ * clamp cases each pass against a driver whose 0x7E2 handler never runs - the
+ * same shape as the unasserted byte-0 gate below them, an assertion that a real
+ * change cannot make fail. The suite as a whole is not blind to it, because
+ * three other cases pin the decode; what was missing is a case that holds BOTH
+ * ends at once.
+ * -------------------------------------------------------------------------*/
+
+/* The starting state itself, pinned, so that the confound is on the record and
+ * so that a change to the header's default fails HERE - named - instead of
+ * quietly changing what the four cases above are really asserting.
+ */
+TEST(TeslaLegacySoh, WithNoReadingAtAllTheDriverPublishesTheReferenceAsFullHealth) {
+  datalayer.battery.status.soh_pptt = 0;
+  TeslaLegacyBattery battery;
+  battery.setup();
+
+  battery.update_values();
+
+  EXPECT_EQ(10000, datalayer.battery.status.soh_pptt);
+}
+
+/* The clamp asserted against a reading that provably came off the bus. A worn
+ * value has to land first - which the default cannot produce - so the 10000 that
+ * follows is the clamp holding a decoded 4095 and not the untouched member.
+ */
+TEST(TeslaLegacySoh, TheClampActsOnADecodedReadingAndNotOnTheStartingDefault) {
+  datalayer.battery.status.soh_pptt = 0;
+  TeslaLegacyBattery battery;
+  battery.setup();
+
+  battery.handle_incoming_can_frame(tesla_cacmin_frame(1158));
+  battery.update_values();
+  ASSERT_EQ(5000, datalayer.battery.status.soh_pptt) << "CACmin never moved off its default - the decode is dead";
+
+  battery.handle_incoming_can_frame(tesla_cacmin_frame(0x0FFF));
+  battery.update_values();
+
+  EXPECT_EQ(10000, datalayer.battery.status.soh_pptt);
 }
