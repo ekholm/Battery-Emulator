@@ -222,6 +222,107 @@ class PresetClassification(unittest.TestCase):
             self.assertTrue(preset["taken"], "%s would pass vacuously" % name)
 
 
+class RegistrationCensus(unittest.TestCase):
+    """The half of the merge gate the image cannot answer.
+
+    A root that disappears is caught by the walk refusing to run. A root that
+    APPEARS is caught by nothing: __onPinInterrupt dispatches through a table of
+    function pointers, so no static walk gets from the dispatcher to a handler.
+    Until this census existed, "there are exactly two attachInterrupt
+    registration sites" was a sentence in sdkconfig.be_size.defaults that a
+    human had to keep true.
+    """
+
+    def tree(self, files):
+        root = tempfile.mkdtemp()
+        for relpath, body in files.items():
+            path = os.path.join(root, relpath)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as fh:
+                fh.write(body)
+        self.addCleanup(self.rmtree, root)
+        return root
+
+    def rmtree(self, root):
+        for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+            for f in filenames:
+                os.unlink(os.path.join(dirpath, f))
+            for d in dirnames:
+                os.rmdir(os.path.join(dirpath, d))
+        os.rmdir(root)
+
+    SRC = os.path.join("Software", "src")
+
+    def test_a_call_is_a_registration(self):
+        root = self.tree({os.path.join(self.SRC, "driver.cpp"):
+                          "void setup() { attachInterrupt(pin, handler, FALLING); }\n"})
+        self.assertEqual(audit.registration_census(root),
+                         {os.path.join(self.SRC, "driver.cpp")})
+
+    def test_the_arg_form_counts_too(self):
+        root = self.tree({os.path.join(self.SRC, "driver.cpp"):
+                          "void setup() { attachInterruptArg(pin, h, this, FALLING); }\n"})
+        self.assertEqual(len(audit.registration_census(root)), 1)
+
+    def test_prose_about_attachInterrupt_is_not_a_registration(self):
+        """Both comment forms and a string literal. A census that counts the
+        word rather than the call fails a build for explaining itself."""
+        root = self.tree({os.path.join(self.SRC, "prose.cpp"): (
+            "// attachInterrupt(pin, h, FALLING) is what the service binds\n"
+            "/* an older draft called attachInterruptArg(pin, h, this, LOW)\n"
+            "   here, which is why the comment above exists */\n"
+            'const char *why = "attachInterrupt(pin, h, FALLING)";\n')})
+        self.assertEqual(audit.registration_census(root), set())
+
+    def test_a_registration_in_a_new_file_fails_the_audit_and_names_it(self):
+        root = self.tree({
+            os.path.join(self.SRC, "lib", "mcp2515_lite", "mcp2515_lite.cpp"):
+                "attachInterruptArg(p, mcp2515_isr_handler, this, FALLING);\n",
+            os.path.join(self.SRC, "lib", "pierremolinaro-ACAN2517FD", "ACAN2517FD.cpp"):
+                "attachInterrupt(p, isr, FALLING);\n",
+            os.path.join(self.SRC, "devboard", "newthing.cpp"):
+                "attachInterrupt(p, my_new_handler, RISING);\n"})
+        with self.assertRaises(audit.AuditDidNotRun) as caught:
+            audit.check_registration_sites(root)
+        self.assertIn("newthing.cpp", str(caught.exception))
+        self.assertIn("NEW", str(caught.exception))
+
+    def test_a_registration_that_disappeared_fails_too(self):
+        """A polled drain once removed the FD registration and reboot-looped the
+        board; the presets would then have been describing an interrupt that no
+        longer exists."""
+        root = self.tree({
+            os.path.join(self.SRC, "lib", "mcp2515_lite", "mcp2515_lite.cpp"):
+                "attachInterruptArg(p, mcp2515_isr_handler, this, FALLING);\n"})
+        with self.assertRaises(audit.AuditDidNotRun) as caught:
+            audit.check_registration_sites(root)
+        self.assertIn("GONE", str(caught.exception))
+        self.assertIn("ACAN2517FD.cpp", str(caught.exception))
+
+    def test_exactly_the_expected_sites_passes(self):
+        root = self.tree({
+            os.path.join(self.SRC, "lib", "mcp2515_lite", "mcp2515_lite.cpp"):
+                "attachInterruptArg(p, mcp2515_isr_handler, this, FALLING);\n",
+            os.path.join(self.SRC, "lib", "pierremolinaro-ACAN2517FD", "ACAN2517FD.cpp"):
+                "attachInterrupt(p, isr, FALLING);\n"})
+        audit.check_registration_sites(root)   # must not raise
+
+    def test_a_tree_with_no_sources_refuses_rather_than_reporting_none(self):
+        """Zero registrations found in a tree that has no sources is the vacuous
+        pass in its purest form: it would agree that both known sites are GONE
+        for the wrong reason, or - if the expected set were empty - report a
+        clean census having read nothing."""
+        with self.assertRaises(audit.AuditDidNotRun):
+            audit.registration_census(self.tree({}))
+
+
+class ThisRepository(unittest.TestCase):
+    """The census against the real tree, which is the claim CI depends on."""
+
+    def test_the_tree_registers_interrupts_exactly_where_the_presets_say(self):
+        audit.check_registration_sites(audit.REPO_ROOT)
+
+
 class SdkconfigCrossCheck(unittest.TestCase):
     def write(self, text):
         fd, path = tempfile.mkstemp()
@@ -248,6 +349,64 @@ class SdkconfigCrossCheck(unittest.TestCase):
         with self.assertRaises(audit.AuditDidNotRun):
             audit.sdkconfig_flag(self.write(
                 'CONFIG_IDF_TARGET_ARCH="riscv"\nCONFIG_ARDUINO_ISR_IRAM=y\n'))
+
+
+class Toolchain(unittest.TestCase):
+    def test_a_riscv_target_asks_for_a_port_not_for_an_install(self):
+        """The chip is read before any config, so without this the first failure
+        on a riscv env is a hunt for an `xtensa-esp32c3-elf-` toolchain that does
+        not exist and never will."""
+        for target in ("esp32c3", "esp32c6", "esp32h2", "esp32p4"):
+            with self.assertRaises(audit.AuditDidNotRun) as caught:
+                audit.toolchain(target)
+            self.assertIn("port", str(caught.exception))
+
+    def test_an_xtensa_target_still_looks_for_its_toolchain(self):
+        for target in ("esp32", "esp32s2", "esp32s3"):
+            try:
+                audit.toolchain(target)
+            except audit.AuditDidNotRun as exc:
+                self.assertIn("toolchain under", str(exc))
+
+
+class RequestVersusImage(unittest.TestCase):
+    """Telling "the flag is off" apart from "the flag did not arrive".
+
+    Both look identical in the image - the dispatcher sits in .flash.text - and
+    only the first is a reason to skip. The generated per-env sdkconfig that
+    would settle it is written only by a build that recompiled the framework
+    libraries, i.e. it is missing on exactly the builds where those libraries
+    might have come from somewhere else. The tracked fragment is always there.
+    """
+
+    def tree(self, body):
+        root = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, root)          # cleanups run last-registered first
+        if body is not None:
+            path = os.path.join(root, audit.CUSTOM_SDKCONFIG)
+            with open(path, "w") as fh:
+                fh.write(body)
+            self.addCleanup(os.unlink, path)
+        return root
+
+    def test_the_repo_asking_for_the_flag_is_read(self):
+        self.assertTrue(audit.repo_sets_flag(self.tree(
+            "# a comment\nCONFIG_ARDUINO_ISR_IRAM=y\nCONFIG_OTHER=y\n")))
+
+    def test_the_not_set_comment_form_is_not_asking(self):
+        self.assertFalse(audit.repo_sets_flag(self.tree(
+            "# CONFIG_ARDUINO_ISR_IRAM is not set\n")))
+
+    def test_a_tree_without_the_fragment_answers_neither_way(self):
+        """An image from somewhere else has no request to be compared against,
+        and inventing one would fail every such run."""
+        self.assertIsNone(audit.repo_sets_flag(self.tree(None)))
+
+    def test_this_repository_asks_for_the_flag(self):
+        self.assertTrue(audit.repo_sets_flag(audit.REPO_ROOT),
+                        "%s no longer sets %s - if that is deliberate the audit's "
+                        "skip path becomes reachable again" % (
+                            audit.CUSTOM_SDKCONFIG, audit.FLAG))
 
 
 class ChipFromMap(unittest.TestCase):

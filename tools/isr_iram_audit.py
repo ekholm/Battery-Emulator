@@ -43,12 +43,20 @@ is not. So this reports only targets that land inside .flash.text - direct call
 targets at any of the windowed ABI's four call widths, and l32r-loaded code
 pointers that a callx then jumps to.
 
+A walk cannot see a registration nobody wrote a preset for - the dispatcher
+reaches its handlers through a table of function pointers, which nothing static
+follows - so the set of files that CALL attachInterrupt is counted from the
+source as well, and has to be the set the presets describe. That is the one part
+of the flag's merge gate that was otherwise a sentence asking a human to
+remember there are exactly two.
+
 Exit 0 and "clean" means every call those interrupts make stays in IRAM.
 Exit 1 means flash-resident code is reachable, and the symbols are named.
 Exit 2 means the audit did not RUN - no toolchain, no image, no map to name the
-chip, a root the image does not contain, or a sdkconfig that contradicts the
-image. It is a separate code from 1 on purpose: an audit that cannot tell "found
-nothing" from "did not look" is not worth running in CI.
+chip, a root the image does not contain, a sdkconfig that contradicts the image,
+or an attachInterrupt site no preset describes. It is a separate code from 1 on
+purpose: an audit that cannot tell "found nothing" from "did not look" is not
+worth running in CI.
 
 WHETHER THE FLAG IS EVEN ON IS READ OUT OF THE IMAGE, not out of a config file,
 so no env list is maintained anywhere and a new env that inherits the flag is
@@ -81,6 +89,14 @@ import sys
 # Enough of the toolchain to fail early on: the walk shells out to both.
 REQUIRED_TOOLS = ("objdump", "nm")
 TOOLCHAIN_PACKAGE = "packages/toolchain-xtensa-esp-elf/bin"
+# Espressif's riscv parts. No env here builds for one today; the point is that
+# the day one does, the failure says what is actually wrong.
+RISCV_TARGET_PREFIXES = ("esp32c", "esp32h", "esp32p")
+# The tracked sdkconfig fragment every env inherits through platformio.ini's
+# [env] custom_sdkconfig. Unlike the generated per-env file it is always in
+# the tree, which is what makes it usable as the request to compare an image
+# against.
+CUSTOM_SDKCONFIG = "sdkconfig.be_size.defaults"
 
 # Roots are split by whether the compiler is ALLOWED to make them disappear.
 # `taken` roots are handed to the interrupt allocator by address, so the image
@@ -129,6 +145,114 @@ PRESETS = {
 
 FLAG = "CONFIG_ARDUINO_ISR_IRAM"
 
+# This script lives at <repo>/tools/, so the tree it audits is one level up -
+# resolved from __file__ rather than from the working directory, because CI
+# runs it from the repo root and a developer runs it from wherever they are.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# THE HALF OF THE CONDITION THE IMAGE CANNOT SHOW YOU.
+#
+# The presets above describe how interrupts are registered TODAY, and a root
+# that disappears is caught: the audit refuses to run rather than walking
+# nothing. A root that APPEARS is not. `__onPinInterrupt` dispatches through a
+# table of function pointers, so a static walk cannot get from the dispatcher to
+# a handler, and a new attachInterrupt() somewhere in the tree is therefore
+# walked by nothing at all while CI stays green - which is the one part of the
+# merge gate that was still a sentence in sdkconfig.be_size.defaults asking a
+# human to remember that there are exactly two registration sites.
+#
+# So the sites are counted from the source instead. This is not a call-graph
+# claim and does not pretend to be: it asks only whether the set of files that
+# register a GPIO interrupt is still the set the presets describe. A new one
+# fails the audit and names itself, and whoever added it either adds a preset
+# for the handler or says here why the handler needs none.
+SOURCE_TREE = os.path.join("Software", "src")
+SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".h", ".hpp", ".ino")
+REGISTRATION_CALL = re.compile(r"\battachInterrupt(?:Arg)?\s*\(")
+REGISTRATION_SITES = {
+    os.path.join("Software", "src", "lib", "mcp2515_lite", "mcp2515_lite.cpp"): "mcp2515",
+    os.path.join("Software", "src", "lib", "pierremolinaro-ACAN2517FD",
+                 "ACAN2517FD.cpp"): "fd",
+}
+
+
+def strip_comments_and_strings(text):
+    """C++ source with comments and literal contents blanked out.
+
+    A plain grep for attachInterrupt also finds the places this tree only TALKS
+    about it - today just the paragraph in mcp2515_lite.cpp explaining why the
+    ISR service is installed where it is, which is in a file that registers one
+    anyway. So stripping is not what makes the current answer right; it is what
+    stops the first prose mention in a third file from failing a build for
+    saying the word.
+    """
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            out.append(" ")
+            i = n if j < 0 else j + 2
+        elif c in "\"'":
+            quote = c
+            out.append(" ")
+            i += 1
+            while i < n and text[i] != quote:
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def registration_census(root):
+    """Every file under the source tree that CALLS attachInterrupt."""
+    tree = os.path.join(root, SOURCE_TREE)
+    if not os.path.isdir(tree):
+        raise AuditDidNotRun(
+            "no %s under %s, so the registration sites cannot be counted - pass "
+            "--source-root pointing at the repository root." % (SOURCE_TREE, root))
+    found = set()
+    for dirpath, _, filenames in os.walk(tree):
+        for filename in filenames:
+            if not filename.endswith(SOURCE_SUFFIXES):
+                continue
+            path = os.path.join(dirpath, filename)
+            try:
+                with open(path, errors="replace") as fh:
+                    text = fh.read()
+            except OSError as exc:
+                raise AuditDidNotRun("cannot read %s: %s" % (path, exc))
+            if REGISTRATION_CALL.search(strip_comments_and_strings(text)):
+                found.add(os.path.relpath(path, root))
+    return found
+
+
+def check_registration_sites(root):
+    """Raise unless the tree registers interrupts exactly where the presets say."""
+    found = registration_census(root)
+    expected = set(REGISTRATION_SITES)
+    added, gone = sorted(found - expected), sorted(expected - found)
+    if not added and not gone:
+        print("registration census: %d attachInterrupt site(s), all described by a preset" %
+              len(found))
+        return
+    lines = []
+    for path in added:
+        lines.append("  NEW      %s - nothing walks its handler; add a preset for it, or "
+                     "record here why it needs none" % path)
+    for path in gone:
+        lines.append("  GONE     %s - was the %s preset's registration; if the interrupt is "
+                     "really gone, drop the preset with it" % (path, REGISTRATION_SITES[path]))
+    raise AuditDidNotRun(
+        "the tree no longer registers GPIO interrupts where this audit's presets say it "
+        "does, so a handler may be running through flash windows unwalked:\n%s" %
+        "\n".join(lines))
+
 
 class AuditDidNotRun(Exception):
     """Anything that makes a verdict impossible rather than negative."""
@@ -144,6 +268,17 @@ def toolchain(target):
     read out of the environment mapping rather than via expanduser(), which
     consults the real process environment and would ignore an injected one.
     """
+    if target.startswith(RISCV_TARGET_PREFIXES):
+        # Said HERE rather than through a missing-file error. The chip is read
+        # from the map before any config is looked at, so on a riscv env the
+        # first thing that fails is the search for an `xtensa-esp32c3-elf-`
+        # toolchain - a message about an install that would never help. The
+        # walk matches xtensa call mnemonics and the .iram0.text / .flash.text
+        # layout; what it needs is porting, not a different prefix.
+        raise AuditDidNotRun(
+            "%s is a riscv target and this walker decodes xtensa only - port the "
+            "instruction matching and the section layout before carrying %s to it, "
+            "rather than pointing it at another toolchain." % (target, FLAG))
     explicit = os.environ.get("PLATFORMIO_CORE_DIR")
     root = explicit or os.path.join(os.environ.get("HOME") or os.path.expanduser("~"), ".platformio")
     prefix = "xtensa-%s-elf-" % target
@@ -161,6 +296,29 @@ def toolchain(target):
                 "PLATFORMIO_CORE_DIR" if explicit else "the $HOME/.platformio default",
                 ", ".join(prefix + t for t in absent)))
     return stem
+
+
+def repo_sets_flag(root):
+    """Whether this repository's TRACKED custom sdkconfig asks for the flag.
+
+    None when the file is not there at all - the tool is then being pointed at
+    an image from somewhere else and has nothing to compare against.
+
+    This exists because the per-env GENERATED sdkconfig, which is the file the
+    --sdkconfig cross-check reads, is written only by a build that recompiled
+    the framework libraries. So it is present on exactly the builds where
+    nothing went wrong with those libraries, and absent on every cache hit -
+    which means the cross-check is armed when it is least needed and disarmed
+    when it is most needed. The tracked file has the opposite property: it is
+    always there, and it is the request. Comparing the request against the image
+    is what turns "this image does not have the flag" from a reason to skip into
+    a reason to stop.
+    """
+    path = os.path.join(root, CUSTOM_SDKCONFIG)
+    if not os.path.exists(path):
+        return None
+    with open(path, errors="replace") as fh:
+        return re.search(r"^%s=y$" % FLAG, fh.read(), re.M) is not None
 
 
 def sdkconfig_flag(path):
@@ -355,6 +513,10 @@ def main(argv):
                          "present; the image is what decides")
     ap.add_argument("--target", metavar="IDF_TARGET",
                     help="override the chip read from firmware.map (e.g. esp32, esp32s3)")
+    ap.add_argument("--source-root", metavar="PATH", default=REPO_ROOT,
+                    help="repository root whose %s is counted for attachInterrupt "
+                         "registration sites (default: the tree this script lives in)" %
+                         SOURCE_TREE)
     args = ap.parse_args(argv)
 
     presets = args.presets or sorted(PRESETS)
@@ -406,11 +568,33 @@ def main(argv):
     print("target %s   .iram0.text = %#x..%#x   .flash.text = %#x..%#x" % (
         target, iram_lo, iram_hi, flash_lo, flash_hi))
     if not flag_in_effect:
+        # "The flag is off" and "the flag was asked for and did not arrive" look
+        # identical in the image, and only one of them is a reason to skip. The
+        # tracked config says which. This is not hypothetical: building four envs
+        # in one hold on a machine where another tree had recompiled the shared
+        # framework libraries without the flag produced exactly this image, and
+        # without the comparison below the audit called it "nothing to audit"
+        # and exited 0 - silently passing the regression the flag exists to
+        # prevent.
+        if repo_sets_flag(args.source_root):
+            raise AuditDidNotRun(
+                "%s sets %s=y, but %s is at %#x, inside .flash.text - this image did not "
+                "get the configuration this repository asks for, so it carries the masked-"
+                "interrupt behaviour the flag exists to remove. Nothing here is unsafe to "
+                "RUN; the build is wrong. The usual cause is framework libraries left by a "
+                "build that did not carry the flag: recompile them from this config, or "
+                "pass --source-root if this image is not from this tree." % (
+                    CUSTOM_SDKCONFIG, FLAG, DISPATCHER, dispatcher_addr))
         print("%s is at %#x, in .flash.text: %s is not in effect in this image, so the "
               "GPIO dispatcher is masked through flash windows rather than run through "
               "them, and the residency condition does not apply. Nothing to audit." % (
                   DISPATCHER, dispatcher_addr, FLAG))
         return 0
+
+    # Before walking anything: is the set of interrupts this audit describes still
+    # the set the tree registers? A preset whose root vanished is caught by the
+    # walk; a registration nobody wrote a preset for is caught only here.
+    check_registration_sites(args.source_root)
 
     findings = {}
     for preset in presets:

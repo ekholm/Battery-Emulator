@@ -132,6 +132,15 @@ jobs:
         set -o pipefail
         pio run -e ${{ matrix.pio_env }} 2>&1 | tee checkprogsize.txt
 
+    - name: Capture size report for ${{ matrix.board_name }}
+      run: |
+        cat checkprogsize.txt | python .github/scripts/parse_size.py \
+          --pio-env "${{ matrix.pio_env }}" \
+          --board-name "${{ matrix.board_name }}" \
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --pio-system-info "$(pio system info --json-output)" \
+          --platform-json "$(cat "$HOME"/.platformio/platforms/espressif32*/platform.json)"
+
     # CONFIG_ARDUINO_ISR_IRAM makes the GPIO ISR service IRAM-resident, which is
     # safe only while every handler on an interrupt path - and everything it
     # calls - is resident too. The roots carry IRAM_ATTR and so cannot land in
@@ -151,6 +160,13 @@ jobs:
     # interrupt registered somewhere it does not know about) and fails the build
     # just as a finding does: a gate that cannot tell "found nothing" from "did
     # not look" is not a gate.
+    #
+    # It sits AFTER the size capture and before anything is renamed or uploaded.
+    # That ordering is deliberate: the size number is the diagnostic a maintainer
+    # reads on every PR, and a gate placed above it turns a residency finding
+    # into a build with no size comment - two questions to answer instead of one.
+    # Nothing between the two steps can publish an image, so failing here still
+    # stops the artifact.
     - name: Audit ISR IRAM residency for ${{ matrix.board_name }}
       shell: bash
       run: |
@@ -164,15 +180,6 @@ jobs:
           echo "auditing the image on its own, which is what decides anyway."
           python tools/isr_iram_audit.py "$elf"
         fi
-
-    - name: Capture size report for ${{ matrix.board_name }}
-      run: |
-        cat checkprogsize.txt | python .github/scripts/parse_size.py \
-          --pio-env "${{ matrix.pio_env }}" \
-          --board-name "${{ matrix.board_name }}" \
-          --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
-          --pio-system-info "$(pio system info --json-output)" \
-          --platform-json "$(cat "$HOME"/.platformio/platforms/espressif32*/platform.json)"
 
     - name: Compute artifact prefix
       id: name

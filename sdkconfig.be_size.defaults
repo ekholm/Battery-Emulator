@@ -177,8 +177,9 @@ CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE=y
 # a crash instead of data loss.
 #
 # MERGE GATE - this flag ships only with handlers that are IRAM-resident all
-# the way down. On this base there are exactly TWO attachInterrupt registration
-# sites, both vendored, zero project-level users:
+# the way down. There are TWO attachInterrupt registration sites, both vendored,
+# zero project-level users - and that count is COUNTED by the audit below rather
+# than kept true by whoever reads this next:
 #   - mcp2515_lite's mcp2515_isr_handler: IRAM_ATTR, safe.
 #   - ACAN2517FD: comm_can.cpp registers IRAM_ATTR trampolines that call the
 #     library's isr(), itself IRAM_ATTR on the ESP32 build; the only thing
@@ -193,8 +194,13 @@ CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE=y
 # callee it finds in .flash.text. It decides from the IMAGE whether this flag is
 # in effect - the flag's whole effect is that Arduino's __onPinInterrupt is
 # IRAM-resident - so carrying the flag to a new env needs nothing added to any
-# list, and an image built without it is skipped rather than failed. What DOES
-# need a human is a change to how an interrupt is REGISTERED: the audit fails
-# loudly, rather than passing vacuously, when a root it expects is gone.
+# list. An image whose dispatcher is in flash while THIS file asks for the flag
+# is a build that did not get the configuration it was given, and fails; only a
+# tree that has genuinely turned the option off is skipped.
+#
+# The audit fails loudly rather than passing vacuously in both directions: when
+# a root it expects is gone, and when the tree registers an interrupt in a file
+# no preset describes. That second half is why the count above is a fact rather
+# than a promise.
 # -----------------------------------------------------------------------------
 CONFIG_ARDUINO_ISR_IRAM=y
