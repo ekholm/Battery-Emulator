@@ -132,6 +132,39 @@ jobs:
         set -o pipefail
         pio run -e ${{ matrix.pio_env }} 2>&1 | tee checkprogsize.txt
 
+    # CONFIG_ARDUINO_ISR_IRAM makes the GPIO ISR service IRAM-resident, which is
+    # safe only while every handler on an interrupt path - and everything it
+    # calls - is resident too. The roots carry IRAM_ATTR and so cannot land in
+    # flash; the exposure is a callee, which is a property of the LINKED image
+    # and not of the source, so this needs a built ELF and belongs here rather
+    # than in the unit-test job.
+    #
+    # No env list: the audit decides from the image whether the flag is even in
+    # effect (that flag is exactly what moves Arduino's GPIO dispatcher into
+    # IRAM), so an env that inherits the flag is audited by existing, and an env
+    # built without it exits 0 with a note. The generated per-env sdkconfig is
+    # passed only when it is THERE to pass - a build whose framework libs were
+    # already content-identical, i.e. any env-cache hit, never writes one - and
+    # is then cross-checked against the ELF rather than trusted.
+    #
+    # Exit 2 means the audit could not run at all (no toolchain, no image, an
+    # interrupt registered somewhere it does not know about) and fails the build
+    # just as a finding does: a gate that cannot tell "found nothing" from "did
+    # not look" is not a gate.
+    - name: Audit ISR IRAM residency for ${{ matrix.board_name }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        sdk="sdkconfig.${{ matrix.pio_env }}"
+        elf=".pio/build/${{ matrix.pio_env }}/firmware.elf"
+        if [ -f "$sdk" ]; then
+          python tools/isr_iram_audit.py --sdkconfig "$sdk" "$elf"
+        else
+          echo "no $sdk - the framework libs were already current, so this build wrote none;"
+          echo "auditing the image on its own, which is what decides anyway."
+          python tools/isr_iram_audit.py "$elf"
+        fi
+
     - name: Capture size report for ${{ matrix.board_name }}
       run: |
         cat checkprogsize.txt | python .github/scripts/parse_size.py \

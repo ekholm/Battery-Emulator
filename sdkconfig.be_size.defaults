@@ -187,7 +187,14 @@ CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE=y
 #     the board under ordinary receive load - the library's no-interrupt mode
 #     polls from inside receive()'s own SPI transaction and deadlocks the
 #     caller on the framework's SPI mutex. The interrupt is back, resident.)
-# Re-run that audit (acan_esp32_isr_iram_audit.py, presets twai and fd) on the
-# linked image before carrying this flag anywhere else.
+# That residency condition is CHECKED BY CI, not remembered: the firmware-build
+# job runs tools/isr_iram_audit.py on every env's linked image, walking the GPIO
+# dispatcher and all three CAN interrupt paths, and fails the build naming any
+# callee it finds in .flash.text. It decides from the IMAGE whether this flag is
+# in effect - the flag's whole effect is that Arduino's __onPinInterrupt is
+# IRAM-resident - so carrying the flag to a new env needs nothing added to any
+# list, and an image built without it is skipped rather than failed. What DOES
+# need a human is a change to how an interrupt is REGISTERED: the audit fails
+# loudly, rather than passing vacuously, when a root it expects is gone.
 # -----------------------------------------------------------------------------
 CONFIG_ARDUINO_ISR_IRAM=y

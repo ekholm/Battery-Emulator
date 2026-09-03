@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""Does anything a cache-off interrupt reaches live in .flash.text?
+
+`CONFIG_ARDUINO_ISR_IRAM=y` (sdkconfig.be_size.defaults) makes Arduino's GPIO
+dispatcher IRAM-resident and installs the GPIO ISR service with
+ESP_INTR_FLAG_IRAM, so an INT arriving during an NVS commit or an OTA write is
+SERVICED instead of masked until the window ends. That is only safe while every
+handler on those paths - and everything the handler CALLS - is resident too.
+Otherwise the interrupt that used to be merely masked becomes an instruction
+fetch from a disabled flash cache, i.e. a crash instead of data loss.
+
+The ROOTS are safe by construction: IRAM_ATTR is a section attribute, so a
+marked function cannot be emitted to flash. The exposure is a CALLEE - an
+unmarked helper somewhere down the chain, or a header function the compiler
+decided to emit out-of-line into .flash.text. That is not a source property and
+scanning the source cannot see it: at -Os this codebase emitted the MCP2515
+decode out-of-line on two of four envs from identical source. So this walks the
+real call graph in the LINKED IMAGE.
+
+    tools/isr_iram_audit.py .pio/build/<env>/firmware.elf [preset ...]
+
+Presets pick the interrupt whose call graph is walked:
+
+    dispatcher  Arduino's GPIO dispatcher __onPinInterrupt - the function the
+                flag itself makes resident, above every attachInterrupt handler
+    twai        the native ACAN_ESP32 (TWAI) interrupt, installed with
+                esp_intr_alloc(..., ESP_INTR_FLAG_IRAM, isr, ...)
+    fd          the MCP2518FD nINT path: the comm_can.cpp trampolines and
+                ACAN2517FD::isr()
+    mcp2515     mcp2515_lite's attachInterruptArg handler and its drain
+
+With no preset named, every preset runs - which is what the flag's safety
+condition actually asks for, since it is a property of the whole image and not
+of one driver.
+
+Only CODE matters: a literal-pool load of a DRAM address or a peripheral
+register base is fine with the cache off; an instruction fetch from .flash.text
+is not. So this reports only targets that land inside .flash.text - direct call
+targets, and l32r-loaded code pointers that a callx then jumps to.
+
+Exit 0 and "clean" means every call those interrupts make stays in IRAM.
+Exit 1 means flash-resident code is reachable, and the symbols are named.
+Exit 2 means the audit did not RUN - no toolchain, no image, no map to name the
+chip, a root the image does not contain, or a sdkconfig that contradicts the
+image. It is a separate code from 1 on purpose: an audit that cannot tell "found
+nothing" from "did not look" is not worth running in CI.
+
+WHETHER THE FLAG IS EVEN ON IS READ OUT OF THE IMAGE, not out of a config file,
+so no env list is maintained anywhere and a new env that inherits the flag is
+audited by existing. CONFIG_ARDUINO_ISR_IRAM=y is exactly what moves Arduino's
+GPIO dispatcher into IRAM, so `__onPinInterrupt` landing in .iram0.text IS the
+flag being in effect and it landing in .flash.text IS the flag being off - in
+which case the safety condition does not apply and the audit says so and exits 0.
+
+Reading it from the image rather than from the generated per-env sdkconfig is
+deliberate, and not a shortcut: that file is written by the step that recompiles
+the framework libs, so a build whose libs were already content-identical - every
+cache hit, which in CI is the common case - does not produce one at all. A gate
+keyed on it would fail on exactly the builds that had nothing wrong with them.
+--sdkconfig is still accepted: when the file IS there it is cross-checked against
+the image, and a config that disagrees with the ELF beside it fails the audit
+rather than being believed.
+
+The toolchain comes from firmware.map beside the image, which names the chip in
+the framework-libs paths the linker recorded. That matters: the S3 disassembler
+decodes vector opcodes the ESP32 one renders as data, so instruction boundaries
+- and with them the call targets this audit extracts - depend on getting the
+right one.
+"""
+import argparse
+import os
+import re
+import subprocess
+import sys
+
+# Enough of the toolchain to fail early on: the walk shells out to both.
+REQUIRED_TOOLS = ("objdump", "nm")
+TOOLCHAIN_PACKAGE = "packages/toolchain-xtensa-esp-elf/bin"
+
+# Roots are split by whether the compiler is ALLOWED to make them disappear.
+# `taken` roots are handed to the interrupt allocator by address, so the image
+# must contain an out-of-line symbol for them; if one is missing, the interrupt
+# is not what this audit describes and a "clean" verdict would be vacuous.
+# `may_inline` roots are ordinary calls below the handler - inlined into a
+# caller that IS walked, their body is still covered.
+# Arduino's GPIO dispatcher: the function CONFIG_ARDUINO_ISR_IRAM itself moves,
+# sitting above every attachInterrupt handler on the cache-off path. Its
+# residency is also how this script decides whether the flag is in effect at all.
+DISPATCHER = "__onPinInterrupt"
+
+PRESETS = {
+    "dispatcher": {
+        "taken": [DISPATCHER],
+        "may_inline": [],
+    },
+    "twai": {
+        "taken": ["ACAN_ESP32::isr(void*)"],
+        "may_inline": ["ACAN_ESP32::handleRXInterrupt()", "ACAN_ESP32::handleTXInterrupt()",
+                       "ACAN_ESP32::getReceivedMessage(CANMessage&)",
+                       "ACAN_ESP32::internalSendMessage(CANMessage const&)"],
+    },
+    "fd": {
+        # The trampolines are passed to ACAN2517FD::begin() by address and the
+        # library's isr() is out-of-line, so all three must be present.
+        "taken": ["canfd_isr()", "canfd_2_isr()", "ACAN2517FD::isr()"],
+        "may_inline": [],
+    },
+    "mcp2515": {
+        "taken": ["MCP2515_Lite::mcp2515_isr_handler(void*)"],
+        "may_inline": ["MCP2515_Lite::drainRx()", "MCP2515_Lite::busTryAcquireIsr()",
+                       "MCP2515_Lite::busReleaseIsr()",
+                       "Mcp2515IramSpi::transfer(unsigned char const*, unsigned char*, unsigned char)"],
+    },
+}
+
+FLAG = "CONFIG_ARDUINO_ISR_IRAM"
+
+
+class AuditDidNotRun(Exception):
+    """Anything that makes a verdict impossible rather than negative."""
+
+
+def toolchain(target):
+    """The `<dir>/xtensa-<target>-elf-` stem tool names are concatenated onto.
+
+    Resolution mirrors the build's: PLATFORMIO_CORE_DIR when it is set,
+    $HOME/.platformio when it is not. It deliberately does NOT chain - a core
+    dir that is set but carries no toolchain fails, because a stale
+    ~/.platformio answering for the real one is exactly the hazard. HOME is
+    read out of the environment mapping rather than via expanduser(), which
+    consults the real process environment and would ignore an injected one.
+    """
+    explicit = os.environ.get("PLATFORMIO_CORE_DIR")
+    root = explicit or os.path.join(os.environ.get("HOME") or os.path.expanduser("~"), ".platformio")
+    prefix = "xtensa-%s-elf-" % target
+    bindir = os.path.join(root, TOOLCHAIN_PACKAGE)
+    stem = os.path.join(bindir, prefix)
+    absent = [t for t in REQUIRED_TOOLS if not os.access(stem + t, os.X_OK)]
+    if absent:
+        raise AuditDidNotRun(
+            "no %s toolchain under %s\n"
+            "  core dir: %s (from %s)\n"
+            "  missing:  %s\n"
+            "Install the toolchain there, or point PLATFORMIO_CORE_DIR at the core "
+            "dir your builds use." % (
+                prefix, bindir, root,
+                "PLATFORMIO_CORE_DIR" if explicit else "the $HOME/.platformio default",
+                ", ".join(prefix + t for t in absent)))
+    return stem
+
+
+def sdkconfig_flag(path):
+    """Whether the generated sdkconfig at `path` sets the flag.
+
+    Only ever used to CROSS-CHECK the image; the image is what decides. A
+    generated config also carries CONFIG_IDF_TARGET_ARCH, and a non-xtensa one
+    is refused outright: the walk matches call4/callx4/l32r mnemonics and the
+    .iram0.text / .flash.text layout, so a riscv target needs a ported walker
+    rather than a different toolchain prefix, and saying so beats emitting a
+    "clean" that means "decoded nothing it understood".
+    """
+    try:
+        with open(path) as fh:
+            text = fh.read()
+    except OSError as exc:
+        raise AuditDidNotRun("cannot read the generated sdkconfig %s: %s" % (path, exc))
+    # not-set keys are written as a comment, so match the assignment exactly
+    flag_set = re.search(r"^%s=y$" % FLAG, text, re.M) is not None
+    arch = re.search(r'^CONFIG_IDF_TARGET_ARCH="([^"]+)"$', text, re.M)
+    if not arch:
+        raise AuditDidNotRun(
+            "no CONFIG_IDF_TARGET_ARCH in %s - not a generated sdkconfig?" % path)
+    if flag_set and arch.group(1) != "xtensa":
+        raise AuditDidNotRun(
+            "%s is %s, and this walker decodes xtensa only - port it before carrying "
+            "%s to this target." % (path, arch.group(1), FLAG))
+    return flag_set
+
+
+def target_from_map(elf):
+    """The chip this image was linked for, per the linker's own map file.
+
+    The map lists every framework-libs archive it pulled in, and those live
+    under a per-chip directory. It is written by the same link that produced
+    the ELF, so unlike any config file at the project root it cannot describe a
+    different env than the image beside it.
+    """
+    mapfile = os.path.splitext(elf)[0] + ".map"
+    if not os.path.exists(mapfile):
+        raise AuditDidNotRun(
+            "no %s beside the image, so the chip it was linked for is unknown - pass "
+            "--target, and note that the wrong one silently mis-decodes the "
+            "disassembly." % mapfile)
+    chips = set()
+    with open(mapfile, errors="replace") as fh:
+        for line in fh:
+            for m in re.finditer(r"framework-arduinoespressif32-libs/(esp32[a-z0-9]*)/", line):
+                chips.add(m.group(1))
+    if len(chips) != 1:
+        raise AuditDidNotRun(
+            "%s names %s framework-libs chip director%s (%s) - cannot tell which "
+            "toolchain decodes this image; pass --target." % (
+                mapfile, len(chips) or "no", "y" if len(chips) == 1 else "ies",
+                ", ".join(sorted(chips)) or "none"))
+    return chips.pop()
+
+
+def sections(tc, elf):
+    sec = {}
+    out = subprocess.run([tc + "objdump", "-h", elf], capture_output=True, text=True)
+    for line in out.stdout.splitlines():
+        m = re.match(r"\s*\d+\s+(\S+)\s+([0-9a-f]{8})\s+([0-9a-f]{8})", line)
+        if m:
+            sec[m.group(1)] = (int(m.group(3), 16), int(m.group(2), 16))
+    for want in (".flash.text", ".iram0.text"):
+        if want not in sec:
+            raise AuditDidNotRun("%s has no %s section (objdump said: %s)" % (
+                elf, want, (out.stderr or "nothing").strip()))
+    return sec
+
+
+def symbols(tc, elf):
+    syms, by_name = {}, {}
+    for line in subprocess.run([tc + "nm", "-C", "-S", elf],
+                               capture_output=True, text=True).stdout.splitlines():
+        m = re.match(r"^([0-9a-f]{8}) ([0-9a-f]{8}) \S (.+)$", line)
+        if m:
+            a, s, n = int(m.group(1), 16), int(m.group(2), 16), m.group(3)
+            syms[a] = (s, n)
+            by_name.setdefault(n, (a, s))
+    if not by_name:
+        raise AuditDidNotRun("%s yielded no sized symbols - stripped image?" % elf)
+    return syms, by_name
+
+
+def walk(tc, elf, preset, syms, by_name, in_flash, in_iram):
+    """(walked, flash-resident targets, roots that inlined away) for one preset."""
+    roots = PRESETS[preset]
+    absent = [r for r in roots["taken"] if r not in by_name]
+    if absent:
+        raise AuditDidNotRun(
+            "preset %r: root(s) absent from the image, so the interrupt path is not what "
+            "this audit describes - update the preset or the registration:\n%s" % (
+                preset, "\n".join("  " + r for r in absent)))
+    inlined = [r for r in roots["may_inline"] if r not in by_name]
+
+    # objdump decodes each function's trailing literal pool as instructions too,
+    # and a data word can disassemble into a plausible-looking call4 into flash.
+    # A real call goes to a function ENTRY, so only a target that is exactly a
+    # symbol address counts; anything landing mid-symbol is pool garbage.
+    entry = set(syms)
+
+    def name_of(addr):
+        for a, (s, n) in syms.items():
+            if a <= addr < a + max(s, 1):
+                return n if addr == a else "%s+%#x" % (n, addr - a)
+        return "?"
+
+    queue = [r for r in roots["taken"] + roots["may_inline"] if r in by_name]
+    seen, bad = set(), []
+    while queue:
+        name = queue.pop(0)
+        if name in seen:
+            continue
+        seen.add(name)
+        addr, size = by_name[name]
+        dis = subprocess.run([tc + "objdump", "-d", "-C", "--start-address=%d" % addr,
+                              "--stop-address=%d" % (addr + size), elf],
+                             capture_output=True, text=True).stdout
+        for line in dis.splitlines():
+            # every hex word the instruction references, however it is printed
+            is_call = re.search(r"\b(call\d|callx\d|j|jx)\b", line) is not None
+            for tok in re.findall(r"\b([0-9a-f]{8})\b", line):
+                t = int(tok, 16)
+                if in_flash(t) and (is_call or "l32r" in line) and t in entry:
+                    bad.append((name, name_of(t), t))
+                elif in_iram(t) and is_call:
+                    n = name_of(t)
+                    if n in by_name and n not in seen:
+                        queue.append(n)
+    return seen, sorted(set(bad)), inlined
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(description="ISR IRAM residency audit of a linked image")
+    ap.add_argument("elf", help="path to firmware.elf")
+    ap.add_argument("presets", nargs="*",
+                    help="interrupt roots to walk (default: all of %s)" % ", ".join(sorted(PRESETS)))
+    ap.add_argument("--sdkconfig", metavar="PATH",
+                    help="generated per-env sdkconfig, cross-checked against the image when "
+                         "present; the image is what decides")
+    ap.add_argument("--target", metavar="IDF_TARGET",
+                    help="override the chip read from firmware.map (e.g. esp32, esp32s3)")
+    args = ap.parse_args(argv)
+
+    presets = args.presets or sorted(PRESETS)
+    unknown = [p for p in presets if p not in PRESETS]
+    if unknown:
+        ap.error("unknown preset(s) %s - one of %s" % (", ".join(unknown), ", ".join(sorted(PRESETS))))
+
+    if not os.path.exists(args.elf):
+        raise AuditDidNotRun("no image at %s - did the build run?" % args.elf)
+
+    target = args.target or target_from_map(args.elf)
+    tc = toolchain(target)
+    sec = sections(tc, args.elf)
+    flash_lo, flash_sz = sec[".flash.text"]
+    iram_lo, iram_sz = sec[".iram0.text"]
+    flash_hi, iram_hi = flash_lo + flash_sz, iram_lo + iram_sz
+    in_flash = lambda a: flash_lo <= a < flash_hi  # noqa: E731
+    in_iram = lambda a: iram_lo <= a < iram_hi  # noqa: E731
+    syms, by_name = symbols(tc, args.elf)
+
+    # The gate: the flag's whole effect is that this function is resident, so the
+    # image answers "is the flag on" without a config file to go stale.
+    if DISPATCHER not in by_name:
+        raise AuditDidNotRun(
+            "no %s in %s - the Arduino GPIO dispatcher is what %s makes resident, so "
+            "without it there is no way to tell whether the flag is in effect." % (
+                DISPATCHER, args.elf, FLAG))
+    dispatcher_addr = by_name[DISPATCHER][0]
+    flag_in_effect = in_iram(dispatcher_addr)
+    if not flag_in_effect and not in_flash(dispatcher_addr):
+        raise AuditDidNotRun(
+            "%s is at %#x, in neither .iram0.text nor .flash.text - this image is not "
+            "laid out the way the audit assumes." % (DISPATCHER, dispatcher_addr))
+
+    if args.sdkconfig:
+        # Free consistency check, and it has teeth: a config left behind by a
+        # sibling env describes a different image than the one being audited.
+        configured = sdkconfig_flag(args.sdkconfig)
+        if configured != flag_in_effect:
+            raise AuditDidNotRun(
+                "%s says %s is %s, but %s in this image is %s-resident - the config does "
+                "not describe this build." % (
+                    args.sdkconfig, FLAG, "y" if configured else "not set", DISPATCHER,
+                    "IRAM" if flag_in_effect else "flash"))
+        print("%s agrees with the image (%s %s)" % (
+            args.sdkconfig, FLAG, "=y" if configured else "not set"))
+
+    print("target %s   .iram0.text = %#x..%#x   .flash.text = %#x..%#x" % (
+        target, iram_lo, iram_hi, flash_lo, flash_hi))
+    if not flag_in_effect:
+        print("%s is at %#x, in .flash.text: %s is not in effect in this image, so the "
+              "GPIO dispatcher is masked through flash windows rather than run through "
+              "them, and the residency condition does not apply. Nothing to audit." % (
+                  DISPATCHER, dispatcher_addr, FLAG))
+        return 0
+
+    findings = {}
+    for preset in presets:
+        seen, bad, inlined = walk(tc, args.elf, preset, syms, by_name, in_flash, in_iram)
+        print("%-11s walked %d IRAM function(s) reachable from its interrupt roots - %s" % (
+            preset, len(seen), "%d flash-resident target(s)" % len(bad) if bad else "clean"))
+        for r in inlined:
+            # Covered anyway: it was inlined into a caller that IS walked.
+            print("%-11s   inlined away (no out-of-line symbol): %s" % (preset, r))
+        if bad:
+            findings[preset] = bad
+
+    if findings:
+        print("\nCODE IN FLASH REACHED FROM THE INTERRUPT (fetch with the cache off = crash):")
+        for preset, bad in findings.items():
+            for src, dst, addr in bad:
+                print("  [%s] %s\n      -> %08x  %s" % (preset, src, addr, dst))
+        print("\nEither mark the callee IRAM_ATTR, or take it off the interrupt path. If it is a "
+              "header function the compiler emitted out-of-line, the attribute belongs on the "
+              "definition it was emitted from.")
+        return 1
+    print("clean: nothing these interrupts reach lives in .flash.text")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except AuditDidNotRun as exc:
+        print("%s: %s" % (os.path.basename(__file__), exc), file=sys.stderr)
+        sys.exit(2)
