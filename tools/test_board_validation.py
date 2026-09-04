@@ -109,6 +109,53 @@ def expect_keyword(case, board, text, header, getter, virtual):
         failures.append(f'{case}: {getter}() should be emitted {want}\n    {lines[0].strip()}')
 
 
+def check_base_members():
+    """The hal.h parse, on shapes the real header does not have.
+
+    Getting this wrong is not a miscompile in either direction - a derived
+    member with a base virtual's signature overrides it whether or not
+    `virtual` is written - so what is at stake is bytes, and bytes are exactly
+    what nothing else here would notice.
+    """
+    def parse(body):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'hal.h').write_text(body, encoding='utf-8')
+            return board_gen.base_members(tmp)
+
+    got = parse('class Esp32Hal {\n'
+                ' public:\n'
+                '  virtual gpio_num_t REAL_PIN() { return GPIO_NUM_NC; }\n'
+                '  /* A block comment whose continuation line\n'
+                '   * mentions COMMENTED_PIN(); in passing.\n'
+                '   */\n'
+                '  // and a line comment about LINE_PIN();\n'
+                '};\n')
+    if 'REAL_PIN' not in got:
+        failures.append('base members: a plain declared member was not found')
+    for ghost in ('COMMENTED_PIN', 'LINE_PIN'):
+        if ghost in got:
+            failures.append(f'base members: {ghost}() came from a comment, not a declaration')
+
+    # A member of a nested type is not a member of the base class.
+    got = parse('class Esp32Hal {\n'
+                '  struct Inner {\n'
+                '    int NESTED_PIN() { return 0; }\n'
+                '  };\n'
+                '  virtual int OUTER_PIN() { return 0; }\n'
+                '};\n')
+    if 'NESTED_PIN' in got:
+        failures.append('base members: NESTED_PIN() is Inner\'s, not Esp32Hal\'s')
+    if 'OUTER_PIN' not in got:
+        failures.append('base members: the nested type swallowed the members after it')
+
+    # No hal.h at all: the empty set, which _style reads as "keep everything
+    # virtual". Wasteful, never wrong - and the fallback the generator warns
+    # about on stderr, so it has to actually be reachable.
+    with tempfile.TemporaryDirectory() as tmp:
+        if board_gen.base_members(tmp) != set():
+            failures.append('base members: a missing hal.h did not give the empty set')
+
+
 def drop(text, pattern):
     """Remove a key: value pair from an inline map."""
     new = re.sub(pattern, '', text, count=1)
@@ -683,6 +730,22 @@ def main():
                    'hw_dfrobot_edge101.h', 'ETH_PHY_ADDR', virtual=False)
     expect_keyword('a base member stays virtual', 'dfrobot_edge101', edge,
                    'hw_dfrobot_edge101.h', 'CAN_TX_PIN', virtual=True)
+    # The yes-side for a SCALAR as well, and it is not a duplicate of the pin
+    # above: pins and scalars are emitted by two different functions, and only
+    # the scalar one also has to keep an explicit `override` style working. The
+    # Edge101 has no plain base scalar to use - its one scalar in the base is
+    # SD_SPI_BUS, which is declared `override` - so this cell of the rule lives
+    # on stark. Without it, _scalar_line dropping the derived keyword entirely
+    # is a mutation these tests do not feel.
+    stark = (BOARDS / 'stark.yaml').read_text(encoding='utf-8')
+    expect_keyword('a base scalar stays virtual', 'stark', stark,
+                   'hw_stark.h', 'LED_COUNT', virtual=True)
+
+    # base_members() itself, on shapes hal.h does not currently contain. The
+    # emission tests above can only see what today's hal.h happens to be
+    # written like, and every one of them would still pass with the parse
+    # wrong in a way this file's real header does not expose.
+    check_base_members()
 
     if failures:
         print(f'board validation: {len(failures)} FAILED')

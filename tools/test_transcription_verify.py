@@ -105,6 +105,23 @@ def main():
     finally:
         devkit_yaml.write_text(yaml_orig)
 
+    # Check 1 for a member emitted with a TRAILING specifier. `SD_SPI_BUS()
+    # override` is the only shape in the tree that carries one, and while
+    # MEMBER could not see it the drift above went entirely unnoticed on it:
+    # the wrong spi_bus regenerated a wrong SPI bus into the header and the
+    # verifier still reported every generated line verbatim. The case is here
+    # rather than in the keyword tests because what failed was this file's
+    # idea of what a member looks like, not the generator's.
+    edge_yaml = Path(bvt.ROOT) / 'Software' / 'boards' / 'dfrobot_edge101.yaml'
+    edge_orig = edge_yaml.read_text()
+    assert 'spi_bus: VSPI' in edge_orig, 'the override-styled getter this case needs is gone'
+    try:
+        edge_yaml.write_text(edge_orig.replace('spi_bus: VSPI', 'spi_bus: HSPI', 1))
+        expect_reject('an override-styled member whose generated line drifted',
+                      'dfrobot_edge101', 'SD_SPI_BUS')
+    finally:
+        edge_yaml.write_text(edge_orig)
+
     # Check 2: a baselined member the schema stops emitting is caught from the
     # other side - which is also what still catches a renamed getter.
     try:

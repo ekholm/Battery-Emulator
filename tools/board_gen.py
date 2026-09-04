@@ -806,11 +806,26 @@ def validate(board, data, addons=None):
 # expressed before the schema could - grew that board's image by 64 bytes while
 # every other board stayed byte-for-byte equivalent.
 #
-# So the keyword is DERIVED from hal.h rather than carried per feature. A hand
-# written style would be a second copy of hal.h's member list, and getting it
-# wrong here is silent in a way `override` is not: `override` without a base
-# virtual fails to compile, while a spurious `virtual` only costs bytes and a
-# missing one only shadows.
+# So the keyword is DERIVED from hal.h rather than carried per feature: a hand
+# written style column would be a second copy of hal.h's member list, and this
+# rule exists because the first divergence between those two lists went
+# unnoticed.
+#
+# Both ways of getting the derivation wrong are survivable, and it is worth
+# being exact about why, because the obvious fear here is the wrong one.
+# Emitting `virtual` for a member the base does NOT declare is the 64 bytes
+# above - a wasted vtable slot, no behaviour change. Emitting it plain for a
+# member the base DOES declare - what a base member this file's parse fails to
+# recognise would produce - changes nothing at all: a derived member with the
+# same signature as a base virtual overrides it whether or not `virtual` is
+# written ([class.virtual]/2). This tree has always relied on that, and would
+# not build otherwise - `name()` is emitted plain by the literal in block(),
+# `Esp32Hal::name()` is pure virtual, and every leaf HAL is instantiated. So a
+# missed base member cannot shadow, cannot dispatch wrongly, and cannot cost a
+# slot; it only fails to be an improvement. `override` is the one keyword whose
+# absence would matter, which is why the style that asks for it is kept
+# explicit rather than derived - `override` without a base virtual does not
+# compile, and that is a property worth keeping where it is already claimed.
 BASE_CLASS = 'Esp32Hal'
 
 # A zero-argument member of the base class: `virtual const char* name() = 0;`,
@@ -835,7 +850,15 @@ def base_members(headers):
         if not inside and re.match(rf'^class\s+{BASE_CLASS}\b', line):
             inside = True
         if inside:
-            match = BASE_MEMBER.match(line)
+            # A block comment's continuation line starts with `*`, which is in
+            # BASE_MEMBER's type-prefix class, so ` * ...and calls FOO();` reads
+            # as a declaration of FOO. Nothing in hal.h is written that way
+            # today and the damage would be a spurious `virtual` rather than a
+            # wrong one - but board_verify_transcription.members() already
+            # excludes comments, and two parsers of the same headers disagreeing
+            # about what a comment is has been a defect here before.
+            stripped = line.lstrip()
+            match = None if stripped.startswith(('//', '*', '/*', '#')) else BASE_MEMBER.match(line)
             if match and depth <= 1:
                 names.add(match.group(1))
             depth += line.count('{') - line.count('}')
