@@ -659,7 +659,12 @@ static bool begin_canfd() {
     logging.print("CAN-FD Configuration error 0x");
     logging.println(errorCode2517, HEX);
     set_event(EVENT_CANMCP2518FD_INIT_FAILURE, (uint8_t)errorCode2517);
-    // This will leak, but we have failed and won't try to reinit.
+    // begin() attaches the nINT handler and starts the driver's task before it reports a
+    // requested-mode timeout, so a non-zero code does not mean the driver is inert. end()
+    // detaches the handler, stops that task and resets the chip; without it the next falling
+    // edge on nINT runs the callback above against the pointer we are about to clear.
+    canfd->end();
+    // The driver object itself still leaks, but we have failed and won't try to reinit.
     canfd = nullptr;
     return false;
   }
@@ -673,7 +678,9 @@ static bool begin_canfd_2() {
     logging.print("CAN-FD 2 Configuration error 0x");
     logging.println(errorCode2517_2, HEX);
     set_event(EVENT_CANMCP2518FD_INIT_FAILURE, (uint8_t)errorCode2517_2);
-    // This will leak, but we have failed and won't try to reinit.
+    // See begin_canfd(): a non-zero code can still leave the nINT handler attached.
+    canfd_2->end();
+    // The driver object itself still leaks, but we have failed and won't try to reinit.
     canfd_2 = nullptr;
     return false;
   }
