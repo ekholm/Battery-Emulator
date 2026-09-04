@@ -38,8 +38,13 @@ void DalyBms::update_values() {
   if (datalayer.battery.settings.user_set_voltage_limits_active &&
       datalayer.battery.settings.max_user_set_discharge_voltage_dV > min_voltage)
     min_voltage = datalayer.battery.settings.max_user_set_discharge_voltage_dV;
-  if (voltage_dV - min_voltage < user_selected_daly_power_per_dV_start)
-    voltage_power_limit = (uint32_t)(voltage_dV - min_voltage) * user_selected_daly_power_per_dV;
+  /* The headroom is a signed difference and goes negative once the pack is under
+   * its minimum, which is a normal end-of-discharge state. Clamp it at zero
+   * BEFORE the unsigned multiply: an unclamped -1 becomes about four billion,
+   * which then clamps nothing and releases the derate exactly where it matters. */
+  const int32_t headroom_dV = (int32_t)voltage_dV - (int32_t)min_voltage;
+  if (headroom_dV < user_selected_daly_power_per_dV_start)
+    voltage_power_limit = (uint32_t)(headroom_dV < 0 ? 0 : headroom_dV) * user_selected_daly_power_per_dV;
   if (voltage_power_limit < datalayer.battery.status.max_discharge_power_W)
     datalayer.battery.status.max_discharge_power_W = voltage_power_limit;
 
@@ -48,7 +53,10 @@ void DalyBms::update_values() {
   if (SOC < 2000)
     adaptive_power_limit = ((uint32_t)(SOC + 100) * user_selected_daly_power_per_percent) / 100;
   else if (SOC > 8000)
-    adaptive_power_limit = ((10000 - (uint32_t)SOC) * user_selected_daly_power_per_percent) / 100;
+    // Same clamp on the same shape: a BMS reporting over 100 % makes 10000 - SOC
+    // negative, and it is computed unsigned.
+    adaptive_power_limit =
+        (((SOC > 10000) ? 0u : (10000u - (uint32_t)SOC)) * user_selected_daly_power_per_percent) / 100;
 
   if (adaptive_power_limit < datalayer.battery.status.max_charge_power_W)
     datalayer.battery.status.max_charge_power_W = adaptive_power_limit;

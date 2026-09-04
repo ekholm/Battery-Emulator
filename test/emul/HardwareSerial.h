@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <cstddef>
+#include <deque>
+#include <initializer_list>
 #include "Print.h"
 #include "Stream.h"
 
@@ -35,10 +37,28 @@ enum SerialConfig {
 
 class HardwareSerial : public Stream {
  public:
-  // Implement ALL pure virtual functions from base classes
-  int available() override { return 0; }
-  int read() override { return -1; }
-  int peek() override { return -1; }
+  /* An RX queue a test can fill, so a driver's real receive() can be driven
+   * with real bytes instead of being reached around. Empty by default, which is
+   * what every existing test sees: available() answers 0 and read() answers -1
+   * exactly as before. Anything a test injects it must also clear - the Serial
+   * objects are globals shared by the whole suite. */
+  void inject_rx(std::initializer_list<uint8_t> bytes) {
+    for (uint8_t b : bytes) {
+      rx_queue.push_back(b);
+    }
+  }
+  void clear_rx() { rx_queue.clear(); }
+
+  int available() override { return static_cast<int>(rx_queue.size()); }
+  int read() override {
+    if (rx_queue.empty()) {
+      return -1;
+    }
+    const int out = rx_queue.front();
+    rx_queue.pop_front();
+    return out;
+  }
+  int peek() override { return rx_queue.empty() ? -1 : rx_queue.front(); }
   void flush() override {}                      // Implement flush from Print
   size_t write(uint8_t) override { return 0; }  // Implement write from Print
 
@@ -56,6 +76,9 @@ class HardwareSerial : public Stream {
     (void)size;
     return 0;
   }
+
+ private:
+  std::deque<uint8_t> rx_queue;
 };
 extern HardwareSerial Serial;
 extern HardwareSerial Serial1;
