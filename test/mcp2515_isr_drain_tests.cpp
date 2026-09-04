@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "../Software/src/lib/mcp2515_lite/mcp2515_rx_ring.h"
@@ -70,6 +71,32 @@ std::string body_of(const std::string& src, const std::string& signature) {
   const size_t end = src.find("\n}", start);
   EXPECT_NE(end, std::string::npos);
   return src.substr(start, end - start);
+}
+
+/* The extent of the `{ ... }` block opening at or after `at`, by brace depth.
+ *
+ * Every earlier attempt to bound a statement to its enclosing block here used
+ * the closing brace's INDENTATION - first as part of a literal, then as a
+ * `find("\n    }")`. Both measure formatting rather than structure: the first
+ * broke when the MCP2515 block was nested one level deeper by a change with
+ * nothing to say about the ISR drain, and the second then matched the wrong
+ * brace entirely, which is how a guard could be made decorative with this file
+ * still green. Depth is the property actually being asserted.
+ */
+std::pair<size_t, size_t> block_at(const std::string& src, size_t at) {
+  const size_t open = src.find('{', at);
+  if (open == std::string::npos) {
+    return {std::string::npos, std::string::npos};
+  }
+  int depth = 0;
+  for (size_t j = open; j < src.size(); ++j) {
+    if (src[j] == '{') {
+      ++depth;
+    } else if (src[j] == '}' && --depth == 0) {
+      return {open, j};
+    }
+  }
+  return {open, std::string::npos};
 }
 
 // The integer behind a `#define NAME value`, for headers the host cannot
@@ -837,19 +864,27 @@ TEST(Mcp2515IsrDrain, TheDrainIsOnlyOfferedOnABusThisChipHasToItself) {
       << "an FD chip on the same controller no longer disqualifies the bus";
   EXPECT_NE(exclusive.find("esp32hal->MCP2517_BUS2() == bus"), std::string::npos)
       << "the second FD chip defaults to DEFAULT_MCP2515_BUS on the T-2CAN, so it has to be checked too";
-  /* Anchored on the two statements in order, not on the exact bytes between
-   * them. The literal that stood here carried the guard's INDENTATION, so
-   * nesting the MCP2515 block one level deeper - which is what making its pin
-   * failure per-interface does - broke a test that has nothing to say about pin
-   * policy. What this case is about is that the drain is asked for only inside
-   * the exclusivity guard, and that survives reformatting.
+  /* Bounded to the guard's OWN block, by brace depth.
+   *
+   * Two earlier forms of this assertion were anchored on indentation instead.
+   * The original literal carried the guard's leading spaces and broke when the
+   * MCP2515 block was nested one level deeper - a change with nothing to say
+   * about the ISR drain. Its replacement asked whether the offer came before
+   * the next `\n    }`, and that brace is the ENCLOSING block's, not the
+   * guard's: moving the offer out of the guard and leaving `if
+   * (mcp2515_bus_is_exclusive()) {}` behind kept this case green. The mutation
+   * that showed it is V01 in scripts/r513.mut; reading the assertion did not.
    */
   const size_t guard = src.find("if (mcp2515_bus_is_exclusive()) {");
   ASSERT_NE(guard, std::string::npos) << "the exclusivity guard is gone";
+  const auto guarded = block_at(src, guard);
+  ASSERT_NE(guarded.second, std::string::npos) << "the guard's block never closes";
   const size_t offer = src.find("can2515->useIsrDrain(", guard);
   ASSERT_NE(offer, std::string::npos) << "the drain is never offered";
-  const size_t closes = src.find("\n    }", guard);
-  EXPECT_LT(offer, closes) << "the drain is enabled outside the guard that asks whether the bus is exclusive";
+  EXPECT_LT(offer, guarded.second) << "the drain is enabled outside the guard that asks whether the bus is "
+                                      "exclusive - the guard itself may still be there, and empty";
+  EXPECT_EQ(src.find("can2515->useIsrDrain(", offer + 1), std::string::npos)
+      << "the drain is offered a second time, so one of the two is not answering to the guard";
   EXPECT_EQ(src.rfind("can2515->useIsrDrain(", guard), std::string::npos)
       << "the drain is also enabled before the guard, which makes the guard decorative";
 }

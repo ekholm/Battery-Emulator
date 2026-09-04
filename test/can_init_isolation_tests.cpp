@@ -3,6 +3,7 @@
 #include <fstream>
 #include <regex>
 #include <string>
+#include <utility>
 
 /* One CAN chip's init failure must stop at that chip.
  *
@@ -48,6 +49,28 @@ std::string init_can_body(const std::string& src) {
     }
   }
   return "";
+}
+
+/* The extent of the `{ ... }` block opening at or after `at`, by brace depth.
+ * Bounding an assertion to a branch by looking for the next closing brace at a
+ * given INDENTATION measures formatting, not structure, and finds the enclosing
+ * block's brace as readily as the one meant - which is how a guard elsewhere in
+ * this tree was made decorative with its test still green.
+ */
+std::pair<size_t, size_t> block_at(const std::string& src, size_t at) {
+  const size_t open = src.find('{', at);
+  if (open == std::string::npos) {
+    return {std::string::npos, std::string::npos};
+  }
+  int depth = 0;
+  for (size_t j = open; j < src.size(); ++j) {
+    if (src[j] == '{') {
+      ++depth;
+    } else if (src[j] == '}' && --depth == 0) {
+      return {open, j};
+    }
+  }
+  return {open, std::string::npos};
 }
 
 }  // namespace
@@ -147,10 +170,21 @@ TEST(CanInitIsolation, AnMcp2515PinFailureLeavesTheFdInterfacesToStart) {
   ASSERT_LT(alloc, fd_section) << "the MCP2515 block no longer precedes the FD blocks, which is what made "
                                   "its abort cost them";
 
+  /* Bounded to the pin-failure branch, not merely "somewhere before the FD
+   * section". There is a SECOND `can2515 = nullptr;` further down, on the
+   * begin() failure path, and it satisfies an unbounded search from here - so
+   * deleting the one this case exists for left the test green. Mutation found
+   * that; reading the assertion did not.
+   */
+  const size_t branch_end = body.find("} else {", alloc);
+  ASSERT_NE(branch_end, std::string::npos) << "the pin claim no longer opens a failure branch";
   const size_t inert = body.find("can2515 = nullptr;", alloc);
   ASSERT_NE(inert, std::string::npos);
-  EXPECT_LT(inert, fd_section) << "the MCP2515 pin failure does not leave its own interface inert before the "
-                                  "FD section - null is how the send and receive paths read 'not there'";
+  EXPECT_LT(inert, branch_end) << "the MCP2515 pin failure does not leave its own interface inert - null is "
+                                  "how the send and receive paths read 'not there', and the nulling further "
+                                  "down belongs to a different failure";
+  EXPECT_LT(inert, fd_section) << "the MCP2515 pin failure is handled after the FD section, so the FD "
+                                  "interfaces are decided before it is known whether this one started";
 
   /* The FD blocks must not have acquired a dependency on the 2515 in the
    * process: a guard like `if (can2515 && ...)` would restore the old coupling
@@ -220,6 +254,74 @@ TEST(CanInitIsolation, ANativePinFailureLeavesTheNativeInterfaceOutOfService) {
   EXPECT_LT(cleared, init_call) << "a native pin failure does not clear the flag receive_can() gates on, so "
                                    "the firmware would poll an interface whose pads were never claimed";
 }
+/* THE SHORT CIRCUITS ARE THE POLICY, not a style: an interface that cannot
+ * start must not claim pads on the way down. alloc_pins() records nothing when
+ * it fails, so the pads it was refused stay free - but a claim that SUCCEEDS
+ * for an interface that is about to be abandoned records them for good, and
+ * denies them to whoever asks next. That is the hazard the OLD abort policy
+ * named as its own justification, and it is the one thing that policy really
+ * did prevent.
+ *
+ * Three of the seven claims sit behind such a short circuit. Two of them are
+ * pinned by the shared-bus case above, in the same expressions that carry the
+ * bus logic. This is the third, and it had no case of its own: removing
+ * `pins_ok &&` here left the whole suite green (V08 in scripts/r513.mut).
+ */
+TEST(CanInitIsolation, AFailedSePinClaimDoesNotGoOnToClaimTxAndRx) {
+  const std::string body = init_can_body(comm_can_source());
+  ASSERT_FALSE(body.empty());
+
+  const size_t se_claim = body.find("esp32hal->alloc_pins(\"CAN\", se_pin)");
+  ASSERT_NE(se_claim, std::string::npos) << "the SE pin claim is not where this test looks";
+  const size_t txrx_claim = body.find("esp32hal->alloc_pins(\"CAN\", tx_pin, rx_pin)");
+  ASSERT_NE(txrx_claim, std::string::npos) << "the tx/rx claim is not where this test looks";
+  ASSERT_LT(se_claim, txrx_claim) << "the two native claims have swapped order; this case reads them the "
+                                     "other way round";
+
+  /* The tx/rx claim is reached only while the SE claim has not failed. Written
+   * as the guard's own text rather than as "somewhere there is a pins_ok",
+   * because the point is that THIS call is behind it: the transceiver's enable
+   * pin failing means no native interface, and claiming CAN_TX and CAN_RX for
+   * one that will never come up is exactly the pad-hoarding the old policy
+   * aborted to avoid.
+   */
+  EXPECT_NE(body.find("if (pins_ok && !esp32hal->alloc_pins(\"CAN\", tx_pin, rx_pin)) {"), std::string::npos)
+      << "the tx/rx pads are claimed even when the SE pin claim already failed - the native interface "
+         "cannot start, and it has taken two pads down with it";
+}
+
+/* The one ordering change this branch made beyond its row, and it had no test:
+ * the second FD chip's SPIClass is constructed AFTER its own bus pins are
+ * claimed. Built first, the failure path walked away from a heap allocation -
+ * and, worse for the policy, it left a live SPI object on a bus whose pads were
+ * refused. Reverting the order left the suite green (V05 in scripts/r513.mut).
+ */
+TEST(CanInitIsolation, TheSecondFdBusObjectIsBuiltOnlyAfterItsPadsAreClaimed) {
+  const std::string body = init_can_body(comm_can_source());
+  ASSERT_FALSE(body.empty());
+
+  const size_t claim = body.find("esp32hal->alloc_pins(\"CANFD2\", sck_pin, sdo_pin, sdi_pin)");
+  ASSERT_NE(claim, std::string::npos) << "the second FD chip's own-bus pin claim is not where this test looks";
+  const size_t construct = body.find("new SPIClass(esp32hal->MCP2517_BUS2())");
+  ASSERT_NE(construct, std::string::npos) << "the second FD bus object is never constructed";
+
+  EXPECT_LT(claim, construct) << "the second FD bus object is built before its pads are claimed, so the "
+                                 "failure path leaks it";
+
+  /* And it is built INSIDE the claim's success branch, not merely after the
+   * call. Ordering alone would be satisfied by constructing it unconditionally
+   * on the next line, which leaks in exactly the same way.
+   */
+  const auto guarded = block_at(body, claim);
+  ASSERT_NE(guarded.second, std::string::npos) << "the claim no longer opens a branch";
+  const size_t alternative = body.find("} else {", guarded.second);
+  ASSERT_NE(alternative, std::string::npos) << "the claim's failure branch has no success arm";
+  const auto success = block_at(body, alternative + 6);
+  ASSERT_NE(success.second, std::string::npos);
+  EXPECT_LT(construct, success.second) << "the second FD bus object is constructed outside the branch that "
+                                          "knows its pads were claimed";
+}
+
 /* A FAILED runtime speed change must take the native interface out of
  * service, not just report itself.
  *
