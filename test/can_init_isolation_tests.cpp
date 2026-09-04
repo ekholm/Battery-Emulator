@@ -92,33 +92,134 @@ TEST(CanInitIsolation, TheNativeFailureRaisesAnEventLikeEveryOtherChip) {
   }
 }
 
-/* Pin allocation is the deliberate exception and must stay one: an incoherent
- * pin map is a fact about the whole board, not a fault in one chip, and
- * carrying on would hand the same pad to whichever interface asks next.
+/* Pin allocation used to be the deliberate exception - any alloc_pins() failure
+ * ended init_CAN(), so every interface declared after the failing one was
+ * silently never brought up. This test is the inverse of the one that stood
+ * here, and the reason the policy changed is in alloc_pins() itself
+ * (devboard/hal/hal.h): it validates every requested pin in a FIRST loop and
+ * records them in allocated_pins only in a SECOND, so a call that fails records
+ * nothing. The pad stays with whoever claimed it first and the next interface
+ * asking for it gets the same refusal - "carrying on would hand the same pad to
+ * whichever interface asks next" cannot happen, with or without the abort.
+ *
+ * And the abort reproduced the very defect the top of this file describes: on a
+ * DFRobot Edge101, which offers both MCP add-ons in the settings dropdown while
+ * declaring no MCP pins at all, picking one raises EVENT_GPIO_NOT_DEFINED and
+ * used to cost every interface ordered after it - including the one the battery
+ * is on.
  */
-TEST(CanInitIsolation, AnIncoherentPinMapStillStopsEverything) {
+TEST(CanInitIsolation, APinAllocationFailureStopsAtItsOwnInterface) {
   const std::string body = init_can_body(comm_can_source());
   ASSERT_FALSE(body.empty());
 
+  /* `esp32hal->alloc_pins(`, not `alloc_pins(`. The count that stood here used
+   * the bare name and therefore counted this function's PROSE as well: it read
+   * 11 sites for 7 calls once the explanation above the calls grew. A scan
+   * anchored on a word that appears in comments measures the comments.
+   */
   int alloc_sites = 0;
-  int guarded_returns = 0;
-  for (size_t at = body.find("alloc_pins("); at != std::string::npos; at = body.find("alloc_pins(", at + 1)) {
+  for (size_t at = body.find("esp32hal->alloc_pins("); at != std::string::npos;
+       at = body.find("esp32hal->alloc_pins(", at + 1)) {
     ++alloc_sites;
-    const size_t stop = body.find("return;", at);
-    const size_t next_alloc = body.find("alloc_pins(", at + 1);
-    if (stop != std::string::npos && (next_alloc == std::string::npos || stop < next_alloc)) {
-      ++guarded_returns;
-    }
   }
-  EXPECT_GT(alloc_sites, 0) << "no alloc_pins() calls found in init_CAN() - the scan has drifted";
-  // Every site, not a threshold: one dropped return is exactly the regression
-  // this guards, and a count that allows slack would not see it.
-  EXPECT_EQ(guarded_returns, alloc_sites)
-      << guarded_returns << " of " << alloc_sites << " pin-allocation failures still stop initialisation; "
-      << "if continuing past an incoherent pin map is now wanted, it is a decision to take deliberately, "
-      << "not by deleting a return";
+  EXPECT_EQ(alloc_sites, 7) << "init_CAN() no longer makes seven pin allocations; the cases below name the "
+                               "interfaces one by one, so a call that appeared or vanished wants looking at";
+
+  // The whole policy in one assertion: there is no way out of this function
+  // that skips the interfaces declared after the current one.
+  EXPECT_EQ(body.find("return;"), std::string::npos)
+      << "init_CAN() leaves itself early again. Which interfaces survive would once more be decided by "
+         "the order they happen to be initialised in, and declaration order is not a safety property";
 }
 
+/* The reachable shape, and the one the decision was taken on: a pin failure in
+ * the MCP2515 block must not cost the CAN FD interfaces that come after it.
+ */
+TEST(CanInitIsolation, AnMcp2515PinFailureLeavesTheFdInterfacesToStart) {
+  const std::string body = init_can_body(comm_can_source());
+  ASSERT_FALSE(body.empty());
+
+  const size_t alloc = body.find("esp32hal->alloc_pins(\"CAN\", cs_pin, int_pin, sck_pin, miso_pin, mosi_pin)");
+  ASSERT_NE(alloc, std::string::npos) << "the MCP2515 pin claim is not where this test looks";
+
+  const size_t fd_section = body.find("// FD interface(s)");
+  ASSERT_NE(fd_section, std::string::npos) << "the FD section marker is gone - the scan has drifted";
+  ASSERT_LT(alloc, fd_section) << "the MCP2515 block no longer precedes the FD blocks, which is what made "
+                                  "its abort cost them";
+
+  const size_t inert = body.find("can2515 = nullptr;", alloc);
+  ASSERT_NE(inert, std::string::npos);
+  EXPECT_LT(inert, fd_section) << "the MCP2515 pin failure does not leave its own interface inert before the "
+                                  "FD section - null is how the send and receive paths read 'not there'";
+
+  /* The FD blocks must not have acquired a dependency on the 2515 in the
+   * process: a guard like `if (can2515 && ...)` would restore the old coupling
+   * by a different route, and every assertion above would still pass.
+   */
+  EXPECT_EQ(body.find("can2515", fd_section), std::string::npos)
+      << "the FD section reads can2515 - a failed MCP2515 can decide whether the FD interfaces start again";
+}
+
+/* The shared MCP2517 SPI bus is the ONE pin failure that is not confined to a
+ * single interface, because nothing can talk over a bus that was never opened.
+ * It must still stop at the chips that would use THAT bus.
+ */
+TEST(CanInitIsolation, TheSharedFdBusIsTheOnlyFailureThatReachesASecondInterface) {
+  const std::string body = init_can_body(comm_can_source());
+  ASSERT_FALSE(body.empty());
+
+  ASSERT_NE(body.find("bool fd_bus_ok = true;"), std::string::npos)
+      << "the shared-bus outcome is no longer carried in a flag - the FD blocks below cannot be reading it";
+
+  const size_t bus_alloc = body.find("esp32hal->alloc_pins(\"CANFD\", sck_pin, sdo_pin, sdi_pin)");
+  ASSERT_NE(bus_alloc, std::string::npos) << "the shared FD bus claim is not where this test looks";
+  const size_t cleared = body.find("fd_bus_ok = false;", bus_alloc);
+  EXPECT_NE(cleared, std::string::npos) << "a failed shared-bus claim does not record itself, so the FD chips "
+                                           "below would dereference a bus that was never brought up";
+
+  // Both FD chips consult it...
+  EXPECT_NE(body.find("const bool pins_ok = fd_bus_ok && esp32hal->alloc_pins(\"CANFD\", cs_pin, int_pin);"),
+            std::string::npos)
+      << "the first FD chip no longer consults the shared bus, or claims its pads before it knows it can use "
+         "them - claiming pads for an interface that cannot start denies them to whoever asks next";
+
+  /* ...but the SECOND one only when it would share that bus. It brings up its
+   * own when the two bus numbers differ, and a failure on the first bus decides
+   * nothing for it then. Without the bus comparison in the same expression this
+   * test would pass over a version that took the second chip down needlessly.
+   */
+  EXPECT_NE(body.find("const bool shares_first_fd_bus = esp32hal->MCP2517_BUS() == esp32hal->MCP2517_BUS2();"),
+            std::string::npos)
+      << "the second FD chip no longer distinguishes sharing the first bus from having its own";
+  EXPECT_NE(body.find("bool pins_ok = (fd_bus_ok || !shares_first_fd_bus) && "
+                      "esp32hal->alloc_pins(\"CANFD2\", cs_pin, int_pin);"),
+            std::string::npos)
+      << "the second FD chip either ignores the shared bus it is about to use, or gives it up when it has a "
+         "bus of its own";
+}
+
+/* The native block is the one interface with no pointer to null: it is taken
+ * out of service by leaving native_can_initialized false, which is the flag
+ * receive_can() gates on.
+ */
+TEST(CanInitIsolation, ANativePinFailureLeavesTheNativeInterfaceOutOfService) {
+  const std::string body = init_can_body(comm_can_source());
+  ASSERT_FALSE(body.empty());
+
+  const size_t declared = body.find("bool pins_ok = true;");
+  ASSERT_NE(declared, std::string::npos) << "the native block no longer tracks its pin claims";
+
+  const size_t branch = body.find("if (!pins_ok) {", declared);
+  ASSERT_NE(branch, std::string::npos);
+  const size_t init_call = body.find("init_native_can(", declared);
+  ASSERT_NE(init_call, std::string::npos);
+  EXPECT_LT(branch, init_call) << "the native controller is started before its pads are known to be claimed";
+
+  const size_t cleared = body.find("native_can_initialized = false;", branch);
+  ASSERT_NE(cleared, std::string::npos);
+  EXPECT_LT(cleared, init_call) << "a native pin failure does not clear the flag receive_can() gates on, so "
+                                   "the firmware would poll an interface whose pads were never claimed";
+}
 /* A FAILED runtime speed change must take the native interface out of
  * service, not just report itself.
  *

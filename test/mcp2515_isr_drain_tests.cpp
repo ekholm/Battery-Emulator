@@ -837,8 +837,21 @@ TEST(Mcp2515IsrDrain, TheDrainIsOnlyOfferedOnABusThisChipHasToItself) {
       << "an FD chip on the same controller no longer disqualifies the bus";
   EXPECT_NE(exclusive.find("esp32hal->MCP2517_BUS2() == bus"), std::string::npos)
       << "the second FD chip defaults to DEFAULT_MCP2515_BUS on the T-2CAN, so it has to be checked too";
-  EXPECT_NE(src.find("if (mcp2515_bus_is_exclusive()) {\n      can2515->useIsrDrain("), std::string::npos)
-      << "the drain is enabled without asking whether the bus is exclusive";
+  /* Anchored on the two statements in order, not on the exact bytes between
+   * them. The literal that stood here carried the guard's INDENTATION, so
+   * nesting the MCP2515 block one level deeper - which is what making its pin
+   * failure per-interface does - broke a test that has nothing to say about pin
+   * policy. What this case is about is that the drain is asked for only inside
+   * the exclusivity guard, and that survives reformatting.
+   */
+  const size_t guard = src.find("if (mcp2515_bus_is_exclusive()) {");
+  ASSERT_NE(guard, std::string::npos) << "the exclusivity guard is gone";
+  const size_t offer = src.find("can2515->useIsrDrain(", guard);
+  ASSERT_NE(offer, std::string::npos) << "the drain is never offered";
+  const size_t closes = src.find("\n    }", guard);
+  EXPECT_LT(offer, closes) << "the drain is enabled outside the guard that asks whether the bus is exclusive";
+  EXPECT_EQ(src.rfind("can2515->useIsrDrain(", guard), std::string::npos)
+      << "the drain is also enabled before the guard, which makes the guard decorative";
 }
 
 TEST(Mcp2515IsrDrain, TheDriverFrameStillHasTheMembersTheDecodeWrites) {

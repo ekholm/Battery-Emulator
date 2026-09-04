@@ -157,13 +157,31 @@ static bool mcp2515_bus_is_exclusive() {
  * as "not there" - receive_can() and the transmit paths all guard on it - so a
  * failed chip is inert rather than absent-and-unmentioned.
  *
- * PIN ALLOCATION failures still stop everything, and that is deliberate rather
- * than inherited. alloc_pins() fails when the board declaration is incoherent -
- * two functions claiming one pad, or a pad that does not exist - which is a
- * configuration error about the whole board, not a fault in one chip. Carrying
- * on would hand the same pad to whichever interface asks next. It is also
- * already loud on its own: alloc_pins() raises EVENT_GPIO_CONFLICT or
- * EVENT_GPIO_NOT_DEFINED before returning.
+ * PIN ALLOCATION failures are per-interface too, and used to be the one
+ * exception. The argument for the exception was that carrying on would hand the
+ * same pad to whichever interface asks next - and alloc_pins() itself refutes
+ * it: it validates every requested pin in a first loop and records them in a
+ * second, so a call that fails records NOTHING. The pad in conflict stays with
+ * whoever claimed it first, and the next interface asking for it gets the same
+ * refusal. Nothing is ever double-handed, with or without the abort.
+ *
+ * The exception also lumped two different facts together. EVENT_GPIO_CONFLICT
+ * (two functions claiming one pad) is plausibly a board-declaration bug;
+ * EVENT_GPIO_NOT_DEFINED fires when a requested pin is GPIO_NUM_NC, which is
+ * not a broken board at all - it is a user selecting an interface this board
+ * does not route, from a dropdown that offered it. Both are reachable from the
+ * settings UI on shipping boards: a DFRobot Edge101 offers both MCP add-ons
+ * while declaring no MCP pins, and a 3LB declares MCP2515_MISO and MCP2517_INT
+ * as the same pad. Aborting cost every interface ordered after the failing one,
+ * which is the same defect this function's first paragraph describes, produced
+ * by its own pin policy.
+ *
+ * So a failed allocation now leaves that interface out of service - null
+ * pointer, or the native flag false - and initialisation carries on. The one
+ * failure that is not confined to a single interface is the shared MCP2517 SPI
+ * bus, because nothing can talk over a bus that was never opened; it stops at
+ * the FD chips that would use that bus. alloc_pins() stays loud on its own:
+ * it raises EVENT_GPIO_CONFLICT or EVENT_GPIO_NOT_DEFINED before returning.
  *
  * The return type is gone rather than made meaningful. Every failure now has an
  * event, which is the channel the rest of the firmware already reads; a bool
@@ -179,48 +197,59 @@ void init_CAN() {
     auto tx_pin = esp32hal->CAN_TX_PIN();
     auto rx_pin = esp32hal->CAN_RX_PIN();
 
+    bool pins_ok = true;
+
     if (se_pin != GPIO_NUM_NC) {
       if (!esp32hal->alloc_pins("CAN", se_pin)) {
-        return;  // incoherent pin map - see the note on this function
+        pins_ok = false;
+      } else {
+        pinMode(se_pin, OUTPUT);
+        digitalWrite(se_pin, LOW);
       }
-      pinMode(se_pin, OUTPUT);
-      digitalWrite(se_pin, LOW);
     }
 
-    if (!esp32hal->alloc_pins("CAN", tx_pin, rx_pin)) {
-      return;  // incoherent pin map - see the note on this function
+    if (pins_ok && !esp32hal->alloc_pins("CAN", tx_pin, rx_pin)) {
+      pins_ok = false;
     }
 
-    const uint32_t errorCode = init_native_can(nativeIt->second.speed, tx_pin, rx_pin);
-    if (errorCode == 0) {
-      native_can_initialized = true;
-      logging.println("Native Can ok");
-      logging.print("Bit Rate prescaler: ");
-      logging.println(settingsespcan->mBitRatePrescaler);
-      logging.print("Time Segment 1:     ");
-      logging.println(settingsespcan->mTimeSegment1);
-      logging.print("Time Segment 2:     ");
-      logging.println(settingsespcan->mTimeSegment2);
-      logging.print("RJW:                ");
-      logging.println(settingsespcan->mRJW);
-      logging.print("Triple Sampling:    ");
-      logging.println(settingsespcan->mTripleSampling ? "yes" : "no");
-      logging.print("Actual bit rate:    ");
-      logging.print(settingsespcan->actualBitRate());
-      logging.println(" bit/s");
-      logging.print("Exact bit rate ?    ");
-      logging.println(settingsespcan->exactBitRate() ? "yes" : "no");
-      logging.print("Sample point:       ");
-      logging.print(settingsespcan->samplePointFromBitStart());
-      logging.println("%");
-    } else {
-      logging.print("Error Native Can: 0x");
-      logging.println(errorCode, HEX);
-      // This path had no event, only a log - and these boards log
-      // nothing unless USBENABLED is set, so the failure that aborted every
-      // other interface was also the only one nobody could see.
-      set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
+    if (!pins_ok) {
+      // alloc_pins() has already raised EVENT_GPIO_NOT_DEFINED or
+      // EVENT_GPIO_CONFLICT. Leaving the flag false is what takes this
+      // interface out of service - receive_can() and both transmit paths read
+      // it - and every interface declared after this one still gets its turn.
       native_can_initialized = false;
+    } else {
+      const uint32_t errorCode = init_native_can(nativeIt->second.speed, tx_pin, rx_pin);
+      if (errorCode == 0) {
+        native_can_initialized = true;
+        logging.println("Native Can ok");
+        logging.print("Bit Rate prescaler: ");
+        logging.println(settingsespcan->mBitRatePrescaler);
+        logging.print("Time Segment 1:     ");
+        logging.println(settingsespcan->mTimeSegment1);
+        logging.print("Time Segment 2:     ");
+        logging.println(settingsespcan->mTimeSegment2);
+        logging.print("RJW:                ");
+        logging.println(settingsespcan->mRJW);
+        logging.print("Triple Sampling:    ");
+        logging.println(settingsespcan->mTripleSampling ? "yes" : "no");
+        logging.print("Actual bit rate:    ");
+        logging.print(settingsespcan->actualBitRate());
+        logging.println(" bit/s");
+        logging.print("Exact bit rate ?    ");
+        logging.println(settingsespcan->exactBitRate() ? "yes" : "no");
+        logging.print("Sample point:       ");
+        logging.print(settingsespcan->samplePointFromBitStart());
+        logging.println("%");
+      } else {
+        logging.print("Error Native Can: 0x");
+        logging.println(errorCode, HEX);
+        // This path had no event, only a log - and these boards log
+        // nothing unless USBENABLED is set, so the failure that aborted every
+        // other interface was also the only one nobody could see.
+        set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
+        native_can_initialized = false;
+      }
     }
   }
 
@@ -236,42 +265,46 @@ void init_CAN() {
     auto rst_pin = esp32hal->MCP2515_RST();
 
     if (!esp32hal->alloc_pins("CAN", cs_pin, int_pin, sck_pin, miso_pin, mosi_pin)) {
-      return;  // incoherent pin map - see the note on this function
-    }
-
-    logging.println("Dual CAN Bus (ESP32+MCP2515) selected");
-
-    if (rst_pin != GPIO_NUM_NC) {
-      pinMode(rst_pin, OUTPUT);
-      digitalWrite(rst_pin, HIGH);
-      delay(100);
-      digitalWrite(rst_pin, LOW);
-      delay(100);
-      digitalWrite(rst_pin, HIGH);
-      delay(100);
-    }
-
-    SPI2515 = new SPIClass(esp32hal->MCP2515_BUS());
-    SPI2515->begin(sck_pin, miso_pin, mosi_pin);
-    can2515 = new MCP2515_Lite(*SPI2515, cs_pin, int_pin);
-
-    if (mcp2515_bus_is_exclusive()) {
-      can2515->useIsrDrain(esp32hal->MCP2515_BUS());
-    }
-
-    quartz_frequency = esp32hal->MCP2515_FREQ();
-    if (quartz_frequency == 0) {
-      quartz_frequency = can2515->autodetectOscillatorFrequency();
-    }
-
-    if (can2515->begin({(int)addonIt->second.speed * 1000UL, quartz_frequency})) {
-      logging.println("MCP2515 CAN ok");
-    } else {
-      logging.println("MCP2515 CAN init failed");
-      set_event(EVENT_CANMCP2515_INIT_FAILURE, 1);
-      // This will leak, but we have failed and won't try to reinit. Null is how
-      // the send and receive paths already read "this interface is not there".
+      // alloc_pins() has already raised the GPIO event, and it records nothing
+      // when it fails, so no later interface can be handed a pad this one
+      // asked for. Null is how the send and receive paths read "not there".
       can2515 = nullptr;
+    } else {
+
+      logging.println("Dual CAN Bus (ESP32+MCP2515) selected");
+
+      if (rst_pin != GPIO_NUM_NC) {
+        pinMode(rst_pin, OUTPUT);
+        digitalWrite(rst_pin, HIGH);
+        delay(100);
+        digitalWrite(rst_pin, LOW);
+        delay(100);
+        digitalWrite(rst_pin, HIGH);
+        delay(100);
+      }
+
+      SPI2515 = new SPIClass(esp32hal->MCP2515_BUS());
+      SPI2515->begin(sck_pin, miso_pin, mosi_pin);
+      can2515 = new MCP2515_Lite(*SPI2515, cs_pin, int_pin);
+
+      if (mcp2515_bus_is_exclusive()) {
+        can2515->useIsrDrain(esp32hal->MCP2515_BUS());
+      }
+
+      quartz_frequency = esp32hal->MCP2515_FREQ();
+      if (quartz_frequency == 0) {
+        quartz_frequency = can2515->autodetectOscillatorFrequency();
+      }
+
+      if (can2515->begin({(int)addonIt->second.speed * 1000UL, quartz_frequency})) {
+        logging.println("MCP2515 CAN ok");
+      } else {
+        logging.println("MCP2515 CAN init failed");
+        set_event(EVENT_CANMCP2515_INIT_FAILURE, 1);
+        // This will leak, but we have failed and won't try to reinit. Null is how
+        // the send and receive paths already read "this interface is not there".
+        can2515 = nullptr;
+      }
     }
   }
 
@@ -281,6 +314,12 @@ void init_CAN() {
   auto fdAddonIt = can_receivers.find(CANFD_ADDON_MCP2518);
   auto fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
 
+  // A failure bringing up the shared FD bus is the one pin failure that is not
+  // confined to a single interface: nothing can talk over a bus that was never
+  // opened. It still stops there - the native and MCP2515 interfaces above are
+  // already up, and the second FD chip is only affected when it shares this bus.
+  bool fd_bus_ok = true;
+
   if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end() || fdAddonIt_2 != can_receivers.end()) {
     // Initialise SPI bus first
     auto sck_pin = esp32hal->MCP2517_SCK();
@@ -288,11 +327,14 @@ void init_CAN() {
     auto sdi_pin = esp32hal->MCP2517_SDI();
 
     if (!esp32hal->alloc_pins("CANFD", sck_pin, sdo_pin, sdi_pin)) {
-      return;  // incoherent pin map - see the note on this function
+      // This one failure does reach both FD chips, because nothing can use a
+      // bus that was never brought up - but it reaches only the interfaces
+      // that would share this bus, not the native or MCP2515 ones above.
+      fd_bus_ok = false;
+    } else {
+      SPI2517 = new SPIClass(esp32hal->MCP2517_BUS());
+      SPI2517->begin(sck_pin, sdo_pin, sdi_pin);
     }
-
-    SPI2517 = new SPIClass(esp32hal->MCP2517_BUS());
-    SPI2517->begin(sck_pin, sdo_pin, sdi_pin);
   }
 
   if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end()) {
@@ -302,31 +344,37 @@ void init_CAN() {
     auto cs_pin = esp32hal->MCP2517_CS();
     auto int_pin = esp32hal->MCP2517_INT();
 
-    if (!esp32hal->alloc_pins("CANFD", cs_pin, int_pin)) {
-      return;  // incoherent pin map - see the note on this function
-    }
+    // The short circuit matters: claiming cs/int for an interface that cannot
+    // start would deny those pads to whoever asks next.
+    const bool pins_ok = fd_bus_ok && esp32hal->alloc_pins("CANFD", cs_pin, int_pin);
 
-    canfd = new ACAN2517FD(cs_pin, *SPI2517, int_pin);
-
-    logging.println("CAN FD add-on (ESP32+MCP2517) selected");
-
-    const uint32_t freq = esp32hal->MCP2517_FREQ();
-    ACAN2517FDSettings::Oscillator osc_freq =
-        (freq == 0 ? ACAN2517FDSettings::OSC_AUTODETECT
-                   : (freq == 20000000 ? ACAN2517FDSettings::OSC_20MHz : ACAN2517FDSettings::OSC_40MHz));
-    auto bitRate = (int)speed * 1000UL;
-    settings2517 = new ACAN2517FDSettings(osc_freq, bitRate, DataBitRateFactor::x4);
-
-    // Set up clock output divider (some hardware uses this for the second CAN FD add-on)
-    settings2517->mCLKOPin = static_cast<ACAN2517FDSettings::CLKOpin>(esp32hal->MCP2517_CLKODIV());
-
-    // ListenOnly / Normal20B / NormalFDs
-    settings2517->mRequestedMode =
-        ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
-
-    if (!begin_canfd()) {
-      // begin_canfd() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+    if (!pins_ok) {
+      // The shared bus never came up, or this chip's own pads are unavailable
+      // and alloc_pins() has raised the GPIO event. Null either way.
       canfd = nullptr;
+    } else {
+      canfd = new ACAN2517FD(cs_pin, *SPI2517, int_pin);
+
+      logging.println("CAN FD add-on (ESP32+MCP2517) selected");
+
+      const uint32_t freq = esp32hal->MCP2517_FREQ();
+      ACAN2517FDSettings::Oscillator osc_freq =
+          (freq == 0 ? ACAN2517FDSettings::OSC_AUTODETECT
+                     : (freq == 20000000 ? ACAN2517FDSettings::OSC_20MHz : ACAN2517FDSettings::OSC_40MHz));
+      auto bitRate = (int)speed * 1000UL;
+      settings2517 = new ACAN2517FDSettings(osc_freq, bitRate, DataBitRateFactor::x4);
+
+      // Set up clock output divider (some hardware uses this for the second CAN FD add-on)
+      settings2517->mCLKOPin = static_cast<ACAN2517FDSettings::CLKOpin>(esp32hal->MCP2517_CLKODIV());
+
+      // ListenOnly / Normal20B / NormalFDs
+      settings2517->mRequestedMode =
+          ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
+
+      if (!begin_canfd()) {
+        // begin_canfd() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+        canfd = nullptr;
+      }
     }
   }
 
@@ -335,48 +383,60 @@ void init_CAN() {
     auto cs_pin = esp32hal->MCP2517_CS2();
     auto int_pin = esp32hal->MCP2517_INT2();
 
-    if (!esp32hal->alloc_pins("CANFD2", cs_pin, int_pin)) {
-      return;  // incoherent pin map - see the note on this function
-    }
+    // This chip shares the first FD bus only when the two bus numbers match;
+    // when they differ it brings up its own, so a shared bus that never came
+    // up decides nothing for it.
+    const bool shares_first_fd_bus = esp32hal->MCP2517_BUS() == esp32hal->MCP2517_BUS2();
 
-    if (esp32hal->MCP2517_BUS() == esp32hal->MCP2517_BUS2()) {
-      // Use the same bus for both CAN FD chips
-      SPI2517_2 = SPI2517;
-    } else {
-      SPI2517_2 = new SPIClass(esp32hal->MCP2517_BUS2());
+    bool pins_ok = (fd_bus_ok || !shares_first_fd_bus) && esp32hal->alloc_pins("CANFD2", cs_pin, int_pin);
 
-      auto sck_pin = esp32hal->MCP2517_SCK2();
-      auto sdo_pin = esp32hal->MCP2517_SDO2();
-      auto sdi_pin = esp32hal->MCP2517_SDI2();
+    if (pins_ok) {
+      if (shares_first_fd_bus) {
+        // Use the same bus for both CAN FD chips
+        SPI2517_2 = SPI2517;
+      } else {
+        auto sck_pin = esp32hal->MCP2517_SCK2();
+        auto sdo_pin = esp32hal->MCP2517_SDO2();
+        auto sdi_pin = esp32hal->MCP2517_SDI2();
 
-      if (!esp32hal->alloc_pins("CANFD2", sck_pin, sdo_pin, sdi_pin)) {
-        return;  // incoherent pin map - see the note on this function
+        // Claimed before the bus object is built: the old order allocated a
+        // SPIClass and then walked away from it on the failure path.
+        if (!esp32hal->alloc_pins("CANFD2", sck_pin, sdo_pin, sdi_pin)) {
+          pins_ok = false;
+        } else {
+          SPI2517_2 = new SPIClass(esp32hal->MCP2517_BUS2());
+          SPI2517_2->begin(sck_pin, sdo_pin, sdi_pin);
+        }
       }
-
-      SPI2517_2->begin(sck_pin, sdo_pin, sdi_pin);
     }
 
-    canfd_2 = new ACAN2517FD(cs_pin, *SPI2517_2, int_pin);
-
-    logging.println("CAN FD add-on 2 (ESP32+MCP2517) selected");
-
-    const uint32_t freq = esp32hal->MCP2517_FREQ2();
-    ACAN2517FDSettings::Oscillator osc_freq =
-        (freq == 0 ? ACAN2517FDSettings::OSC_AUTODETECT
-                   : (freq == 20000000 ? ACAN2517FDSettings::OSC_20MHz : ACAN2517FDSettings::OSC_40MHz));
-
-    auto speed = fdAddonIt_2->second.speed;
-    auto bitRate = (int)speed * 1000UL;
-    // Crystal setting is ignored (library now autodetects)
-    settings2517_2 = new ACAN2517FDSettings(osc_freq, bitRate, DataBitRateFactor::x4);
-    // Arbitration bit rate: 250/500 kbit/s, data bit rate: 1/2 Mbit/s
-
-    settings2517_2->mRequestedMode =
-        ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
-
-    if (!begin_canfd_2()) {
-      // begin_canfd_2() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+    if (!pins_ok) {
+      // alloc_pins() has already raised the GPIO event; null is how the send
+      // and receive paths read "this interface is not there".
       canfd_2 = nullptr;
+    } else {
+      canfd_2 = new ACAN2517FD(cs_pin, *SPI2517_2, int_pin);
+
+      logging.println("CAN FD add-on 2 (ESP32+MCP2517) selected");
+
+      const uint32_t freq = esp32hal->MCP2517_FREQ2();
+      ACAN2517FDSettings::Oscillator osc_freq =
+          (freq == 0 ? ACAN2517FDSettings::OSC_AUTODETECT
+                     : (freq == 20000000 ? ACAN2517FDSettings::OSC_20MHz : ACAN2517FDSettings::OSC_40MHz));
+
+      auto speed = fdAddonIt_2->second.speed;
+      auto bitRate = (int)speed * 1000UL;
+      // Crystal setting is ignored (library now autodetects)
+      settings2517_2 = new ACAN2517FDSettings(osc_freq, bitRate, DataBitRateFactor::x4);
+      // Arbitration bit rate: 250/500 kbit/s, data bit rate: 1/2 Mbit/s
+
+      settings2517_2->mRequestedMode =
+          ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
+
+      if (!begin_canfd_2()) {
+        // begin_canfd_2() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+        canfd_2 = nullptr;
+      }
     }
   }
 }
@@ -881,9 +941,11 @@ void restart_can() {
    *
    * settingsespcan is the same guard change_can_speed() uses below, and it answers the
    * question this line actually asks - is there a native interface to bring back. It is
-   * assigned only inside init_native_can(), which the alloc_pins() failures return before
-   * reaching, so it stays null on exactly the pin-conflict boards where dereferencing it
-   * used to crash the resume.
+   * assigned only inside init_native_can(), and init_CAN()'s pin-failure branch skips that
+   * call, so it stays null on exactly the pin-conflict boards where dereferencing it used to
+   * crash the resume. That was true when a failed allocation returned out of init_CAN() and
+   * it is still true now that it only takes the native interface out of service: what
+   * matters here is that init_native_can() is not reached, not how it is avoided.
    *
    * The error code is no longer discarded. ACAN_ESP32::begin() reports its failure the same
    * way init_native_can() does, and until now this was the one (re)start that neither told
