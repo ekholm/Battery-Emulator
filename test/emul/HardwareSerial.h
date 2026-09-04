@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <cstddef>
+#include <initializer_list>
 #include <string>
 #include "Print.h"
 #include "Stream.h"
@@ -48,6 +49,15 @@ class HardwareSerial : public Stream {
     return byte;
   }
   int peek() override { return rx_buffer.empty() ? -1 : static_cast<unsigned char>(rx_buffer.front()); }
+  /* A test can feed the RX side, so a driver's real receive() is driven with real bytes instead
+   * of being reached around. Anything a test injects it must also clear - the Serial objects are
+   * globals shared by the whole suite. */
+  void inject_rx(std::initializer_list<uint8_t> bytes) {
+    for (uint8_t b : bytes) {
+      rx_buffer.push_back(static_cast<char>(b));
+    }
+  }
+  void clear_rx() { rx_buffer.clear(); }
   void flush() override {}                      // Implement flush from Print
   size_t write(uint8_t) override { return 0; }  // Implement write from Print
 
