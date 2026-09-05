@@ -34,7 +34,19 @@ class MCP2515_Lite {
   bool sendFrame(const MCP2515_Lite_Frame& msg);
   bool receiveFrame(MCP2515_Lite_Frame& msg);
 
+  // Asks for the interrupt drain on a bus. The real driver only records the
+  // request here - begin() decides whether it can be honoured - and on the host
+  // there is no interrupt to install, so isrDrainActive() is always false and
+  // frames arrive the way every other emulated chip delivers them.
+  void useIsrDrain(uint8_t spi_bus);
+  bool isrDrainActive() const;
+
   void changeSpeed(const MCP2515_Lite_Speed& new_speed);
+  // Consumed on read, like hasErrors(): a speed change that did not take is
+  // reported once. The real driver applies the change from its task and
+  // verifies it afterwards; with no task here, changeSpeed() applies it inline
+  // and a chip set to fail (emul_can::set_begin_error) fails it.
+  bool speedChangeFailed();
   void pause(bool paused);
 
   bool hasErrors();
