@@ -60,7 +60,7 @@ bool declares(const std::string& haystack, const std::string& token) {
 
 }  // namespace
 
-/* R213: the body extractor itself, on synthetic sources.
+/* The body extractor itself, on synthetic sources.
  *
  * It is load-bearing for every case below - four of which are POSITIVE ("the
  * body mentions X") - so a slice that runs past the end of the function makes
