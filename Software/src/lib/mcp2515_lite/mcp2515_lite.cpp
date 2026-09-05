@@ -122,14 +122,14 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   }
 
   /* Enter config mode - and confirm it.
-     *
-     * This used to be a bare request, the same fire-and-forget shape this change
-     * removed from the speed-change path one function down. It matters more
-     * here than it looks: CNF1..3 are writable ONLY in configuration mode, so a
-     * chip that did not reach CONFIG takes none of the timing that follows and
-     * runs at whatever bitrate it was already using - while begin() returns
-     * true and the interface reports itself up.
-     */
+   *
+   * This used to be a bare request, the same fire-and-forget shape that was
+   * removed from the speed-change path one function down. It matters more
+   * here than it looks: CNF1..3 are writable ONLY in configuration mode, so a
+   * chip that did not reach CONFIG takes none of the timing that follows and
+   * runs at whatever bitrate it was already using - while begin() returns
+   * true and the interface reports itself up.
+   */
   if (!enterMode(CANCTRL_REQOP_CONFIG)) {
     return false;
   }
@@ -344,29 +344,28 @@ void MCP2515_Lite::canTask(void* pvParameters) {
         // driver opened in LOOPBACK used to become live on the bus at
         // the first speed change, silently.
         changed = self->enterMode(self->_loopback ? CANCTRL_REQOP_LOOPBACK : CANCTRL_REQOP_NORMAL) && changed;
-        /* One verdict outstanding at a time, and it is the LATEST one
-                 *. Two independent read-and-clear latches are not two
-                 * pieces of information: they are one, spread over two bools,
-                 * and a caller that reads them in priority order can act on the
-                 * older of the pair. Concretely, with a change that SUCCEEDED
-                 * and a later one that FAILED both landing between two polls,
-                 * the caller shuts the gate on the failure, clears only that
-                 * latch, and then reopens the interface on the success left
-                 * behind - putting a chip at an unknown bitrate back on the bus,
-                 * which is the one outcome the gate exists to prevent.
-                 *
-                 * Setting each verdict therefore retires the other. That makes
-                 * "last verdict wins" a property of the driver rather than of
-                 * the caller's polling discipline, which is the same guarantee a
-                 * single tri-state field would give.
-                 */
+        /* One verdict outstanding at a time, and it is the LATEST one.
+         * Two independent read-and-clear latches are not two
+         * pieces of information: they are one, spread over two bools,
+         * and a caller that reads them in priority order can act on the
+         * older of the pair. Concretely, with a change that SUCCEEDED
+         * and a later one that FAILED both landing between two polls,
+         * the caller shuts the gate on the failure, clears only that
+         * latch, and then reopens the interface on the success left
+         * behind - putting a chip at an unknown bitrate back on the bus,
+         * which is the one outcome the gate exists to prevent.
+         *
+         * Setting each verdict therefore retires the other. That makes
+         * "last verdict wins" a property of the driver rather than of
+         * the caller's polling discipline, which is the same guarantee a
+         * single tri-state field would give.
+         */
         if (!changed) {
           self->_speed_change_succeeded = false;
           self->_speed_change_failed = true;
         } else {
           // Success is reported too, so a caller that took the
-          // interface out of service on a failure can put it back
-          //.
+          // interface out of service on a failure can put it back.
           self->_speed_change_failed = false;
           self->_speed_change_succeeded = true;
         }
@@ -445,7 +444,7 @@ bool MCP2515_Lite::reset() {
 
 // Returns false when no usable timing could be computed, in which case NOTHING
 // is written and the chip keeps the timing it had. Two things now produce that,
-// where until this change only the first did:
+// where previously only the first did:
 //
 //  - a degenerate argument, in practice an oscillator frequency of zero, which
 //    is what autodetectOscillatorFrequency() returns when its probe begin()
