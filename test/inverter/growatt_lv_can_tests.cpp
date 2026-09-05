@@ -13,7 +13,7 @@
 // second, and that triggers the BMS to burst all data frames.  transmit_can()
 // is a no-op; there is no periodic self-initiated TX.
 //
-// NOTE on capacity calculation: since fix/growatt-lv-capacity (wq298) the
+// NOTE on capacity calculation: since the capacity fix, the
 // driver computes ampere-hours as 100 * Wh / voltage_dV (multiply before
 // divide, uint32 intermediate) and packs the frame field as ampere_hours * 10,
 // giving the 10 mAh unit the format wants. The old order of operations was
@@ -179,7 +179,7 @@ TEST_F(GrowattLvCanInverterTest, Frame313EncodesSocAndSohAsIntegerPercent) {
 // ---- Payload: 0x314 (capacity, delta V) ------------------------------------
 
 TEST_F(GrowattLvCanInverterTest, Frame314EncodesCapacityIn10mAhUnits) {
-  // Post-fix (wq298): ampere_hours = 100 * Wh / voltage_dV, packed * 10.
+  // Post-fix: ampere_hours = 100 * Wh / voltage_dV, packed * 10.
   // 3600 Wh at 360.0 V is 10.0 Ah -> 1000 in the 10 mAh field.
   datalayer.battery.status.voltage_dV = 3600;  // must be >10 to update
   datalayer.battery.status.reported_remaining_capacity_Wh = 3600;
