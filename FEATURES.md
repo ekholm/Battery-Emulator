@@ -17,6 +17,12 @@ questions on hardware we do not run.
 
 ---
 
+**OTA: revert to the previous firmware, and the confirmation path it exposed - requested by the maintainer**
+Branch [`ota-revert`](https://github.com/ekholm/Battery-Emulator/tree/ota-revert) @ `6ac1889d` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ota-revert) · two commits
+A web-UI control to boot the other OTA slot. Most of the feature is the states it must refuse - a USB-flashed board with no passive image, a slot a rollback already marked aborted, a half-written slot that fails validation at click time - each rendered as a reason, never a dead button. Building it exposed the confirmation path around it, and the second half hardens that: the revert button reports the server's answer instead of blind-reloading; a restart deadline defers while a confirmation is still owed, so a healthy board under load cannot be rolled back by ordinary scheduling; a confirmation is a statement about the image that has run, so the write declines once the boot selection has moved; and an upload beginning is the last moment the running image can still be confirmed, so OTA start arms it - two flag writes in the TCP task, the otadata write stays on the main-task path. Run on hardware: an in-window revert flips slots cleanly and the reverted-into image earns its own confirmation window. Ships with the refusal-ladder, gate and feedback test suites.
+
+---
+
 **Ford Mach-E: hand the UDS transport to the shared superclass, and fix two latent superclass bugs it exposed**
 Branch [`mache-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mache-uds-superclass) @ `f4142713` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mache-uds-superclass)
 The same move #2824 makes for the Zoe Gen2, applied to the Mach-E: the driver's hand-rolled diagnostics were a 1:1 duplicate of what `UdsCanBattery` already does. It keeps only what is genuinely Ford's, and the conversion exposed two latent bugs in the superclass itself - a queued sequence lost to a retry race, and a readout that leaves the page pending forever - which are fixed here and benefit four other drivers today.
