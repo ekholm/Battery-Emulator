@@ -153,7 +153,7 @@ TEST_F(SolaxCanInverterTest, ClosePayloadAdvancesStateMachineToWaitingAndContact
   clear_transmitted_frames();
 
   // Now in CONTACTOR_CLOSED — inverter_allows_contactor_closing must be set.
-  // Hold the state with PAYLOAD_CLOSE: since the wq297 fix, a byte4=0 frame in
+  // Hold the state with PAYLOAD_CLOSE: since the contactor-permission fix, a byte4=0 frame in
   // CONTACTOR_CLOSED reads as the open request and revokes in the same frame.
   rx1871(PAYLOAD_CLOSE);
   EXPECT_TRUE(datalayer.system.status.inverter_allows_contactor_closing);
@@ -178,7 +178,7 @@ TEST_F(SolaxCanInverterTest, OpenPayloadInClosedStateResetsToAnnounce) {
   clear_transmitted_frames();
 
   // Inject open payload. The open request must revoke the closing permission
-  // in the same frame (fix/solax-contactor-permission, wq297): the inverter
+  // in the same frame (the contactor-permission fix): the inverter
   // that just asked to disconnect cannot be relied on to send another frame.
   rx1871(PAYLOAD_OPEN);
   EXPECT_FALSE(datalayer.system.status.inverter_allows_contactor_closing)

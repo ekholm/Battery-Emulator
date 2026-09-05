@@ -327,7 +327,7 @@ TEST_F(SofarCanInverterTest, TheFullThresholdIsTheReportingCapNotOneHundred) {
 }
 
 TEST_F(SofarCanInverterTest, TheChargeLimitStillPermitsChargeAtTheSocTheConsentCallsFull) {
-  // R382. Making the "full" branch reachable at the CAP - rather than at a true
+  // Making the "full" branch reachable at the CAP - rather than at a true
   // 100.00% - means a pack whose real SoC is 99.00% is told discharge-only,
   // because the cap makes 99% and 100% indistinguishable on this frame. That
   // collides with the system-wide full policy, which fires only at an exact
@@ -337,7 +337,7 @@ TEST_F(SofarCanInverterTest, TheChargeLimitStillPermitsChargeAtTheSocTheConsentC
   // says charging is not permitted at all.
   //
   // This test asserts the contradiction rather than blessing it - it is the
-  // open question R382 could not settle from the tree, and the alternative fix
+  // open question a review could not settle from the tree, and the alternative fix
   // (judge consent on the UNCAPPED reported_soc, keeping the cap for 0x355
   // only) would make the two agree. Whichever way it is resolved, this test
   // must be looked at, which is the point of writing it down.
