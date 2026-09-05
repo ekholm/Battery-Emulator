@@ -58,13 +58,18 @@ bool is_paused(Chip chip);
 
 }  // namespace emul_can
 
-// Runs the real init_CAN() against a HAL that defines every CAN pin, and returns
-// what it returned. Use this rather than calling init_CAN() directly: no real
-// board carries all four interfaces, and on a board HAL the add-ons either
-// collide over the SPI pins or are not defined at all, so init_CAN() gives up
-// early and a test can pass for a reason that has nothing to do with what it
-// asserts.
-bool emul_can_init_on_full_board();
+// Runs the real init_CAN() against a HAL that defines every CAN pin. Use this
+// rather than calling init_CAN() directly: no real board carries all four
+// interfaces, and on a board HAL the add-ons either collide over the SPI pins or
+// are not defined at all, so init_CAN() gives up early and a test can pass for a
+// reason that has nothing to do with what it asserts.
+//
+// There is nothing to return. init_CAN() is per-interface: one chip failing to
+// start says nothing about the others, so a single verdict for the whole board
+// would have to lie about one of them. What came up is read back per chip with
+// emul_can::is_running(), which is the same question asked where it has an
+// answer.
+void emul_can_init_on_full_board();
 
 // Drops every interface: no receivers registered, no chip initialized. A test
 // that wants to watch an interface come up (or fail to) starts here, registers

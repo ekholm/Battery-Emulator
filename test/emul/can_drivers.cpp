@@ -24,6 +24,7 @@ struct ChipState {
   bool has_error = false;
   bool running = false;
   bool paused = false;
+  bool speed_change_failed = false;
   int begin_count = 0;
   int end_count = 0;
   std::deque<CAN_frame> rx;
@@ -233,7 +234,23 @@ bool MCP2515_Lite::receiveFrame(MCP2515_Lite_Frame& msg) {
   return true;
 }
 
-void MCP2515_Lite::changeSpeed(const MCP2515_Lite_Speed& new_speed) {}
+void MCP2515_Lite::useIsrDrain(uint8_t spi_bus) {}
+
+bool MCP2515_Lite::isrDrainActive() const {
+  return false;
+}
+
+void MCP2515_Lite::changeSpeed(const MCP2515_Lite_Speed& new_speed) {
+  auto& s = emul_can::g_chips[static_cast<int>(Chip::Mcp2515)];
+  s.speed_change_failed = s.begin_error != 0;
+}
+
+bool MCP2515_Lite::speedChangeFailed() {
+  auto& s = emul_can::g_chips[static_cast<int>(Chip::Mcp2515)];
+  const bool failed = s.speed_change_failed;
+  s.speed_change_failed = false;
+  return failed;
+}
 
 void MCP2515_Lite::pause(bool paused) {
   emul_can::g_chips[static_cast<int>(Chip::Mcp2515)].paused = paused;
@@ -376,18 +393,17 @@ void emul_can_tear_down_all_interfaces() {
   emul_can::g_next_fd_chip = 0;
 }
 
-bool emul_can_init_on_full_board() {
+void emul_can_init_on_full_board() {
   // The board HAL is swapped out only for the duration of init_CAN(), so that
   // the pins it allocates land in a HAL nothing else will see and the caller
   // keeps whatever board it had selected.
   Esp32Hal* const board = esp32hal;
   esp32hal = new EmulCanHal();
 
-  const bool ok = init_CAN();
+  init_CAN();
 
   delete esp32hal;
   esp32hal = board;
-  return ok;
 }
 
 void emul_can_bring_up_all_interfaces() {

@@ -79,7 +79,7 @@ TEST_F(CommCanTest, AnInterfaceNobodyAskedForIsNeverTouched) {
 
   RecordingReceiver receiver;
   register_can_receiver(&receiver, CAN_NATIVE);
-  EXPECT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
 
   EXPECT_EQ(emul_can::begin_count(Chip::Native), 1);
   EXPECT_EQ(emul_can::begin_count(Chip::Mcp2515), 0) << "a board with no add-on must not have its add-on initialised";
@@ -111,7 +111,8 @@ TEST_F(CommCanTest, ResettingTheCanLayerLeavesNothingBehind) {
   RecordingReceiver native_receiver;
   register_can_receiver(&native_receiver, CAN_NATIVE);
   user_selected_CAN_ID_cutoff_filter = 0x400;
-  ASSERT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Native));
 
   comm_can_reset_for_test();
   emul_can::reset();
@@ -123,7 +124,7 @@ TEST_F(CommCanTest, ResettingTheCanLayerLeavesNothingBehind) {
   // bring the native controller up alongside the add-on.
   RecordingReceiver addon_receiver;
   register_can_receiver(&addon_receiver, CAN_ADDON_MCP2515);
-  ASSERT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
 
   EXPECT_EQ(emul_can::begin_count(Chip::Mcp2515), 1) << "the interface this test did ask for";
   EXPECT_EQ(emul_can::begin_count(Chip::Native), 0) << "a receiver survived the reset and asked for native CAN";
@@ -139,7 +140,7 @@ TEST_F(CommCanTest, AChipThatFailsToStartRaisesItsOwnEvent) {
 
   RecordingReceiver receiver;
   register_can_receiver(&receiver, CAN_ADDON_MCP2515);
-  EXPECT_FALSE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
 
   ASSERT_NE(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE), nullptr);
   EXPECT_TRUE(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE)->occurences > 0)
@@ -147,14 +148,19 @@ TEST_F(CommCanTest, AChipThatFailsToStartRaisesItsOwnEvent) {
   EXPECT_FALSE(emul_can::is_running(Chip::Mcp2515));
 }
 
-/* Pinned as the code behaves TODAY, not as it should: init_CAN() abandons on the
- * first failure, so which interfaces survive a bad chip is decided by the order
- * they happen to be initialised in, and order is not a safety property. The fix
- * for that - one chip's failure stopping at that chip - changes this test, which
- * is the point of having it, and the reason reading the source could never be
- * the right pin: it can see the `return false`, but not what the return costs.
+/* This case was written against the OLD behaviour, and rewritten here because
+ * the fix arrived - which is the point of having had it. Its first version
+ * pinned init_CAN() abandoning on the first failure, so which interfaces
+ * survived a bad chip was decided by the order they happen to be initialised in,
+ * and order is not a safety property; its comment said the fix would change this
+ * test. One chip's failure now stops at that chip, and the assertion below is
+ * the same one with its verdict inverted: the FD add-on is still initialised
+ * after the MCP2515, and now comes up.
+ *
+ * It is also why reading the source could never be the right pin: a scan can see
+ * the `return false` go away, but not what its absence buys.
  */
-TEST_F(CommCanTest, AFailedChipCurrentlyStopsEveryInterfaceAfterIt) {
+TEST_F(CommCanTest, AFailedChipStopsOnlyItself) {
   emul_can_tear_down_all_interfaces();
   emul_can::reset();
   emul_can::set_begin_error(Chip::Mcp2515, 1);
@@ -164,11 +170,12 @@ TEST_F(CommCanTest, AFailedChipCurrentlyStopsEveryInterfaceAfterIt) {
   register_can_receiver(&receiver, CAN_NATIVE);
   register_can_receiver(&receiver, CAN_ADDON_MCP2515);
   register_can_receiver(&receiver, CANFD_ADDON_MCP2518);
-  EXPECT_FALSE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
 
   EXPECT_TRUE(emul_can::is_running(Chip::Native)) << "native is initialised before the add-on and survives";
-  EXPECT_EQ(emul_can::begin_count(Chip::Mcp2518fd), 0)
-      << "the FD add-on is initialised after the MCP2515 and is skipped entirely";
+  EXPECT_FALSE(emul_can::is_running(Chip::Mcp2515)) << "the chip that failed is the one that is down";
+  EXPECT_TRUE(emul_can::is_running(Chip::Mcp2518fd))
+      << "the FD add-on is initialised after the MCP2515 and must not be skipped for it";
 }
 
 // ---------------------------------------------------------------------------
@@ -253,12 +260,20 @@ TEST_F(CommCanTest, AChipThatRefusesAFrameIsReportedPerInterface) {
   EXPECT_TRUE(datalayer.system.info.can_2518_2_send_fail);
 }
 
+/* "Reported" means reported as ABSENT. The send-fail flags were the right
+ * assertion when a null driver pointer fell through the same check as a chip
+ * that refused the frame; the lane split the two, because "buffer full or no one
+ * on the bus to ACK" sends whoever is debugging to the wiring for a chip that is
+ * not there. The property this case guards - a missing add-on is diagnosed, not
+ * dereferenced - is unchanged; only the flag carrying it moved.
+ */
 TEST_F(CommCanTest, AnAddonThatIsNotFittedIsReportedRatherThanDereferenced) {
   emul_can_tear_down_all_interfaces();
   emul_can::reset();
   RecordingReceiver receiver;
   register_can_receiver(&receiver, CAN_NATIVE);
-  ASSERT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Native));
   const CAN_frame frame = make_frame(0x123, 8);
 
   transmit_can_frame_to_interface(&frame, CAN_ADDON_MCP2515);
@@ -266,9 +281,12 @@ TEST_F(CommCanTest, AnAddonThatIsNotFittedIsReportedRatherThanDereferenced) {
   transmit_can_frame_to_interface(&frame, CANFD_ADDON_MCP2518_2);
 
   EXPECT_TRUE(emul_can::sent_frames().empty());
-  EXPECT_TRUE(datalayer.system.info.can_2515_send_fail);
-  EXPECT_TRUE(datalayer.system.info.can_2518_send_fail);
-  EXPECT_TRUE(datalayer.system.info.can_2518_2_send_fail);
+  EXPECT_TRUE(datalayer.system.info.can_2515_not_initialized);
+  EXPECT_TRUE(datalayer.system.info.can_2518_not_initialized);
+  EXPECT_TRUE(datalayer.system.info.can_2518_2_not_initialized);
+  EXPECT_FALSE(datalayer.system.info.can_2515_send_fail) << "an absent chip is not a full buffer";
+  EXPECT_FALSE(datalayer.system.info.can_2518_send_fail);
+  EXPECT_FALSE(datalayer.system.info.can_2518_2_send_fail);
 }
 
 TEST_F(CommCanTest, AnInterfaceValueThatNamesNoChipSendsNothing) {
@@ -294,7 +312,9 @@ TEST_F(CommCanTest, AReceivedFrameReachesOnlyTheReceiversOnThatInterface) {
   RecordingReceiver on_addon;
   register_can_receiver(&on_native, CAN_NATIVE);
   register_can_receiver(&on_addon, CAN_ADDON_MCP2515);
-  ASSERT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Native));
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
   emul_can::queue_received(Chip::Native, make_frame(0x111, 3));
 
   receive_can();
@@ -312,7 +332,8 @@ TEST_F(CommCanTest, TheFirstFdAddonDeliversToBothOfItsInterfaceNames) {
   RecordingReceiver on_native_fd;
   register_can_receiver(&on_addon, CANFD_ADDON_MCP2518);
   register_can_receiver(&on_native_fd, CANFD_NATIVE);
-  ASSERT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2518fd));
   emul_can::queue_received(Chip::Mcp2518fd, make_frame(0x222, 12, false, true));
 
   receive_can();
@@ -329,7 +350,8 @@ TEST_F(CommCanTest, AnUninitializedNativeControllerIsNotPolled) {
   emul_can::set_begin_error(Chip::Native, 0x40);
   RecordingReceiver on_native;
   register_can_receiver(&on_native, CAN_NATIVE);
-  ASSERT_FALSE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
+  ASSERT_FALSE(emul_can::is_running(Chip::Native));
   emul_can::queue_received(Chip::Native, make_frame(0x111, 3));
   emul_can::set_bus_error(Chip::Native, true);
 
@@ -391,7 +413,8 @@ TEST_F(CommCanTest, StoppingCanLeavesAnInterfaceWithNoReceiverAlone) {
 
   RecordingReceiver receiver;
   register_can_receiver(&receiver, CAN_ADDON_MCP2515);
-  ASSERT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
   const int native_ends_before = emul_can::end_count(Chip::Native);
 
   stop_can();
@@ -428,7 +451,8 @@ TEST_F(CommCanTest, ChangingTheSpeedOfAnInterfaceWithNoDriverFails) {
   emul_can::reset();
   RecordingReceiver receiver;
   register_can_receiver(&receiver, CAN_NATIVE);
-  ASSERT_TRUE(emul_can_init_on_full_board());
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Native));
 
   EXPECT_FALSE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_250KBPS));
   EXPECT_FALSE(change_can_speed(CANFD_ADDON_MCP2518, CAN_Speed::CAN_SPEED_250KBPS));
