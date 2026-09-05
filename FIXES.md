@@ -65,6 +65,24 @@ Stacked on `can-replay-dlc-bound`: this branch contains that fix, and the two to
 
 ---
 
+**Parallel batteries: the 1.5 V join gate becomes symmetric, and its state survives instances**
+Branch [`parallel-join-symmetry`](https://github.com/ekholm/Battery-Emulator/tree/parallel-join-symmetry) @ `cd1269ab` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:parallel-join-symmetry)
+The voltage-difference gate that keeps a battery from closing onto a live parallel link was one-directional: battery 2 was checked against battery 1, but battery 1 could (re-)close onto the link unchecked. The gate is now symmetric, its state is gathered into a resettable struct instead of file-scope statics, and the safety and SOH sentinel checks latch. Introduces `reported_contactor_state()` on the battery interface - a battery reports what its contactors are doing rather than the safety layer inferring it. Includes a review-raised bound (credited in-source to jonny5532): 3700 dV means "no voltage decoded yet" and must not satisfy the gate. Fake-triple tests pin the drift grace at both ends and the sentinel case.
+
+---
+
+**Settings: only the full form may treat an absent checkbox as unchecked**
+Branch [`partial-form-bools`](https://github.com/ekholm/Battery-Emulator/tree/partial-form-bools) @ `1fe52e53` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:partial-form-bools)
+HTML forms omit unchecked checkboxes, so the server treats "absent" as "false" - correct for the full settings form, destructive for any partial POST, which silently wiped every boolean it did not mention. The full form now carries a hidden `FULLFORM` marker and only its presence licenses the absent-means-unchecked reading; partial POSTs leave unmentioned booleans alone. Fourteen lines, and the class of accidental factory-resets-by-curl goes away.
+
+---
+
+**Settings: a select always represents its stored value, so a save cannot guess**
+Branch [`select-unrepresented-value`](https://github.com/ekholm/Battery-Emulator/tree/select-unrepresented-value) @ `8c1573ec` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:select-unrepresented-value)
+When a stored setting's value was not among a select's options, the dropdown silently showed the first option - and the next save wrote what was shown, converting display guesswork into stored data. A select now always represents its stored value: an unrepresented one is rendered explicitly, marked as not available on this board rather than masqueraded, so what you see is what is stored and saving cannot change a setting the user never touched.
+
+---
+
 **Triple battery: the predicate and the switch agree again, and the invariant is now a test**
 Branch [`battery-instance-support-parity`](https://github.com/ekholm/Battery-Emulator/tree/battery-instance-support-parity) @ `48fe1c8a` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:battery-instance-support-parity)
 `battery_supports_triple()` listed five types while the battery3 construction switch had six cases - `CmpSmartCar`'s case was unreachable, because the guard rejected the type before the switch could reach it. The resolution declares the CMP Smart Car triple-capable rather than deleting the dead case, and - the durable half - adds the test the file's own comment has always asked for: both label sets extracted and asserted equal, fallthrough-aware, so the "must match the switch in setup_battery() below" invariant fails a build instead of relying on a comment.
