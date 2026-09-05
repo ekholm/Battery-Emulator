@@ -56,7 +56,7 @@ uint32_t tq_of(const Timing& t) {
 // ---- The defect itself ------------------------------------------------------
 
 TEST(Mcp2515Timing, RefusesTheFourRatesMeasuredAsSilentSuccesses) {
-  // Each of these returned true before this change, having quietly configured the
+  // Each of these used to return true, having quietly configured the
   // chip for the rate in the comment.
   EXPECT_FALSE(compute(OSC_8MHZ, 1000000).ok) << "8 MHz cannot make 1000 kbit/s; it was giving 500";
   EXPECT_FALSE(compute(OSC_8MHZ, 800000).ok) << "8 MHz cannot make 800 kbit/s; it was giving 500";
