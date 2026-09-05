@@ -23,6 +23,11 @@
 #include <algorithm>
 #include <map>
 
+#ifndef DISABLEMCP2517FDCOMPAT
+#error \
+    "ACAN2517FD::end() deletes the driver task between turnOffInterrupts() and turnOnInterrupts(), which MCP2517FD compatibility mode turns into a real interrupt mask, and the CAN-FD init-failure path in this file calls end()."
+#endif
+
 /* What this file assumes about the three drivers, checked by the compiler in
  * both builds - against the vendored headers when the firmware is built, and
  * against test/emul/src/lib/... when the host suite is.
