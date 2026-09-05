@@ -302,10 +302,11 @@ TEST_F(SungrowCanInverterTest, ModbusPollWithCorrectCrcTriggersReply) {
     for (uint8_t i = 0; i < len; ++i) {
       crc ^= d[i];
       for (uint8_t b = 0; b < 8; ++b) {
-        if (crc & 1)
+        if (crc & 1) {
           crc = (crc >> 1) ^ 0xA001;
-        else
+        } else {
           crc >>= 1;
+        }
       }
     }
     return crc;
