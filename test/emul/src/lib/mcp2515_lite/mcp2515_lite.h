@@ -45,7 +45,11 @@ class MCP2515_Lite {
   // Consumed on read, like hasErrors(): a speed change that did not take is
   // reported once. The real driver applies the change from its task and
   // verifies it afterwards; with no task here, changeSpeed() applies it inline
-  // and a chip set to fail (emul_can::set_begin_error) fails it.
+  // and a chip armed with emul_can::set_speed_change_fails() fails it. That
+  // arming is separate from set_begin_error() on purpose: on the real chip a
+  // speed change fails for reasons a healthy chip has - a bitrate the fitted
+  // oscillator cannot reach, or a mode the chip will not enter - and a chip that
+  // never started cannot stand in for one that is now at an unknown bitrate.
   bool speedChangeFailed();
   void pause(bool paused);
 
