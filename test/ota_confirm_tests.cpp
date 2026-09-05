@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include <Arduino.h>
 
@@ -140,6 +143,145 @@ bool is_identifier(const std::string& s) {
     }
   }
   return true;
+}
+
+/* The widest a format string can render ON THE TARGET, in wire characters.
+ *
+ * Shared by the two budget tests below. %s here is always a firmware version -
+ * esp_app_desc_t::version is a char[32] and BUILD_VERSION is what gets written
+ * into one - so 31 characters. unsigned long is 32 bits on every ESP32 variant
+ * this firmware builds for, so %lu is at most 4294967295: ten digits, not the
+ * twenty a 64-bit host would need. Anything else is a failure rather than a
+ * guess, because a width table that silently defaults is a test that passes for
+ * the wrong reason.
+ */
+size_t widest_rendering(const std::string& fmt) {
+  size_t worst = fmt.size() - 1;  // the literal "\n" is two characters in the source, one on the wire
+  for (size_t c = fmt.find('%'); c != std::string::npos; c = fmt.find('%', c + 1)) {
+    if (fmt.compare(c, 2, "%s") == 0) {
+      worst += 31 - 2;
+    } else if (fmt.compare(c, 3, "%lu") == 0) {
+      worst += 10 - 3;
+    } else {
+      ADD_FAILURE() << "add the widest rendering of " << fmt.substr(c, 4) << " before this line can be judged";
+    }
+  }
+  return worst;
+}
+
+// MAX_LINE_LENGTH_PRINTF, read out of logging.cpp rather than repeated here, so
+// raising the logger's buffer relaxes both budget tests by itself.
+size_t logger_line_budget(const std::string& logger) {
+  const size_t def = logger.find("#define MAX_LINE_LENGTH_PRINTF");
+  EXPECT_NE(def, std::string::npos) << "logging.cpp no longer names its own line budget";
+  if (def == std::string::npos) {
+    return 0;
+  }
+  return static_cast<size_t>(std::stoul(logger.substr(def + 30)));
+}
+
+/* The adjacent string literals that make up a call's format, starting at the
+ * call's open parenthesis, plus everything that follows them up to the matching
+ * close parenthesis (the arguments).
+ *
+ * __DATE__ and __TIME__ are spliced in because the preprocessor concatenates
+ * them into the format, and the splice is what makes the build banner
+ * MEASURABLE rather than what keeps it short. A scanner that stopped at the
+ * first non-literal token would end that format at `build `, find a token where
+ * a comma or a closing parenthesis belongs, and report the call as unreadable -
+ * so the line would not be under-counted, it would not be judged at all. The
+ * two macros and the separator between them are worth 22 characters, and the
+ * banner budgets 76 against a 128 byte buffer either way; it is the reading that
+ * needs them, not the room. Any OTHER token appearing where a literal is
+ * expected is reported, for the same reason the width table refuses to guess.
+ */
+struct LogCall {
+  std::string format;
+  std::string arguments;     // everything after the format, to the closing parenthesis
+  bool format_is_literal{};  // false for a runtime format (a function returning const char*)
+};
+LogCall parse_log_call(const std::string& src, size_t open_paren) {
+  LogCall call;
+
+  // The parenthesis that closes the call. String literals are skipped whole so
+  // a bracket inside one cannot unbalance the count.
+  int depth = 1;
+  size_t end = open_paren + 1;
+  for (; end < src.size() && depth > 0; ++end) {
+    if (src[end] == '"') {
+      end = src.find('"', end + 1);
+      if (end == std::string::npos) {
+        ADD_FAILURE() << "unterminated string in a log call";
+        return call;
+      }
+    } else if (src[end] == '(') {
+      ++depth;
+    } else if (src[end] == ')') {
+      --depth;
+    }
+  }
+  if (depth != 0) {
+    ADD_FAILURE() << "a log call runs off the end of the file";
+    return call;
+  }
+  --end;  // the closing parenthesis itself
+
+  size_t i = src.find_first_not_of(" \t\n", open_paren + 1);
+  while (i != std::string::npos && i < end) {
+    if (src[i] == '"') {
+      const size_t close = src.find('"', i + 1);
+      if (close == std::string::npos) {
+        ADD_FAILURE() << "unterminated format string";
+        return call;
+      }
+      call.format += src.substr(i + 1, close - i - 1);
+      i = src.find_first_not_of(" \t\n", close + 1);
+      continue;
+    }
+    if (src.compare(i, 8, "__DATE__") == 0) {
+      call.format += "Mmm dd yyyy";  // 11 characters, and never a conversion
+      i = src.find_first_not_of(" \t\n", i + 8);
+      continue;
+    }
+    if (src.compare(i, 8, "__TIME__") == 0) {
+      call.format += "hh:mm:ss";  // 8
+      i = src.find_first_not_of(" \t\n", i + 8);
+      continue;
+    }
+    break;
+  }
+  call.format_is_literal = i != std::string::npos && (i >= end || src[i] == ',' || src[i] == ')');
+  const size_t args_from = call.format_is_literal ? std::min(i, end) : open_paren + 1;
+  call.arguments = src.substr(args_from, end - args_from);
+  return call;
+}
+
+// Every .cpp and .h under Software/, except the vendored trees in src/lib,
+// whose content is not ours to edit.
+std::vector<std::filesystem::path> firmware_sources() {
+  const std::string self = __FILE__;
+  const std::filesystem::path root = std::filesystem::path(self.substr(0, self.find_last_of('/'))) / ".." / "Software";
+  std::vector<std::filesystem::path> out;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    const std::string path = entry.path().string();
+    if (path.find("/src/lib/") != std::string::npos) {
+      continue;
+    }
+    /* logging.h DEFINES these names - the macro bodies and the host mock both
+     * spell `printf(fmt, ...)`, which is a forwarding signature and not a call
+     * with a format anyone can measure. Every other file that spells them is a
+     * caller, and one that cannot be parsed there is reported rather than
+     * skipped. */
+    if (path.size() >= 10 && path.compare(path.size() - 10, 10, "/logging.h") == 0) {
+      continue;
+    }
+    const std::string ext = entry.path().extension().string();
+    if (entry.is_regular_file() && (ext == ".cpp" || ext == ".h")) {
+      out.push_back(entry.path());
+    }
+  }
+  std::sort(out.begin(), out.end());
+  return out;
 }
 
 class OtaConfirmGate : public ::testing::Test {
@@ -638,44 +780,218 @@ TEST(OtaConfirmPlacement, TheMarkIsGatedOnTheBootSelectionStillBeingTheRunningIm
  * that silently defaults is a test that passes for the wrong reason.
  */
 TEST(OtaConfirmPlacement, EveryOtaLogLineFitsTheLoggersOwnBuffer) {
-  const std::string logger = read_source("../Software/src/devboard/utils/logging.cpp");
-  const size_t def = logger.find("#define MAX_LINE_LENGTH_PRINTF");
-  ASSERT_NE(def, std::string::npos) << "logging.cpp no longer names its own line budget";
-  const size_t limit = static_cast<size_t>(std::stoul(logger.substr(def + 30)));
+  const size_t limit = logger_line_budget(read_source("../Software/src/devboard/utils/logging.cpp"));
   ASSERT_GT(limit, 1u);
 
   const std::string src = read_source("../Software/src/devboard/utils/ota_rollback.cpp");
   size_t at = 0;
   int checked = 0;
   while ((at = src.find("logging.printf(", at)) != std::string::npos) {
-    // The format is one or more adjacent literals; take them all, then stop at the first argument.
-    size_t i = src.find('"', at);
-    std::string fmt;
-    while (i != std::string::npos && src[i] == '"') {
-      const size_t end = src.find('"', i + 1);
-      ASSERT_NE(end, std::string::npos) << "unterminated format string";
-      fmt += src.substr(i + 1, end - i - 1);
-      i = src.find_first_not_of(" \t\n", end + 1);
-    }
-    ASSERT_FALSE(fmt.empty());
-
-    /* Widest each conversion can render ON THE TARGET, which is what the budget is about. %s here
-     * is always esp_app_desc_t::version, a char[32], so 31 characters. unsigned long is 32 bits on
-     * every ESP32 variant this firmware builds for, so %lu is at most 4294967295 - ten digits, not
-     * the twenty a 64-bit host would need. Anything else must be added deliberately. */
-    size_t worst = fmt.size() - 1;  // the literal "\n" is two characters in the source, one on the wire
-    for (size_t c = fmt.find('%'); c != std::string::npos; c = fmt.find('%', c + 1)) {
-      if (fmt.compare(c, 2, "%s") == 0) {
-        worst += 31 - 2;
-      } else if (fmt.compare(c, 3, "%lu") == 0) {
-        worst += 10 - 3;
-      } else {
-        FAIL() << "add the widest rendering of " << fmt.substr(c, 4) << " before this line can be judged";
-      }
-    }
-    EXPECT_LE(worst, limit - 1) << "this line is truncated and loses its tail: " << fmt;
+    const LogCall call = parse_log_call(src, at + 14);
+    ASSERT_TRUE(call.format_is_literal) << "an OTA log line grew a format this test cannot read";
+    ASSERT_FALSE(call.format.empty());
+    EXPECT_LE(widest_rendering(call.format), limit - 1) << "this line is truncated and loses its tail: " << call.format;
     ++checked;
     at += 15;
   }
-  EXPECT_GE(checked, 3) << "the OTA log lines are no longer where this test looks for them";
+  EXPECT_GE(checked, 2) << "the OTA log lines are no longer where this test looks for them";
+}
+
+/* ...and so does every other line in the firmware that renders a version string.
+ *
+ * The truncation defect was not special to ota_rollback.cpp: it was a format long
+ * enough that a 31-character version pushed it past the buffer, and a version
+ * string is the one argument in this tree wide enough to do that on its own. A
+ * scan of EVERY logging.printf under the naive worst-case model gives three
+ * false positives - a pack voltage and a SOC rendered at full unsigned width -
+ * so the sweep is deliberately narrowed to the calls that carry a version, where
+ * the widest rendering is a fact (esp_app_desc_t::version is a char[32]) rather
+ * than a theoretical bound nobody's data reaches.
+ *
+ * Discovered rather than listed. A hand-written list of call sites is a list
+ * that goes stale the first time somebody adds a fourth one, and the whole point
+ * of the defect that prompted this is that nothing noticed the third.
+ */
+TEST(OtaConfirmPlacement, EveryLogLineCarryingAVersionStringFitsTheLoggersOwnBuffer) {
+  const size_t limit = logger_line_budget(read_source("../Software/src/devboard/utils/logging.cpp"));
+  ASSERT_GT(limit, 1u);
+
+  int checked = 0;
+  int outside_ota_rollback = 0;
+  for (const auto& path : firmware_sources()) {
+    std::ifstream in(path);
+    ASSERT_TRUE(in.is_open()) << path.string();
+    const std::string src =
+        strip_comments(std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()));
+
+    for (const std::string& call_name : {std::string("logging.printf("), std::string("DEBUG_PRINTF(")}) {
+      size_t at = 0;
+      while ((at = src.find(call_name, at)) != std::string::npos) {
+        const size_t open_paren = at + call_name.size() - 1;
+        at += call_name.size();
+        const LogCall call = parse_log_call(src, open_paren);
+        /* Only the calls whose ARGUMENTS carry a version. The format's own words
+         * are not the test - "version" in prose proves nothing about what gets
+         * rendered - and a runtime format (a couple of calls pass a function
+         * returning const char*) carries no version and is not measurable here
+         * anyway. One that DID carry a version would be, and is reported. */
+        if (call.arguments.find("version") == std::string::npos) {
+          continue;
+        }
+        ASSERT_TRUE(call.format_is_literal)
+            << path.string() << ": a version is rendered through a format this test cannot read: " << call.arguments;
+        EXPECT_LE(widest_rendering(call.format), limit - 1)
+            << path.string() << ": a version string truncates this line and it loses its tail: " << call.format;
+        ++checked;
+        if (path.filename() != "ota_rollback.cpp") {
+          ++outside_ota_rollback;
+        }
+      }
+    }
+  }
+  EXPECT_GE(checked, 3) << "the version-carrying log lines are no longer being found - the sweep found " << checked;
+  /* The count alone would stay green with a sweep that never left the file the
+   * defect was found in, which is the one thing this test adds over the one
+   * above it. Today it reaches the bootup line in wifi.cpp and the banner in
+   * Software.cpp - the latter only because __DATE__ and __TIME__ are spliced
+   * into the format rather than stopping the scan. */
+  EXPECT_GE(outside_ota_rollback, 2)
+      << "the sweep is not reaching outside ota_rollback.cpp any more - it found " << outside_ota_rollback
+      << " such lines, and the whole point of it is the call sites nobody thought to list";
+}
+
+/* ---- the OTA upload confirms the image it is about to replace ---- */
+
+/* The half the target-aware write side left on purpose. It declines once the
+ * boot selection has moved, which is what stops the fresh image being confirmed
+ * on the strength of nothing; but the image being REPLACED then stays
+ * PENDING_VERIFY, the bootloader rewrites it to ABORTED on the way past, and
+ * the arrival logs a rollback for an image that did not fail - both measured on
+ * the bench. It also leaves the arrival with no confirmed sibling, so if it dies
+ * in its own window the bootloader's both-invalid fallback picks a slot by
+ * index rather than by state.
+ *
+ * onOTAStart() is the last moment the running image is still the boot selection:
+ * Update.end() moves it. Serving a multi-megabyte upload is the same class of
+ * liveness witness as serving a restart request, which the gate already accepts.
+ *
+ * webserver.cpp is not in this binary, so this is read from the source - which
+ * is also exactly how the call could be deleted with every other test green.
+ */
+TEST(OtaConfirmPlacement, AnOtaUploadArmsTheConfirmationBeforeTheSelectionMoves) {
+  const std::string webserver = read_source("../Software/src/devboard/webserver/webserver.cpp");
+  const std::string start = function_body(webserver, "void onOTAStart() {");
+  ASSERT_FALSE(start.empty());
+
+  EXPECT_NE(start.find("ota_confirm_request()"), std::string::npos)
+      << "onOTAStart() no longer confirms the running image: the image this upload replaces will be "
+         "left PENDING_VERIFY, and the arrival will report a rollback nobody asked for";
+
+  /* And it ARMS rather than writes. onOTAStart() runs in the async TCP task; the
+   * otadata write belongs on the ordinary main-task path, which is the whole
+   * routing rule in ota_confirm_gate.h. */
+  EXPECT_EQ(start.find("mark_ota_image_valid"), std::string::npos)
+      << "the otadata write is initiated from the async TCP task instead of being handed to loop()";
+  EXPECT_EQ(start.find("esp_ota_mark_app_valid_cancel_rollback"), std::string::npos)
+      << "the confirmation is written straight from the async TCP task";
+
+  // ...and onOTAStart is still what ElegantOTA calls when an upload begins;
+  // arming in a function nothing is wired to would pass every check above.
+  EXPECT_NE(webserver.find("ElegantOTA.onStart(onOTAStart)"), std::string::npos)
+      << "onOTAStart is no longer the upload's start callback";
+}
+
+/* The revert path is deliberately NOT given the same treatment (user ruling:
+ * OTA start only). Confirming the image a user has just asked to leave would
+ * make an in-window revert reversible, which is a change to a documented
+ * user-facing contract - the revert dialog promises the trip is one-way and two
+ * tests pin that promise - and it would mean confirming an image BECAUSE the
+ * user said they did not want it.
+ *
+ * So the route sets the boot partition and restarts, and the gate's own
+ * BOOT_SELECTION_MOVED arm is what stops the arming that graceful_restart() does
+ * from landing on the slot being reverted into. Adding ota_confirm_request()
+ * here is the mutation this test exists to catch.
+ */
+TEST(OtaConfirmPlacement, TheRevertRouteDoesNotConfirmTheImageItIsLeaving) {
+  const std::string webserver = read_source("../Software/src/devboard/webserver/webserver.cpp");
+  const size_t route = webserver.find("def_route_with_auth(\"/revertFirmware\"");
+  ASSERT_NE(route, std::string::npos) << "the revert route is no longer where this test looks for it";
+  const std::string handler = brace_block_at(webserver, route);
+  ASSERT_FALSE(handler.empty());
+
+  const size_t select = handler.find("esp_ota_set_boot_partition(");
+  ASSERT_NE(select, std::string::npos) << "the revert route no longer moves the boot selection";
+
+  EXPECT_EQ(handler.find("ota_confirm_request"), std::string::npos)
+      << "the revert route arms a confirmation: an in-window revert would stop being one-way, and the "
+         "dialog still promises that it is";
+  EXPECT_EQ(handler.find("mark_ota_image_valid"), std::string::npos)
+      << "the revert route confirms the image the user asked to leave";
+
+  // The restart it does perform arms the gate, and must stay AFTER the
+  // selection moves - that ordering is what makes the write side decline.
+  const size_t restart = handler.find("graceful_restart()");
+  ASSERT_NE(restart, std::string::npos);
+  EXPECT_LT(select, restart) << "the restart is requested before the boot selection moves, so the confirmation "
+                                "it arms would land on the image being left behind after all";
+}
+
+/* The scenario the row is about, played through the gate: an update lands, and a
+ * second OTA arrives while the first is still inside its window.
+ *
+ * Before this change the running image was never confirmed - the arming happened
+ * at onOTAEnd() via graceful_restart(), by which time Update.end() had moved the
+ * selection and the write side declined. Now the arming happens at the start, so
+ * the confirmation is owed while the running image is still the selection, and
+ * the verdict says CONFIRM. The second half matters as much as the first: once
+ * taken, the restart at the end of the upload owes nothing, so nothing tries to
+ * confirm the freshly written image on its behalf.
+ */
+TEST_F(OtaConfirmGate, ASecondOtaInsideTheWindowConfirmsTheRunningImageAndNotTheIncomingOne) {
+  ota_confirm_check(5000);  // five seconds in: the window has not elapsed
+  ASSERT_FALSE(ota_confirm_take_pending());
+
+  ota_confirm_request();  // onOTAStart(), while the running image is still the selection
+  ASSERT_TRUE(ota_confirm_take_pending()) << "the upload did not arm a confirmation for the image it replaces";
+  EXPECT_EQ(ota_confirm_verdict(true, true), OtaConfirmVerdict::CONFIRM)
+      << "the running image is pending and still selected at this point - this is the write that was missing";
+
+  // Update.end() has now moved the selection, and onOTAEnd() requests the restart.
+  ota_confirm_request();
+  EXPECT_FALSE(ota_confirm_take_pending())
+      << "a second confirmation is owed after the selection moved; it would be declined, but owing it at all "
+         "means the gate stopped being once-per-boot";
+  EXPECT_EQ(ota_confirm_verdict(true, false), OtaConfirmVerdict::BOOT_SELECTION_MOVED);
+}
+
+/* The boot-time report says what the stored state supports, and no more.
+ *
+ * ABORTED in the passive slot means only that the image was PENDING_VERIFY when
+ * a reset went past it. Two things produce that once the OTA path confirms
+ * before it moves the selection: the image really did fail to start, and a
+ * deliberate in-window revert, where the reboot the user asked for is what fails
+ * the image they left. otadata records the state, not the reason, so a line that
+ * names one of them is wrong half the time - and it is the revert case that gets
+ * libelled, because that user did nothing wrong.
+ *
+ * ota_rollback.cpp is not in this binary; the wording is a user-facing decision
+ * with no host-observable behaviour behind it, so it is read from the source.
+ * The event text is checked through events.cpp, which IS linked here.
+ */
+TEST(OtaConfirmPlacement, TheRollbackReportDoesNotClaimAFailureItCannotSee) {
+  const std::string report =
+      function_body(read_source("../Software/src/devboard/utils/ota_rollback.cpp"), "void report_ota_rollback(void) {");
+  ASSERT_FALSE(report.empty());
+
+  EXPECT_EQ(report.find("failed to start"), std::string::npos)
+      << "the boot report names a cause the otadata state cannot distinguish - an in-window revert "
+         "produces exactly the same ABORTED entry";
+  EXPECT_NE(report.find("did not confirm itself"), std::string::npos)
+      << "the report no longer says what actually happened: the image never confirmed";
+
+  const std::string event = get_event_message_string(EVENT_OTA_ROLLBACK);
+  EXPECT_NE(event.find("reverted"), std::string::npos)
+      << "the event is the surface with room to name both causes, and it names only one: " << event;
+  EXPECT_NE(event.find("failed to start"), std::string::npos) << event;
 }

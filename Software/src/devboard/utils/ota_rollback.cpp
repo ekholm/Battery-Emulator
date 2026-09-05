@@ -34,8 +34,25 @@ void report_ota_rollback(void) {
   /* The image the bootloader gave up on is the OTHER slot, and its otadata
    * state is the record of what happened: ABORTED when it reset before
    * confirming itself, INVALID when it (or a previous boot of it) was rejected
-   * outright. Both mean the same thing to a user - the update did not run, and
-   * this older firmware is what is running instead.
+   * outright. Both mean the same thing to a user - that image is not what is
+   * running, and this older firmware is.
+   *
+   * WHY THE LINE NO LONGER SAYS "failed to start". ABORTED means the image was
+   * PENDING_VERIFY when a reset went past it, and two different things produce
+   * that. One is the case this feature exists for: the update crashed, or hung
+   * until the watchdog fired, before it earned its 42 s. The other is a
+   * deliberate in-window revert - /revertFirmware reboots, and the bootloader
+   * rewrites every PENDING_VERIFY entry to ABORTED before it selects anything,
+   * so an image the user chose to leave is failed by definition. otadata records
+   * the state, not the reason, so at this point the two are indistinguishable
+   * and a line that names one of them is wrong half the time.
+   *
+   * They could be told apart by having /revertFirmware leave a marker behind -
+   * RTC_NOINIT memory survives the software reset it performs - and that was
+   * considered and not done: it buys one adjective at the cost of a second
+   * persistent state to keep in step, and the honest wording costs nothing. The
+   * OTA path itself is no longer a source of false reports at all, because the
+   * running image is now confirmed at onOTAStart() before the selection moves.
    *
    * Reported on EVERY boot, not once. The device really is running behind, and
    * the state stays until a later update succeeds, so a line that appeared once
@@ -52,18 +69,19 @@ void report_ota_rollback(void) {
     return;
   }
 
-  /* Naming the version it rolled back FROM is the difference between "something
-   * went wrong once" and a user knowing which release not to install again. It
-   * is read from the failed image's own header, so it is right even when the
-   * failure happened several boots ago. */
-  esp_app_desc_t failed;
-  if (esp_ota_get_partition_description(other, &failed) == ESP_OK) {
+  /* Naming the version that was dropped is the difference between "something
+   * happened once" and a user knowing which release to look at. It is read from
+   * that image's own header, so it is right even when this happened several
+   * boots ago. Kept inside the logger's line budget; see
+   * EveryOtaLogLineFitsTheLoggersOwnBuffer. */
+  esp_app_desc_t dropped;
+  if (esp_ota_get_partition_description(other, &dropped) == ESP_OK) {
     LOG_SET_NEXT_SEVERITY(4);  // warning
-    logging.printf("Firmware %s failed to start and was rolled back; running %s instead\n", failed.version,
+    logging.printf("Firmware %s did not confirm itself; running %s instead\n", dropped.version,
                    esp_app_get_description()->version);
   } else {
     LOG_SET_NEXT_SEVERITY(4);  // warning
-    logging.println("A firmware update failed to start and was rolled back to this version");
+    logging.println("A firmware update did not confirm itself; this older version is running instead");
   }
   set_event(EVENT_OTA_ROLLBACK, 0);
 #endif  // CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE

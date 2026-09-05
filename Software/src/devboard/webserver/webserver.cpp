@@ -22,6 +22,7 @@
 #include "../utils/events.h"
 #include "../utils/led_handler.h"
 #include "../utils/millis64.h"
+#include "../utils/ota_confirm_gate.h"
 #include "../utils/time_format.h"
 #include "../utils/timer.h"
 #include "../utils/version.h"
@@ -1957,6 +1958,17 @@ String processor(const String& var) {
 }
 
 void onOTAStart() {
+  /* Confirm the image that is about to be replaced, while it is still the boot
+   * selection. Update.end() moves the selection to the slot being written; from
+   * that moment the write side declines (BOOT_SELECTION_MOVED), this image stays
+   * PENDING_VERIFY, and the bootloader rewrites it to ABORTED on the way past -
+   * so the fresh image comes up reporting a rollback nobody asked for, with no
+   * confirmed sibling left to fall back to if it dies in its own window.
+   *
+   * Arming rather than writing: this runs in the async TCP task and the otadata
+   * write belongs on the ordinary main-task path (ota_confirm_gate.h). */
+  ota_confirm_request();
+
   //try to Pause the battery
   setBatteryPause(true, false, EquipmentStop::UNCHANGED, false);
 

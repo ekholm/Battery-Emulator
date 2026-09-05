@@ -48,23 +48,52 @@ constexpr uint32_t OTA_CONFIRM_UPTIME_MS = 42 * 1000;
 // first boot, tens of thousands of wraps before the counter comes back round.
 void ota_confirm_check(uint32_t uptime_ms);
 
-// A deliberate restart is its own liveness witness - the board was well enough
-// to serve the request - so an intentional reboot inside the window keeps the
-// update instead of reverting it. Called when the restart is REQUESTED, not
-// when it is enacted: the 5-10 s the graceful restart spends pausing
-// charge/discharge is what lets the write take the ordinary-context route
-// above.
+// A deliberate action that will replace or restart this image is its own
+// liveness witness - the board was well enough to serve the request - so it
+// arms the confirmation instead of letting the window run out. Two callers:
 //
-// An earlier version of this comment claimed a main task that cannot complete
-// one pass in those seconds is unhealthy, so rolling it back is right "not a
-// gap". Measured, that was wrong: the main task is the LOWEST-priority task on
-// the same core as the highest-priority tick that fires the restart, so a
-// perfectly healthy board under sustained load can starve it past the deadline
-// by ordinary scheduling - and the wild rollbacks this gate was built against
-// did exactly that. The gap is closed by restart_may_fire() below: the tick
-// DEFERS the restart while a confirmation is still owed, up to a hard cap, so
-// the write keeps its ordinary-context route and only a truly wedged main task
-// still rolls back - which is then honest.
+//   graceful_restart()  - an intentional reboot inside the window keeps the
+//            update instead of reverting it. Called when the restart is
+//            REQUESTED, not when it is enacted: the 5-10 s the graceful restart
+//            spends pausing charge/discharge is what lets the write take the
+//            An earlier version of this comment claimed a main task that
+//            cannot complete one pass in those seconds is unhealthy, so
+//            rolling it back is right "not a gap". Measured, that was wrong:
+//            the main task is the LOWEST-priority task on the same core as
+//            the highest-priority tick that fires the restart, so a healthy
+//            board under sustained load can starve it past the deadline by
+//            ordinary scheduling - the wild rollbacks this gate was built
+//            against did exactly that. The gap is closed by restart_may_fire()
+//            below: the tick DEFERS the restart while a confirmation is still
+//            owed, up to a hard cap, so only a truly wedged main task still
+//            rolls back - which is then honest.
+//   onOTAStart() - an upload has begun, so the boot selection is about to move
+//            to the slot being written. Serving a multi-megabyte HTTP upload is
+//            the same class of witness as serving a restart request, and this
+//            is the LAST moment the running image can still be confirmed: once
+//            Update.end() calls esp_ota_set_boot_partition(), the write side
+//            declines (BOOT_SELECTION_MOVED) and the image being replaced is
+//            left PENDING_VERIFY for the bootloader to rewrite to ABORTED.
+//
+// The OTA caller is why this is an ARM and not a write. onOTAStart() runs in
+// the async TCP task, where the routing rule above says confirmation writes do
+// not belong; arming there costs two flag writes and leaves the otadata write
+// on the ordinary main-task path, which loop() reaches within microseconds
+// because loop() does nothing else. The ordering that matters is therefore
+// decided by seconds of upload against one pass of a free-running loop - and
+// even in the pathological case where the loop never runs, the write side's own
+// BOOT_SELECTION_MOVED arm makes the outcome no worse than not arming at all.
+//
+// WHAT THE OTA CALLER COSTS, because "no worse" above is only about the loop.
+// onOTAStart() is the upload's PRE-callback: it fires on /ota/start, before
+// Update.begin(), so an upload that never completes - a bad hash, a dropped
+// transfer, the inactivity timeout that ends the attempt - leaves the board
+// running the image it was already running, now confirmed, with the rest of its
+// window unearned. A crash that would have rolled that image back will not now.
+// The witness is weakened from "this image ran for 42 s" to "this image served
+// an upload request" - which is the witness a deliberate restart already gets,
+// and a restart likewise confirms an image and then re-enters it. That is the
+// trade, stated rather than discovered later.
 void ota_confirm_request(void);
 
 // Whether a confirmation is owed and not yet serviced. A single volatile word

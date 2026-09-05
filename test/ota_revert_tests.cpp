@@ -97,3 +97,50 @@ TEST(OtaRevertTest, TheNoteQuotesTheConfirmationWindowTheGateActuallyEnforces) {
          "that is not the one being enforced: "
       << d.text;
 }
+
+/* The image you are ON and the slot you would leave are independent facts, and
+ * the code had them entangled: the two disabled branches return above the clause
+ * that appends the pending-verify note, so the note could never render with them.
+ *
+ * That is not a corner. An in-window revert leaves the image it departed
+ * PENDING_VERIFY, the bootloader rewrites it to ABORTED, and the very next load
+ * of this page therefore takes the "marked failed" branch - so the ONE moment a
+ * user is most likely to be reading it is the moment it could not say that the
+ * image they just landed on is itself unconfirmed for the next 42 seconds.
+ * Measured on the bench: the reverted-into slot read PENDING_VERIFY twelve
+ * seconds after one.
+ *
+ * Each branch is pinned in both orders - note present when the running image is
+ * pending, absent when it is not - because a note appended unconditionally reads
+ * as correct in every test that only ever looks for its presence.
+ */
+TEST(OtaRevertTest, ARolledBackPassiveSlotStillReportsAnUnconfirmedRunningImage) {
+  const OtaRevertDecision d = ota_revert_assessment(true, "v1.2.3", true, true);
+  EXPECT_FALSE(d.offered);
+  EXPECT_NE(d.text.find("automatic rollback"), std::string::npos) << "the withdrawal reason must survive the note";
+  EXPECT_NE(d.text.find("has not finished its"), std::string::npos)
+      << "after an in-window revert this is the branch that renders, and it is the branch that has to "
+         "say the image you landed on is unconfirmed: "
+      << d.text;
+  EXPECT_EQ(d.text.find("one-way"), std::string::npos)
+      << "there is no revert on offer here, so there is no trip to call one-way";
+}
+
+TEST(OtaRevertTest, AnEmptyPassiveSlotStillReportsAnUnconfirmedRunningImage) {
+  const OtaRevertDecision d = ota_revert_assessment(false, "", false, true);
+  EXPECT_FALSE(d.offered);
+  EXPECT_NE(d.text.find("no valid image"), std::string::npos);
+  EXPECT_NE(d.text.find("has not finished its"), std::string::npos)
+      << "a USB-flashed board's first OTA is pending like any other: " << d.text;
+  EXPECT_EQ(d.text.find("one-way"), std::string::npos);
+}
+
+TEST(OtaRevertTest, AConfirmedRunningImageAddsNoNoteToEitherRefusal) {
+  const OtaRevertDecision rolled_back = ota_revert_assessment(true, "v1.2.3", true, false);
+  EXPECT_EQ(rolled_back.text.find("has not finished its"), std::string::npos)
+      << "a confirmed image is told it has not confirmed: " << rolled_back.text;
+
+  const OtaRevertDecision empty = ota_revert_assessment(false, "", false, false);
+  EXPECT_EQ(empty.text.find("has not finished its"), std::string::npos)
+      << "a confirmed image is told it has not confirmed: " << empty.text;
+}
