@@ -328,3 +328,38 @@ TEST(Mcp2515ModeGate, ASpeedChangeReturnsToTheModeBeginStartedIn) {
       << "the speed change hard-codes a return to NORMAL - a driver opened in LOOPBACK silently becomes live on the "
          "bus, transmitting onto a real wire from what the caller believes is a self-contained test";
 }
+
+/* The gate must not be reopened by a verdict that has been superseded.
+ *
+ * The outcome of a change is reported in two independent read-and-clear latches
+ * and the poll consumes them in priority order - failure first. That is only
+ * safe while at most one of them can be set. If a change that SUCCEEDED and a
+ * later one that FAILED both land between two polls, the poll shuts the gate on
+ * the failure and clears ONLY that latch; the next poll finds the success still
+ * standing and puts the interface back in service at a bitrate nobody knows.
+ * The window is one core-loop iteration, which is 1 ms nominal and much longer
+ * whenever the loop is stalled - and the pair is a live pattern, not a
+ * hypothetical: BMW-PHEV-BATTERY.cpp's bus wake drops to 100 kbit/s and
+ * restores 500 kbit/s.
+ *
+ * So the exclusivity is pinned where it is created: each verdict retires the
+ * other, which is the guarantee a single tri-state field would carry in its
+ * type. The block comment above this code in the driver explains the same
+ * property at length; until now nothing held it.
+ */
+TEST(Mcp2515ModeGate, AVerdictRetiresTheOneItSupersedes) {
+  const std::string block = speed_change_block(driver_source());
+  ASSERT_FALSE(block.empty());
+
+  const size_t set_failed = block.find("_speed_change_failed = true");
+  const size_t set_ok = block.find("_speed_change_succeeded = true");
+  ASSERT_NE(set_failed, std::string::npos) << "nothing records a failure";
+  ASSERT_NE(set_ok, std::string::npos) << "nothing records a success";
+
+  EXPECT_NE(block.find("_speed_change_succeeded = false"), std::string::npos)
+      << "recording a failure leaves an earlier SUCCESS latched - the caller shuts the gate on the failure and the "
+         "next poll reopens it on the stale success, putting a chip at an unknown bitrate back on the bus";
+  EXPECT_NE(block.find("_speed_change_failed = false"), std::string::npos)
+      << "recording a success leaves an earlier FAILURE latched - the caller reads failure-first and keeps the "
+         "interface out of service after the change that fixed it";
+}
