@@ -150,7 +150,7 @@ class LilyGo2CANHal : public Esp32Hal {
 
   std::vector<comm_interface> available_interfaces() {
     // This board is TWO boards depending on which chip is fitted, and is_fd() is a
-    // runtime probe, so the answer cannot be a fixed list (wq213). It does not have
+    // runtime probe, so the answer cannot be a fixed list. It does not have
     // to be: available_interfaces() is a virtual method, so it can just ask. In FD
     // mode MCP2517_CS2 is routed and the second FD channel is real - and it is the
     // channel this board NAMES "CAN FD (MCP2518 add-on)", so hiding it hid a

@@ -75,7 +75,7 @@ class DevKitHal : public Esp32Hal {
     // their chip selects (MCP2515_CS, MCP2517_CS) for exactly that purpose. So
     // they are available even though nothing is soldered here at manufacture -
     // "available" means "this board can be wired to use it", not "a chip is
-    // populated right now", which is a fact only the owner has (wq213).
+    // populated right now", which is a fact only the owner has.
     return {
         comm_interface::Modbus,
         comm_interface::RS485,
