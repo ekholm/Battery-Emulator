@@ -76,7 +76,7 @@ static bool native_can_initialized = false;
 //CAN logging filter settings
 uint16_t user_selected_CAN_ID_cutoff_filter = 0;  //Messages below this ID will not be logged in webserver
 
-/* One chip's failure stops at that chip .
+/* One chip's failure stops at that chip.
  *
  * This function used to `return false` on any failure, which read as "fail
  * loudly" but could not: the return is discarded at the only call site
