@@ -31,6 +31,30 @@ void set_begin_error(Chip chip, uint32_t error_code);
 // buffer does.
 void set_send_fails(Chip chip, bool fails);
 
+// Makes the chip's next speed change fail, WITHOUT failing its begin().
+//
+// The real MCP2515 driver enacts a speed change from its task and then reads the
+// chip back: the bitrate can be unreachable from the fitted oscillator
+// (applySpeedConfig) or the chip can refuse the mode (enterMode), and either one
+// leaves a chip that started perfectly well sitting at an unknown bitrate. That
+// is the case speedChangeFailed() exists for, so it has to be reachable here
+// without also making the chip fail to start - a chip that never started has its
+// own event and a null pointer, and cannot stand in for this one.
+void set_speed_change_fails(Chip chip, bool fails);
+
+// Wires the FD add-ons onto the MCP2515's SPI bus, the way the boards that
+// carry both on one controller are wired. mcp2515_bus_is_exclusive() declines
+// the interrupt drain for exactly this, so both arms of that decision are
+// reachable. Set it BEFORE emul_can_init_on_full_board(); reset() clears it.
+void set_fd_bus_shared_with_2515(bool shared);
+
+// How many times the firmware asked this chip for the interrupt drain, and the
+// SPI bus it named. The request is all the host can observe - there is no
+// interrupt to install, so isrDrainActive() stays false - but WHETHER it is made
+// is the decision mcp2515_bus_is_exclusive() owns.
+int isr_drain_requests(Chip chip);
+uint8_t isr_drain_bus(Chip chip);
+
 // Raises the driver's error indication, read back by receive_can(). For the
 // native controller this is the TWAI status register's error bit; the register
 // layout stays inside the emulation, where the driver it belongs to is.
