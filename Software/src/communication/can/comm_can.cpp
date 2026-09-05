@@ -5,6 +5,7 @@
 // directory and cannot be redirected. Everything else here already does this.
 #include "CanReceiver.h"
 #include "can_init_plan.h"
+#include "canfd_init_error.h"
 #include "comm_can.h"
 #include "src/datalayer/datalayer.h"
 #include "src/devboard/hal/hal.h"
@@ -663,7 +664,7 @@ static bool begin_canfd() {
   if (errorCode2517 != 0) {
     logging.print("CAN-FD Configuration error 0x");
     logging.println(errorCode2517, HEX);
-    set_event(EVENT_CANMCP2518FD_INIT_FAILURE, (uint8_t)errorCode2517);
+    set_event(EVENT_CANMCP2518FD_INIT_FAILURE, canfd_init_error_index(errorCode2517));
     // begin() attaches the nINT handler and starts the driver's task before it reports a
     // requested-mode timeout, so a non-zero code does not mean the driver is inert. end()
     // detaches the handler, stops that task and resets the chip; without it the next falling
@@ -682,7 +683,7 @@ static bool begin_canfd_2() {
   if (errorCode2517_2 != 0) {
     logging.print("CAN-FD 2 Configuration error 0x");
     logging.println(errorCode2517_2, HEX);
-    set_event(EVENT_CANMCP2518FD_INIT_FAILURE, (uint8_t)errorCode2517_2);
+    set_event(EVENT_CANMCP2518FD_INIT_FAILURE, canfd_init_error_index(errorCode2517_2));
     // See begin_canfd(): a non-zero code can still leave the nINT handler attached.
     canfd_2->end();
     // The driver object itself still leaks, but we have failed and won't try to reinit.
