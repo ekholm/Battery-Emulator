@@ -835,7 +835,7 @@ bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
      * changeSpeed() hands it to the driver task and returns. That used to be
      * indistinguishable from a change that worked, because no status existed
      * anywhere in the chain. It does now - the task verifies the chip
-     * and receive_frame_can_addon() turns a failed verdict into an event.
+     * and poll_can_addon_speed_change() turns a failed verdict into an event.
      */
     can2515->changeSpeed({(int)speed * 1000UL, quartz_frequency});
     return true;
