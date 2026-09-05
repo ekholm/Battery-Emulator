@@ -203,4 +203,24 @@ TEST_F(CanFdInitPlanTest, AnAbsentFirstChipDoesNotAbandonTheSecondOnTheSharedBus
                                    "row's own defect one block further down";
 }
 
+// The rule AChipNobodyRegisteredIsNeverAskedAbout states, applied to the BUS.
+// This failed at 9681eb2c9: plan.bus was computed whenever any FD chip was
+// registered, so a board carrying only a second chip on its OWN bus was asked
+// about the first bus's pins and told they were missing - EVENT_GPIO_NOT_DEFINED
+// raised about an interface nobody registered. No shipping HAL declares a second
+// chip without the first's bus, so nothing on the bench could reach it; the
+// gate in plan_canfd_init() is what keeps it that way.
+TEST_F(CanFdInitPlanTest, ASecondChipOnItsOwnBusIsNotToldTheFirstBusIsMissing) {
+  hal->bus2 = 2;
+  hal->sck2 = GPIO_NUM_16;
+  hal->sdo2 = GPIO_NUM_15;
+  hal->sdi2 = GPIO_NUM_13;
+  hal->sck = GPIO_NUM_NC;  // this board has no first bus at all
+  const CanFdInitPlan plan = plan_canfd_init(hal, false, true);
+  EXPECT_TRUE(plan.second_chip);
+  EXPECT_FALSE(event_is_active(EVENT_GPIO_NOT_DEFINED))
+      << "the first bus belongs to a chip nobody registered, so its absence is not this board's "
+         "problem and must not raise EVENT_GPIO_NOT_DEFINED";
+}
+
 }  // namespace

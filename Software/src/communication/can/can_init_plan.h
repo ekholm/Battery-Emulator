@@ -28,11 +28,15 @@ struct CanFdInitPlan {
 inline CanFdInitPlan plan_canfd_init(Esp32Hal* hal, bool want_first, bool want_second) {
   CanFdInitPlan plan;
 
-  if (!want_first && !want_second) {
-    return plan;
+  /* The first bus is asked about only for a chip that will actually use it: the
+   * first one, or a second one that shares it. A board that registers neither,
+   * or that registers only a second chip on its OWN bus, must not be told the
+   * first bus's pins are missing - pins_present() raises EVENT_GPIO_NOT_DEFINED,
+   * and that is an event about an interface nobody asked for. Same rule as the
+   * CS2/INT2 check below, applied to the bus. */
+  if (want_first || (want_second && hal->MCP2517_BUS() == hal->MCP2517_BUS2())) {
+    plan.bus = hal->pins_present("CANFD", hal->MCP2517_SCK(), hal->MCP2517_SDO(), hal->MCP2517_SDI());
   }
-
-  plan.bus = hal->pins_present("CANFD", hal->MCP2517_SCK(), hal->MCP2517_SDO(), hal->MCP2517_SDI());
   plan.first_chip = want_first && plan.bus && hal->pins_present("CANFD", hal->MCP2517_CS(), hal->MCP2517_INT());
 
   if (want_second && hal->pins_present("CANFD2", hal->MCP2517_CS2(), hal->MCP2517_INT2())) {
