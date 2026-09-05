@@ -4,6 +4,8 @@
 #include <regex>
 #include <string>
 
+#include "utils/source_scan.h"
+
 /* A failed MCP2515 speed change used to be UNREPORTABLE.
  *
  * `change_can_speed()` returns true for the 2515 unconditionally, and that is
@@ -29,7 +31,9 @@ std::string read_source(const std::string& relative_to_test_dir) {
   const std::string path = dir + "/" + relative_to_test_dir;
   std::ifstream src(path);
   EXPECT_TRUE(src.is_open()) << "this test reads " << path;
-  return std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+  // Comments blanked, not deleted - see utils/source_scan.h. These scans pin
+  // code, and a comment naming the same code is not the code.
+  return strip_comments(std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>()));
 }
 
 // The brace-matched body that follows `signature`. Generic, unlike the three

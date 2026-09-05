@@ -4,6 +4,8 @@
 #include <regex>
 #include <string>
 
+#include "utils/source_scan.h"
+
 /* One CAN chip's init failure must stop at that chip.
  *
  * `init_CAN()` used to `return false` on any failure, which read as failing
@@ -26,7 +28,12 @@ std::string comm_can_source() {
   const std::string path = dir + "/../Software/src/communication/can/comm_can.cpp";
   std::ifstream src(path);
   EXPECT_TRUE(src.is_open()) << "comm_can.cpp is where this test looks: " << path;
-  return std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+  // Comments blanked, not deleted: every assertion below searches this string,
+  // and half of them compare offsets into it. A comment that merely MENTIONS
+  // the assignment being pinned satisfies the search otherwise, which is not a
+  // hypothetical - deleting the runtime flag clear and leaving its text behind
+  // as a comment passed this whole file.
+  return strip_comments(std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>()));
 }
 
 // The body of init_CAN(), by brace depth from its opening line.
