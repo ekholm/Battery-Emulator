@@ -84,7 +84,7 @@ static comm_interface comm_interface_for(CAN_Interface interface) {
   }
 }
 
-/* wq216: one absent controller must not cost the whole boot.
+/* an earlier pass: one absent controller must not cost the whole boot.
  *
  * Every block below used to `return false` straight out of init_CAN() on any
  * failure - a pin it could not allocate, a chip that did not answer - and
@@ -104,7 +104,7 @@ static void interface_unavailable(CAN_Interface interface) {
 
 bool init_CAN() {
   /* Refuse an interface this board does not have, rather than initialising it and failing
-   * obscurely (wq202 / FOLLOWUPS L38).
+   * obscurely.
    *
    * Selecting an interface whose chip select IS routed but carries no chip used to report
    * "autodetected crystal: 0MHz" followed by "CAN-FD 2 Configuration error 0x1" - a message
@@ -116,7 +116,7 @@ bool init_CAN() {
   const auto available = esp32hal->available_interfaces();
   for (auto it = can_receivers.begin(); it != can_receivers.end();) {
     if (std::find(available.begin(), available.end(), comm_interface_for(it->first)) == available.end()) {
-      // Drop THIS interface and carry on (wq213). Returning here aborted the whole
+      // Drop THIS interface and carry on. Returning here aborted the whole
       // of init_CAN() before anything was initialised, so one stale selection left
       // the board with NO CAN at all - including a perfectly good native channel -
       // and Software.cpp discards the return value, so the only trace was an INFO
@@ -248,7 +248,7 @@ bool init_CAN() {
   // from here - taking the native and MCP2515 interfaces that were ALREADY UP
   // with it, and every later one. If the bus cannot be brought up, no FD
   // interface can exist, so all three are marked unavailable and the boot
-  // carries on (wq216).
+  // carries on.
   const bool fd_bus_ok =
       (fdNativeIt == can_receivers.end() && fdAddonIt == can_receivers.end() && fdAddonIt_2 == can_receivers.end()) ||
       [&]() -> bool {

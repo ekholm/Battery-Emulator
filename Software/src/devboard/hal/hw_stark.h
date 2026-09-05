@@ -60,7 +60,7 @@ class StarkHal : public Esp32Hal {
   // No second MCP2518FD is fitted on this board. The declaration used to name CS=GPIO12 /
   // INT=GPIO14 and the settings page OFFERED it, so selecting it drove a chip select at pins
   // where nothing answers - "autodetected crystal: 0MHz" then "CAN-FD 2 Configuration error
-  // 0x1" (reproduced on silicon, wq202/L38). Falling back to the NC defaults in hal.h removes
+  // 0x1" (reproduced on silicon, an earlier pass/L38). Falling back to the NC defaults in hal.h removes
   // the phantom and frees GPIO12.
 
   // Contactor handling

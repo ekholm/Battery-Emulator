@@ -74,7 +74,7 @@ String options_for_enum_with_none(TEnum selected, Func name_for_type, TEnum none
 }
 
 /* Comm-interface option lists are filtered by the RUNNING BOARD, not just by whether a name
- * happens to be non-empty (wq202 / FOLLOWUPS L38).
+ * happens to be non-empty.
  *
  * `available_interfaces()` has been pure-virtual in hal.h and implemented by every board HAL
  * since it was introduced, and was called by NOTHING - a per-board declaration nobody read.

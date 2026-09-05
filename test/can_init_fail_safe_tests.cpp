@@ -3,7 +3,7 @@
 #include <fstream>
 #include <string>
 
-/* wq216: selecting a CAN controller the board does not have must not cost the
+/* an earlier pass: selecting a CAN controller the board does not have must not cost the
  * boot.
  *
  * On a 2515-fitment T-2CAN, storing `BATTCOMM = 6` (an MCP2518FD the board does

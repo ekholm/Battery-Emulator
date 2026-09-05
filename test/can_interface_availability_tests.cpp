@@ -7,7 +7,7 @@
 #include <sstream>
 #include <string>
 
-/* Boards must not offer CAN interfaces they do not have (wq202 / FOLLOWUPS L38).
+/* Boards must not offer CAN interfaces they do not have.
  *
  * `available_interfaces()` had been pure-virtual in hal.h and implemented by every board HAL
  * since it was introduced, and was read by NOTHING. The settings page enumerated the whole
@@ -46,7 +46,7 @@ std::string available_interfaces_body(const std::string& source) {
 
 /* Whole-token search. `CanFdAddonMcp2518` is a PREFIX of `CanFdAddonMcp2518_2`, so a plain
  * find() for the populated chip also matches the phantom: swapping the real chip FOR the
- * phantom left TheStarkDeclaresThePopulatedFdChip passing (R202). The suite still caught that
+ * phantom left TheStarkDeclaresThePopulatedFdChip passing (a review). The suite still caught that
  * swap via the phantom test, but this one was not checking what it says it checks. */
 bool declares(const std::string& haystack, const std::string& token) {
   for (size_t at = haystack.find(token); at != std::string::npos; at = haystack.find(token, at + 1)) {
@@ -113,7 +113,7 @@ TEST(CanInterfaceAvailability, TheBodyExtractorStopsAtTheFunctionsOwnBrace) {
 }
 
 TEST(CanInterfaceAvailability, TheStarkDeclaresThePopulatedFdChip) {
-  // Chip 1 is real - CS=GPIO18, INT=GPIO35 - and has been driven on silicon (wq185 ran it in
+  // Chip 1 is real - CS=GPIO18, INT=GPIO35 - and has been driven on silicon (an earlier pass ran it in
   // internal loopback on this very board). A board that has it must be able to offer it.
   const std::string body = available_interfaces_body(read_source("hw_stark.h"));
   EXPECT_TRUE(declares(body, "CanFdAddonMcp2518"))
@@ -130,7 +130,7 @@ TEST(CanInterfaceAvailability, TheStarkDoesNotDeclareThePhantomSecondFdChip) {
 
 TEST(CanInterfaceAvailability, TheStarkNoLongerPinsTheAbsentSecondChip) {
   // The pin overrides for the phantom are gone, so they fall back to hal.h's NC - which is what
-  // frees GPIO12 for the MEB precharge PWM (wq210). Guarded here because re-adding the pins is
+  // frees GPIO12 for the MEB precharge PWM. Guarded here because re-adding the pins is
   // how the phantom would come back even with the declaration correct.
   const std::string source = read_source("hw_stark.h");
   EXPECT_EQ(source.find("MCP2517_CS2()"), std::string::npos)
@@ -166,9 +166,9 @@ TEST(CanInterfaceAvailability, EveryBoardDeclaresSomething) {
   }
 }
 
-/* R202 FINDING - the opposite-direction check the item's brief asked for, and it fails.
+/* a review FINDING - the opposite-direction check the item's brief asked for, and it fails.
  *
- * wq202 makes available_interfaces() load-bearing in two places at once: the settings page
+ * an earlier pass makes available_interfaces() load-bearing in two places at once: the settings page
  * hides anything undeclared, and init_CAN() REFUSES it. That is right for the Stark's phantom
  * chip. But four boards declare pin accessors - and one of them a non-empty display NAME - for
  * interfaces they do not list, so the same mechanism now hides and refuses hardware that is
