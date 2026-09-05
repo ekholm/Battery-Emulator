@@ -106,9 +106,9 @@ TEST_P(CanFdInitTeardown, TheFailurePathTearsTheDriverDownBeforeClearingIt) {
   ASSERT_NE(at_teardown, std::string::npos)
       << "`" << clear << "` with no `" << teardown << "` before it: begin() can return non-zero "
       << "with the nINT handler still attached, and the handler reads this global";
-  EXPECT_LT(at_teardown, at_clear)
-      << "`" << teardown << "` must come BEFORE `" << clear << "` - after it, the teardown is "
-      << "itself a null dereference";
+  EXPECT_LT(at_teardown, at_clear) << "`" << teardown << "` must come BEFORE `" << clear
+                                   << "` - after it, the teardown is "
+                                   << "itself a null dereference";
 }
 
 // begin_canfd_2() is a copy of begin_canfd(). The copy that tears down its
