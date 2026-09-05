@@ -85,12 +85,15 @@ bool is_conditional(const std::string& expr) {
 
 // The chip-select accessor whose routing makes an add-on usable at all.
 const char* cs_accessor_for(const std::string& iface) {
-  if (iface == "CanAddonMcp2515")
+  if (iface == "CanAddonMcp2515") {
     return "MCP2515_CS";
-  if (iface == "CanFdAddonMcp2518")
+  }
+  if (iface == "CanFdAddonMcp2518") {
     return "MCP2517_CS";
-  if (iface == "CanFdAddonMcp2518_2")
+  }
+  if (iface == "CanFdAddonMcp2518_2") {
     return "MCP2517_CS2";
+  }
   return nullptr;  // Native / Modbus / RS485 are not chip-select gated.
 }
 
