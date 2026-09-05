@@ -87,8 +87,31 @@ void mark_ota_image_valid(void) {
   if (running == NULL || esp_ota_get_state_partition(running, &state) != ESP_OK) {
     return;
   }
-  if (state != ESP_OTA_IMG_PENDING_VERIFY) {
-    return;
+  /* Where the write would LAND, read from otadata now rather than assumed: the
+   * boot selection is what /revertFirmware and a finished OTA move, and it is
+   * what esp_ota_mark_app_valid_cancel_rollback() writes to (the reasoning is
+   * on ota_confirm_verdict). Compared by address - both pointers come from the
+   * partition table's own list, but the address is the identity. */
+  const esp_partition_t* boot = esp_ota_get_boot_partition();
+  const bool still_selected = boot != NULL && boot->address == running->address;
+  switch (ota_confirm_verdict(state == ESP_OTA_IMG_PENDING_VERIFY, still_selected)) {
+    case OtaConfirmVerdict::NOT_PENDING:
+      return;
+    case OtaConfirmVerdict::BOOT_SELECTION_MOVED:
+      /* Not an error and not a confirmation: the image about to boot earns its
+       * own window, and this one is being left behind unconfirmed, which the
+       * bootloader records as ABORTED on the way past. Said in the log because
+       * the arrival will otherwise read as a rollback that nobody asked for. */
+      LOG_SET_NEXT_SEVERITY(5);  // notice
+      /* Kept short on purpose: Logging::printf renders into a MAX_LINE_LENGTH_PRINTF
+       * buffer and overwrites the last character with a newline when the line
+       * would be longer, so an over-long line loses its tail and says nothing
+       * about it. Pinned by EveryOtaLogLineFitsTheLoggersOwnBuffer. */
+      logging.printf("Firmware %s unconfirmed: boot selection moved, the next image runs its own %lu s window\n",
+                     esp_app_get_description()->version, (unsigned long)(OTA_CONFIRM_UPTIME_MS / 1000));
+      return;
+    case OtaConfirmVerdict::CONFIRM:
+      break;
   }
   if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
     LOG_SET_NEXT_SEVERITY(5);  // notice

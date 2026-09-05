@@ -1,5 +1,6 @@
 #include "webserver.h"
 #include <Preferences.h>
+#include <esp_ota_ops.h>
 #include <vector>
 #include "../../battery/BATTERIES.h"
 #include "../../battery/BYD-ATTO-3-BALANCE-HTML.h"
@@ -51,6 +52,7 @@ static MyTimer ota_progress_timer = MyTimer(1000);
 #include "debug_logging_html.h"
 #include "events_html.h"
 #include "index_html.h"
+#include "ota_revert.h"
 #include "settings_html.h"
 
 MyTimer ota_timeout_timer = MyTimer(15000);
@@ -191,6 +193,33 @@ void def_route_with_auth(const char* uri, AsyncWebServer& serv, WebRequestMethod
     }
     handler(request);
   });
+}
+
+/* Extracts the four facts ota_revert_assessment() decides on. Target-only:
+   the decision logic itself is host-tested. */
+static OtaRevertDecision current_ota_revert_decision() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  const esp_partition_t* passive = esp_ota_get_next_update_partition(NULL);
+  bool has_image = false;
+  std::string version;
+  bool marked_bad = false;
+  bool running_pending = false;
+  if (passive != NULL && passive != running) {
+    esp_app_desc_t desc;
+    has_image = (esp_ota_get_partition_description(passive, &desc) == ESP_OK);
+    if (has_image) {
+      version = desc.version;
+    }
+    esp_ota_img_states_t state;
+    if (esp_ota_get_state_partition(passive, &state) == ESP_OK) {
+      marked_bad = (state == ESP_OTA_IMG_INVALID || state == ESP_OTA_IMG_ABORTED);
+    }
+  }
+  esp_ota_img_states_t running_state;
+  if (running != NULL && esp_ota_get_state_partition(running, &running_state) == ESP_OK) {
+    running_pending = (running_state == ESP_OTA_IMG_PENDING_VERIFY);
+  }
+  return ota_revert_assessment(has_image, version, marked_bad, running_pending);
 }
 
 void init_webserver() {
@@ -1004,6 +1033,29 @@ void init_webserver() {
   def_route_with_auth("/debug", server, HTTP_GET,
                       [](AsyncWebServerRequest* request) { request->send(200, "text/plain", "Debug: all OK."); });
 
+  // Route to revert to the firmware in the passive OTA slot. The decision is
+  // recomputed server-side on every call - the rendered page's state is stale
+  // the moment an OTA update or rollback changes the slots.
+  def_route_with_auth("/revertFirmware", server, HTTP_GET, [](AsyncWebServerRequest* request) {
+    OtaRevertDecision decision = current_ota_revert_decision();
+    if (!decision.offered) {
+      request->send(400, "text/plain", decision.text.c_str());
+      return;
+    }
+    const esp_partition_t* passive = esp_ota_get_next_update_partition(NULL);
+    esp_err_t err = esp_ota_set_boot_partition(passive);
+    if (err != ESP_OK) {
+      // esp_ota_set_boot_partition re-validates the image and the state; a
+      // refusal here (e.g. a rollback marked the slot between render and
+      // click) must reach the user as text, never as a dead reboot.
+      request->send(500, "text/plain", ota_revert_refusal_text(esp_err_to_name(err)).c_str());
+      return;
+    }
+    request->send(200, "text/plain", "Boot partition set - rebooting into the previous firmware...");
+    hold_pins_across_reset();
+    graceful_restart();
+  });
+
   // Route to handle reboot command
   def_route_with_auth("/reboot", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(200, "text/plain", "Rebooting server...");
@@ -1737,6 +1789,18 @@ String processor(const String& var) {
           "}\">Pause charge/discharge</button> ";
 
     content += "<button onclick='OTA()'>Perform OTA update</button> ";
+    {
+      // The decision text is authored without quote characters, so it can sit
+      // inside the JS confirm() and the HTML title attribute verbatim.
+      OtaRevertDecision revert = current_ota_revert_decision();
+      if (revert.offered) {
+        content += "<button id='revBtn' onclick=\"if(confirm('" + String(revert.text.c_str()) +
+                   "')) { RevertFW(); }\">Revert to previous firmware</button> ";
+      } else {
+        content += "<button disabled title=\"" + String(revert.text.c_str()) +
+                   "\" style='cursor:not-allowed;'>Revert to previous firmware</button> ";
+      }
+    }
     content += "<button onclick='Settings()'>Change Settings</button> ";
     content += "<button onclick='Advanced()'>More Battery Info</button> ";
     content += "<button onclick='CANlog()'>CAN logger</button> ";
@@ -1770,6 +1834,64 @@ String processor(const String& var) {
           ">Close Contactors</button><br/>";
     content += "<script>";
     content += "function OTA() { window.location.href = '/update'; }";
+    /* The server's answer is the outcome - a refusal carries its reason, and a
+       success is followed by a reboot the user otherwise stares at blind. The
+       first shipped handler discarded the response and blind-reloaded, so
+       every outcome - refusal, success, and an arriving image dying and being
+       rolled back - looked identical: "nothing happens". This flow shows each
+       one. It polls /GetFirmwareInfo until the board answers with a DIFFERENT
+       version ("was X, now Y" - two dev builds differ only in a hash suffix,
+       so the change is announced rather than left to be spotted), and a board
+       that went down and came back with the SAME version is reported as the
+       rollback it is, not as success. The verdict survives the reload via
+       sessionStorage, so the fresh page says what just happened. */
+    content +=
+        "function revSt(){ var st=document.getElementById('revSt'); if(!st){ "
+        "if(!document.getElementById('revSpinCss')){ var sc=document.createElement('style'); sc.id='revSpinCss'; "
+        "sc.textContent='@keyframes revspin{to{transform:rotate(360deg)}}'; document.head.appendChild(sc);} "
+        "st=document.createElement('div'); st.id='revSt'; "
+        "st.style.cssText='margin:10px auto;padding:10px 16px;max-width:640px;border-radius:8px;"
+        "background:#505E67;color:#fff;font-weight:bold;'; "
+        "var b=document.getElementById('revBtn'); "
+        "if(b&&b.parentNode){ b.parentNode.insertBefore(st,b.nextSibling); } else { document.body.appendChild(st); } } "
+        "return st; }";
+    content +=
+        "function revSpin(){ return \"<span style='display:inline-block;width:14px;height:14px;"
+        "border:2px solid #fff;border-top-color:transparent;border-radius:50%;"
+        "animation:revspin 1s linear infinite;vertical-align:-2px;margin-right:8px'></span>\"; }";
+    content += "function RevertFW(){ var st=revSt(); var cur='" + String(version_number) + "'; ";
+    content +=
+        "var b=document.getElementById('revBtn'); if(b){b.disabled=true;} "
+        "st.style.background='#505E67'; st.innerHTML=revSpin()+'Asking the board to revert...'; "
+        "var x=new XMLHttpRequest(); x.open('GET','/revertFirmware',true); "
+        "x.onload=function(){ if(x.status==200){ "
+        "st.innerHTML=revSpin()+'Rebooting into the previous firmware. Now leaving '+cur+' - waiting for the board to "
+        "come back...'; revPoll(cur,st,Date.now(),false); "
+        "} else { st.style.background='#b71c1c'; st.innerHTML='Revert not performed: '+x.responseText; "
+        "if(b){b.disabled=false;} } }; "
+        "x.onerror=function(){ st.style.background='#b71c1c'; "
+        "st.innerHTML='Revert request failed: no reply from the board.'; if(b){b.disabled=false;} }; "
+        "x.send(); }";
+    content +=
+        "function revPoll(cur,st,t0,sawDown){ "
+        "if(Date.now()-t0>120000){ st.style.background='#b71c1c'; "
+        "st.innerHTML='The board has not come back within 2 minutes. It may be up on another address; reload this page "
+        "and check the button state.'; return; } "
+        "setTimeout(function(){ "
+        "fetch('/GetFirmwareInfo',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){ "
+        "if(d&&d.firmware&&d.firmware!=cur){ "
+        "try{sessionStorage.setItem('revDone','Reverted: was '+cur+', now running '+d.firmware+'.');}catch(e){} "
+        "st.style.background='#1b5e20'; "
+        "st.innerHTML='Reverted: was '+cur+', now running '+d.firmware+'. Reloading...'; "
+        "setTimeout(function(){ location.reload(true); },3000); "
+        "} else if(d&&d.firmware&&sawDown){ st.style.background='#b71c1c'; "
+        "st.innerHTML='The board rebooted but came back on the SAME version ('+cur+'): the previous firmware failed to "
+        "start and was automatically rolled back. The revert button is now disabled until a new update arrives.'; "
+        "} else { revPoll(cur,st,t0,sawDown); } "
+        "}).catch(function(){ revPoll(cur,st,t0,true); }); },2000); }";
+    content +=
+        "(function(){ try{ var m=sessionStorage.getItem('revDone'); if(m){ sessionStorage.removeItem('revDone'); "
+        "var st=revSt(); st.style.background='#1b5e20'; st.innerHTML=m; } }catch(e){} })();";
     content += "function Cellmon() { window.location.href = '/cellmonitor'; }";
     content += "function Settings() { window.location.href = '/settings'; }";
     content += "function Advanced() { window.location.href = '/advanced'; }";

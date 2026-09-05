@@ -53,9 +53,23 @@ void ota_confirm_check(uint32_t uptime_ms);
 // update instead of reverting it. Called when the restart is REQUESTED, not
 // when it is enacted: the 5-10 s the graceful restart spends pausing
 // charge/discharge is what lets the write take the ordinary-context route
-// above. A board whose main task cannot complete one pass in those seconds is
-// not healthy, and rolling it back is the right answer, not a gap.
+// above.
+//
+// An earlier version of this comment claimed a main task that cannot complete
+// one pass in those seconds is unhealthy, so rolling it back is right "not a
+// gap". Measured, that was wrong: the main task is the LOWEST-priority task on
+// the same core as the highest-priority tick that fires the restart, so a
+// perfectly healthy board under sustained load can starve it past the deadline
+// by ordinary scheduling - and the wild rollbacks this gate was built against
+// did exactly that. The gap is closed by restart_may_fire() below: the tick
+// DEFERS the restart while a confirmation is still owed, up to a hard cap, so
+// the write keeps its ordinary-context route and only a truly wedged main task
+// still rolls back - which is then honest.
 void ota_confirm_request(void);
+
+// Whether a confirmation is owed and not yet serviced. A single volatile word
+// read; safe from any task. This is what lets the restart deadline defer.
+bool ota_confirm_pending(void);
 
 // WRITE side. True exactly once, on the first call after a confirmation becomes
 // owed; false forever after. The caller performs the write.
@@ -65,6 +79,102 @@ void ota_confirm_request(void);
 // is unwritable), and re-arming would repeat it on every pass of a loop that
 // runs flat out. The failing write says so in the log instead.
 bool ota_confirm_take_pending(void);
+
+/* The restart deadline, and its interplay with an unserviced confirmation.
+ *
+ * graceful_restart() arms BOTH a confirmation request and a restart deadline.
+ * The confirm WRITE runs in the main task (see the routing argument at the top
+ * of this file); the deadline used to fire from the 1 ms tick regardless, and
+ * on a starved main task that restarted the board with the image unconfirmed -
+ * the bootloader then reverted a good update ("my revert did nothing").
+ *
+ * This predicate is the whole policy, pure so the race window is testable on
+ * the host the same way the 42 s boundary is:
+ *
+ *   - no deadline yet: never fire.
+ *   - deadline reached, nothing owed: fire - the normal path, unchanged.
+ *   - deadline reached, confirm still owed: DEFER, so the main task can take
+ *     its write; it normally needs milliseconds.
+ *   - owed past the grace cap: fire anyway. A main task that could not run
+ *     once in all that time is wedged, and rolling that image back is the
+ *     honest outcome - the cap is what keeps the deferral from turning a wedge
+ *     into a board that never restarts.
+ *
+ * The cap is measured on the ELAPSED time since the restart was ASKED FOR, not
+ * on the length of the deferral, so it is one instant - 30 s - whichever
+ * deadline was reached: 20 s of grace past the 10 s hard deadline, 25 s past
+ * the 5 s paused one. That asymmetry is deliberate and it is the right way
+ * round. What costs something is the wait itself - graceful_restart() opens the
+ * contactors first, so the board sits paused for the whole of it - and that
+ * wait starts when the restart is requested, not when the deadline lands. One
+ * bound on the total is therefore the property worth holding; a per-path grace
+ * would let the path that pauses SOONER keep the contactors open LONGER.
+ *
+ * Why 30 s and not, say, the 42 s window: the two numbers measure different
+ * things. 42 s is how long a fresh image must SURVIVE before it has earned
+ * confirmation; this is how long a main task may be STARVED before we stop
+ * believing it will come back. The write itself needs one loop() pass -
+ * milliseconds - so the whole of the grace is there to outlast a transient
+ * stall, and the stalls actually seen on the bench are seconds to tens of
+ * seconds - that is what the EVENT_TASK_OVERRUN payloads on the boards whose
+ * updates rolled back were measuring. 30 s clears those with margin while
+ * bounding the paused window at three times its old worst case.
+ *
+ * The deferral can only ever apply BEFORE the first serviced confirmation of a
+ * boot: the gate latches (ota_confirm_take_pending() sets `taken` for good, and
+ * ota_confirm_request() is a no-op after that), so from the first healthy
+ * loop() pass onwards nothing is ever owed again and this predicate is the old
+ * one exactly. A board whose main task is running does not inherit the grace.
+ *
+ * The deadlines are owned HERE, not in the caller: safety.cpp static_asserts
+ * they equal its legacy INTERVAL_5_S/INTERVAL_10_S so the two cannot drift.
+ * The MQTT/HTTP restart commands need no special casing on top of this:
+ * graceful_restart() arms the confirmation for every requester, so any restart
+ * asked for inside the verify window now waits for the write by construction.
+ */
+constexpr uint32_t RESTART_PAUSED_DEADLINE_MS = 5000;
+constexpr uint32_t RESTART_HARD_DEADLINE_MS = 10000;
+constexpr uint32_t RESTART_CONFIRM_GRACE_MS = 20000;
+
+constexpr bool restart_may_fire(uint32_t elapsed_ms, bool paused, bool confirm_owed) {
+  const bool deadline_reached =
+      (elapsed_ms > RESTART_PAUSED_DEADLINE_MS && paused) || elapsed_ms > RESTART_HARD_DEADLINE_MS;
+  if (!deadline_reached) {
+    return false;
+  }
+  if (confirm_owed && elapsed_ms <= RESTART_HARD_DEADLINE_MS + RESTART_CONFIRM_GRACE_MS) {
+    return false;  // the write path gets its chance; see the block comment
+  }
+  return true;
+}
+
+// WHICH image the confirmation may land on, decided before the write.
+//
+// esp_ota_mark_app_valid_cancel_rollback() takes no partition: it writes VALID
+// into the ACTIVE otadata entry - the one with the highest sequence number -
+// and that is the running image's entry only until something calls
+// esp_ota_set_boot_partition(). Two paths do, and both then call
+// graceful_restart(), which arms this gate: /revertFirmware, and a finished
+// OTA upload (Update.end() selects the slot it just wrote). On either, a
+// confirmation written after the selection moved lands on the TARGET, an
+// image that has not run one instruction, while the running image stays
+// PENDING_VERIFY and is rewritten to ABORTED by the bootloader on the way
+// past. Measured on the bench on an in-window revert (the OTA-then-revert
+// acceptance run): the reverted-into slot came up VALID with no window of its
+// own. The same shape on an OTA
+// inside the previous update's window ships the fresh image pre-confirmed,
+// which folds the whole of the rollback protection away for that update.
+//
+// So the write side asks two things of the running partition - is it pending,
+// and is it still the boot selection - and confirms only when both hold. The
+// caller reads both from esp_ota_*; this stays pure so the host can pin all
+// three outcomes.
+enum class OtaConfirmVerdict {
+  NOT_PENDING,           // an ordinary boot: nothing to confirm
+  BOOT_SELECTION_MOVED,  // pending, but the write would land on another slot: decline
+  CONFIRM,               // pending and still selected: write it
+};
+OtaConfirmVerdict ota_confirm_verdict(bool running_pending_verify, bool running_is_boot_selection);
 
 #ifdef UNIT_TEST
 // Test seam only: the gate is a boot-lifetime latch, and the host tests need to
