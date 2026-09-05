@@ -75,7 +75,7 @@ class MCP2515_Lite {
   // True once if the last speed change the task enacted did not take: the
   // bitrate was unreachable from this oscillator, or the chip did not report
   // the mode that was asked for. Consumed on read, like hasErrors(), so the
-  // caller that reads it owns reporting it. Until this change no status existed
+  // caller that reads it owns reporting it. Previously no status existed
   // anywhere in this chain - the failure was unreportable rather than merely
   // unreported.
   inline bool speedChangeFailed() {

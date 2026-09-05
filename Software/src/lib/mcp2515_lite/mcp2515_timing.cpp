@@ -17,7 +17,7 @@ nothing else):
      osc     requested   achieved    error
     8 MHz     100 kbit    100 kbit    0.00%
     8 MHz     125 kbit    125 kbit    0.00%
-    8 MHz     200 kbit    166 kbit   16.67%   <- refused from this change on
+    8 MHz     200 kbit    166 kbit   16.67%   <- refused from here on
     8 MHz     250 kbit    250 kbit    0.00%
     8 MHz     500 kbit    500 kbit    0.00%
     8 MHz     800 kbit    500 kbit   37.50%   <- refused

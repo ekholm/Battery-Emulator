@@ -37,7 +37,7 @@ belongs somewhere a test can call it.
 // Returns false - writing nothing to `cnf` - when the arguments are degenerate
 // (null buffer, zero rate, zero oscillator) OR when the closest rate this
 // oscillator can produce misses the requested one by more than
-// MCP2515_TIMING_TOLERANCE_PERMILLE. Until this change the second case returned
+// MCP2515_TIMING_TOLERANCE_PERMILLE. The second case used to return
 // TRUE: the prescaler was clamped, the least-wrong of two TQ layouts was
 // picked, and a chip running at half the requested bitrate reported a
 // successful init.
