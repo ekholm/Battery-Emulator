@@ -25,6 +25,9 @@ struct ChipState {
   bool running = false;
   bool paused = false;
   bool speed_change_failed = false;
+  bool speed_change_fails = false;
+  int isr_drain_requests = 0;
+  uint8_t isr_drain_bus = 0xFF;
   int begin_count = 0;
   int end_count = 0;
   std::deque<CAN_frame> rx;
@@ -37,6 +40,11 @@ constexpr uint32_t kTwaiBusOffSt = TWAI_BUS_OFF_ST;
 ChipState g_chips[4];
 uint32_t g_native_status = 0;
 std::vector<SentFrame> g_sent;
+
+// Puts the FD add-ons on the MCP2515's SPI bus, which is the wiring
+// mcp2515_bus_is_exclusive() declines the interrupt drain for. Read by
+// EmulCanHal, so a test sets it BEFORE emul_can_init_on_full_board().
+bool g_fd_bus_shared = false;
 
 // Both FD add-ons are the same class, so an ACAN2517FD takes its identity from
 // the order comm_can.cpp constructs them in: canfd first, canfd_2 second.
@@ -73,6 +81,7 @@ void reset() {
   g_sent.clear();
   g_emul_transmitted_frames.clear();
   g_next_fd_chip = 0;
+  g_fd_bus_shared = false;
 }
 
 void set_begin_error(Chip chip, uint32_t error_code) {
@@ -81,6 +90,22 @@ void set_begin_error(Chip chip, uint32_t error_code) {
 
 void set_send_fails(Chip chip, bool fails) {
   state(chip).send_fails = fails;
+}
+
+void set_speed_change_fails(Chip chip, bool fails) {
+  state(chip).speed_change_fails = fails;
+}
+
+void set_fd_bus_shared_with_2515(bool shared) {
+  g_fd_bus_shared = shared;
+}
+
+int isr_drain_requests(Chip chip) {
+  return state(chip).isr_drain_requests;
+}
+
+uint8_t isr_drain_bus(Chip chip) {
+  return state(chip).isr_drain_bus;
 }
 
 void set_bus_error(Chip chip, bool has_error) {
@@ -234,7 +259,11 @@ bool MCP2515_Lite::receiveFrame(MCP2515_Lite_Frame& msg) {
   return true;
 }
 
-void MCP2515_Lite::useIsrDrain(uint8_t spi_bus) {}
+void MCP2515_Lite::useIsrDrain(uint8_t spi_bus) {
+  auto& s = emul_can::g_chips[static_cast<int>(Chip::Mcp2515)];
+  s.isr_drain_requests++;
+  s.isr_drain_bus = spi_bus;
+}
 
 bool MCP2515_Lite::isrDrainActive() const {
   return false;
@@ -242,7 +271,7 @@ bool MCP2515_Lite::isrDrainActive() const {
 
 void MCP2515_Lite::changeSpeed(const MCP2515_Lite_Speed& new_speed) {
   auto& s = emul_can::g_chips[static_cast<int>(Chip::Mcp2515)];
-  s.speed_change_failed = s.begin_error != 0;
+  s.speed_change_failed = s.speed_change_fails || s.begin_error != 0;
 }
 
 bool MCP2515_Lite::speedChangeFailed() {
@@ -361,7 +390,7 @@ class EmulCanHal : public Esp32Hal {
   gpio_num_t MCP2515_INT() override { return GPIO_NUM_23; }
   uint32_t MCP2515_FREQ() override { return 8000000; }
 
-  uint8_t MCP2517_BUS() override { return HSPI; }
+  uint8_t MCP2517_BUS() override { return emul_can::g_fd_bus_shared ? VSPI : HSPI; }
   gpio_num_t MCP2517_SCK() override { return GPIO_NUM_12; }
   gpio_num_t MCP2517_SDI() override { return GPIO_NUM_13; }
   gpio_num_t MCP2517_SDO() override { return GPIO_NUM_14; }
@@ -371,7 +400,7 @@ class EmulCanHal : public Esp32Hal {
 
   // Second FD add-on on the same SPI bus, which is how the boards that carry two
   // of them are wired - only CS and INT are its own.
-  uint8_t MCP2517_BUS2() override { return HSPI; }
+  uint8_t MCP2517_BUS2() override { return emul_can::g_fd_bus_shared ? VSPI : HSPI; }
   gpio_num_t MCP2517_CS2() override { return GPIO_NUM_25; }
   gpio_num_t MCP2517_INT2() override { return GPIO_NUM_26; }
   uint32_t MCP2517_FREQ2() override { return 40000000; }

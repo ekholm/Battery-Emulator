@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include <SPI.h>  // VSPI, the bus the emulated board puts the MCP2515 on
+
 #include "emul/can_drivers.h"
 
 #include "../Software/src/communication/can/CanReceiver.h"
@@ -81,6 +83,11 @@ TEST_F(CommCanTest, AnInterfaceNobodyAskedForIsNeverTouched) {
   register_can_receiver(&receiver, CAN_NATIVE);
   emul_can_init_on_full_board();
 
+  // begin_count counts the ATTEMPT - the emulated chips increment it before
+  // they consult their failure setting - so the zeros below say nothing about
+  // whether the one interface this board has actually came up. The bool this
+  // case used to read did; is_running() is where that question moved.
+  EXPECT_TRUE(emul_can::is_running(Chip::Native));
   EXPECT_EQ(emul_can::begin_count(Chip::Native), 1);
   EXPECT_EQ(emul_can::begin_count(Chip::Mcp2515), 0) << "a board with no add-on must not have its add-on initialised";
   EXPECT_EQ(emul_can::begin_count(Chip::Mcp2518fd), 0);
@@ -444,6 +451,140 @@ TEST_F(CommCanTest, ChangingTheNativeSpeedReinitializesTheController) {
   EXPECT_TRUE(change_can_speed(CAN_NATIVE, CAN_Speed::CAN_SPEED_250KBPS));
 
   EXPECT_EQ(emul_can::begin_count(Chip::Native), before + 1);
+}
+
+/* The mirror of the case below, and the one that pins the reset hook's
+ * `settingsespcan = nullptr`.
+ *
+ * change_can_speed() gates the native branch on that pointer, not on
+ * native_can_initialized, so a board with no native interface must be refused
+ * through it. Dropping that line from comm_can_reset_for_test() failed nothing
+ * when the hook was measured line by line (see the note above
+ * ResettingTheCanLayerLeavesNothingBehind); this is the observation that was
+ * missing.
+ */
+TEST_F(CommCanTest, ChangingTheNativeSpeedOnABoardWithoutOneFails) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+  ASSERT_FALSE(emul_can::is_running(Chip::Native)) << "the losing side has to be genuinely absent";
+
+  EXPECT_FALSE(change_can_speed(CAN_NATIVE, CAN_Speed::CAN_SPEED_250KBPS))
+      << "no native interface was brought up, so there is nothing to re-speed";
+  EXPECT_TRUE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_250KBPS))
+      << "the interface that IS fitted still accepts the request";
+}
+
+// ---------------------------------------------------------------------------
+// the MCP2515 speed-change verdict
+// ---------------------------------------------------------------------------
+
+/* changeSpeed() is asynchronous on the real chip: the driver task enacts it and
+ * verifies it afterwards, so the verdict cannot go back the way the request
+ * came and receive_frame_can_addon() picks it up instead. These pin that
+ * hand-off by calling it, rather than by reading the source for the poll.
+ *
+ * The failure is armed with set_speed_change_fails(), NOT by failing begin():
+ * a chip that never started has a null pointer and its own init event, and
+ * receive_can() would not even reach the poll. What is under test here is a chip
+ * that came up and is now at an unknown bitrate.
+ */
+TEST_F(CommCanTest, ASpeedChangeThatDidNotTakeIsReportedOnTheReceivePath) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  reset_all_events();
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+  ASSERT_NE(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE), nullptr);
+  ASSERT_EQ(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE)->occurences, 0)
+      << "the chip started, so nothing has raised this yet";
+
+  emul_can::set_speed_change_fails(Chip::Mcp2515, true);
+  ASSERT_TRUE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_250KBPS))
+      << "the request is accepted; whether it took is a later question";
+
+  receive_can();
+
+  ASSERT_NE(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE), nullptr);
+  EXPECT_TRUE(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE)->occurences > 0)
+      << "an interface left at an unknown bitrate is not usable, and must say so";
+}
+
+TEST_F(CommCanTest, ASpeedChangeThatTookIsReportedAsNothing) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  reset_all_events();
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+
+  ASSERT_TRUE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_250KBPS));
+
+  receive_can();
+
+  ASSERT_NE(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE), nullptr);
+  EXPECT_EQ(get_event_pointer(EVENT_CANMCP2515_INIT_FAILURE)->occurences, 0)
+      << "a speed change that worked must not look like an init failure";
+}
+
+// ---------------------------------------------------------------------------
+// mcp2515_bus_is_exclusive()
+// ---------------------------------------------------------------------------
+
+/* Whether the interrupt drain is ASKED FOR is a decision comm_can.cpp owns, and
+ * both arms are live on the host: the emulated board puts the add-ons on
+ * separate SPI controllers by default, and set_fd_bus_shared_with_2515() puts
+ * them on one, which is how the boards that carry both are wired.
+ *
+ * What the driver then DOES with the request is not observable here - there is
+ * no interrupt to install, so the emulated isrDrainActive() is always false -
+ * but the request itself is the half that lives in this file.
+ */
+TEST_F(CommCanTest, TheDrainIsAskedForWhenTheAddonOwnsItsBus) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  register_can_receiver(&receiver, CANFD_ADDON_MCP2518);
+  emul_can_init_on_full_board();
+
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2518fd)) << "the FD chip is present, it is just on another bus";
+  EXPECT_EQ(emul_can::isr_drain_requests(Chip::Mcp2515), 1);
+  EXPECT_EQ(emul_can::isr_drain_bus(Chip::Mcp2515), VSPI) << "the drain is asked for on the chip's own bus";
+}
+
+TEST_F(CommCanTest, TheDrainIsDeclinedWhenAnFdAddonSharesTheBus) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_fd_bus_shared_with_2515(true);
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  register_can_receiver(&receiver, CANFD_ADDON_MCP2518);
+  emul_can_init_on_full_board();
+
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+  EXPECT_EQ(emul_can::isr_drain_requests(Chip::Mcp2515), 0)
+      << "a second device on the controller makes the drain unsafe, so it is not requested";
+}
+
+TEST_F(CommCanTest, AnFdChipNobodyRegisteredDoesNotCostTheDrain) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_fd_bus_shared_with_2515(true);
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  emul_can_init_on_full_board();
+
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+  EXPECT_EQ(emul_can::isr_drain_requests(Chip::Mcp2515), 1)
+      << "the bus is shared on paper only - nothing else was brought up on it";
 }
 
 TEST_F(CommCanTest, ChangingTheSpeedOfAnInterfaceWithNoDriverFails) {
