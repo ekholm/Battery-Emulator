@@ -74,7 +74,7 @@ static ACAN2517FDSettings* settings2517_2;
 
 static bool native_can_initialized = false;
 
-/* One chip's failure stops at that chip .
+/* One chip's failure stops at that chip.
  *
  * This function used to `return false` on any failure, which read as "fail
  * loudly" but could not: the return is discarded at the only call site

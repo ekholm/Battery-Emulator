@@ -141,8 +141,8 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   // Enable interrupts for TX2, TX1, TX0, RX1 and RX0
   modifyRegister(REG_CANINTE, 0x07, 0b00011111);
 
-  // Baudrate setup. An unreachable bitrate writes no timing registers at all
-  //, which at boot is exactly as unusable as a chip that never left
+  // Baudrate setup. An unreachable bitrate writes no timing registers at all,
+  // which at boot is exactly as unusable as a chip that never left
   // CONFIG - so it fails init here rather than reporting an interface that is
   // silently running at the wrong speed.
   if (!applySpeedConfig(speed)) {
