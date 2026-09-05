@@ -174,4 +174,33 @@ TEST_F(CanFdInitPlanTest, PlanningDoesNotClaimThePins) {
   EXPECT_FALSE(event_is_active(EVENT_GPIO_CONFLICT));
 }
 
+// The T-2CAN's FD variant is the only board that carries two FD chips on two SPI
+// buses, and it registers BOTH. Every other two-bus case here registers the
+// second chip alone, so the shape that board actually ships in was never run.
+TEST_F(CanFdInitPlanTest, TwoChipsOnSeparateBusesAreBothPlanned) {
+  hal->bus2 = 2;
+  hal->sck2 = GPIO_NUM_16;
+  hal->sdo2 = GPIO_NUM_15;
+  hal->sdi2 = GPIO_NUM_13;
+  const CanFdInitPlan plan = plan_canfd_init(hal, true, true);
+  EXPECT_TRUE(plan.bus);
+  EXPECT_TRUE(plan.first_chip);
+  EXPECT_TRUE(plan.second_chip);
+  EXPECT_FALSE(event_is_active(EVENT_GPIO_NOT_DEFINED))
+      << "a board with both FD chips fitted is correctly configured and must be told nothing";
+}
+
+// The property the whole change exists for, asserted of the FD PAIR rather than
+// of the group: an add-on the board does not have is inert, and the interface
+// declared after it still runs. The other absence cases here prove the skip;
+// this one proves what survives it.
+TEST_F(CanFdInitPlanTest, AnAbsentFirstChipDoesNotAbandonTheSecondOnTheSharedBus) {
+  hal->cs = GPIO_NUM_NC;  // the first chip is not fitted; its bus and the second chip are
+  const CanFdInitPlan plan = plan_canfd_init(hal, true, true);
+  EXPECT_TRUE(plan.bus);
+  EXPECT_FALSE(plan.first_chip);
+  EXPECT_TRUE(plan.second_chip) << "the absent first chip took the second one with it, which is this "
+                                   "row's own defect one block further down";
+}
+
 }  // namespace
