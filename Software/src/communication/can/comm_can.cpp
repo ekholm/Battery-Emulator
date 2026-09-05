@@ -292,7 +292,6 @@ void comm_can_reset_for_test() {
  * than initialised - see the comment on that loop. That refusal, like every
  * failure below it, costs only the interface it names.
  */
-
 void init_CAN() {
   /* Refuse an interface this board does not have, rather than initialising it and failing
    * obscurely.
