@@ -3,6 +3,7 @@
 #include "../../lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
 #include "../../lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
 #include "CanReceiver.h"
+#include "can_init_plan.h"
 #include "comm_can.h"
 #include "src/datalayer/datalayer.h"
 #include "src/devboard/hal/hal.h"
@@ -178,7 +179,17 @@ bool init_CAN() {
   auto fdAddonIt = can_receivers.find(CANFD_ADDON_MCP2518);
   auto fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end() || fdAddonIt_2 != can_receivers.end()) {
+  /* An FD add-on the board does not have is skipped and left inert, the same
+   * rule the MCP2515 block above follows - but it cannot be decided block by
+   * block, because the bus block below creates the SPI object the two chip
+   * blocks dereference. plan_canfd_init() carries that dependency, and lives in
+   * its own header so the host suite can run it; comm_can.cpp does not link
+   * there. A pin CONFLICT still stops the whole board inside alloc_pins(). */
+  const CanFdInitPlan fd_plan =
+      plan_canfd_init(esp32hal, fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end(),
+                      fdAddonIt_2 != can_receivers.end());
+
+  if (fd_plan.bus) {
     // Initialise SPI bus first
     auto sck_pin = esp32hal->MCP2517_SCK();
     auto sdo_pin = esp32hal->MCP2517_SDO();
@@ -192,7 +203,7 @@ bool init_CAN() {
     SPI2517->begin(sck_pin, sdo_pin, sdi_pin);
   }
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end()) {
+  if (fd_plan.first_chip) {
 
     auto speed = (fdNativeIt != can_receivers.end()) ? fdNativeIt->second.speed : fdAddonIt->second.speed;
 
@@ -226,7 +237,7 @@ bool init_CAN() {
     }
   }
 
-  if (fdAddonIt_2 != can_receivers.end()) {
+  if (fd_plan.second_chip) {
 
     auto cs_pin = esp32hal->MCP2517_CS2();
     auto int_pin = esp32hal->MCP2517_INT2();
