@@ -123,10 +123,12 @@ bool init_CAN() {
   auto addonIt = can_receivers.find(CAN_ADDON_MCP2515);
   /* An MCP2515 the board does not have leaves this interface inert, the way a
    * failed chip init does - it does NOT abandon the interfaces below. A pin
-   * CONFLICT still stops the whole board at the allocation call inside, and
-   * that is deliberate: an incoherent pin map is a fact about the board, not a
-   * fault in one chip, and carrying on would hand the same pad to whichever
-   * interface asks next. */
+   * CONFLICT still fails at the allocation call inside, and that is
+   * deliberate: an incoherent pin map is a fact about the board, not a fault in
+   * one chip, and carrying on would hand the same pad to whichever interface
+   * asks next. What that failure costs is every interface declared BELOW it -
+   * init_CAN() returns false and its only caller (Software.cpp) discards the
+   * return, so the board boots on without them. */
   if (addonIt != can_receivers.end() &&
       esp32hal->pins_present("CAN", esp32hal->MCP2515_CS(), esp32hal->MCP2515_INT(), esp32hal->MCP2515_SCK(),
                              esp32hal->MCP2515_MISO(), esp32hal->MCP2515_MOSI())) {
@@ -184,7 +186,9 @@ bool init_CAN() {
    * block, because the bus block below creates the SPI object the two chip
    * blocks dereference. plan_canfd_init() carries that dependency, and lives in
    * its own header so the host suite can run it; comm_can.cpp does not link
-   * there. A pin CONFLICT still stops the whole board inside alloc_pins(). */
+   * there. A pin CONFLICT still fails inside alloc_pins(), abandoning every
+   * interface below it; the board itself boots on, because init_CAN()'s return
+   * is discarded at its only call site. */
   const CanFdInitPlan fd_plan =
       plan_canfd_init(esp32hal, fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end(),
                       fdAddonIt_2 != can_receivers.end());
