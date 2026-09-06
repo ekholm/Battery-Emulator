@@ -10,14 +10,16 @@
  * The predicate exists to tell two alloc_pins() failures apart: a pin that is
  * GPIO_NUM_NC, meaning the board does not have the interface at all, and a pin
  * another component already owns, meaning the map is incoherent. init_CAN()
- * skips the first and still aborts the board on the second.
+ * skips the first and still fails on the second - which abandons the
+ * interfaces below it, not the boot: init_CAN()'s return is discarded at its
+ * only call site.
  *
  * Its only other test is a SOURCE SCAN over comm_can.cpp, which can see that
  * the call is written in the right place and can see nothing about what it
  * does. Two edits that keep the call exactly where it is pass that scan and
  * break the firmware:
  *
- *   - a predicate that always answers yes leaves the whole-board abort firing
+ *   - a predicate that always answers yes leaves that abort firing
  *     for an absent add-on, which is the defect the fix was written for;
  *   - a predicate that ALLOCATES the pins it inspects makes the very next
  *     alloc_pins() call find them already owned, so every board that DOES have
@@ -108,7 +110,7 @@ TEST_F(PinsPresentTest, AskingWhetherThePinsExistDoesNotClaimThem) {
  * pins_present() answers only the presence question, so a pad another component
  * owns is present, and it is alloc_pins() that refuses it. If the predicate
  * started answering no here, init_CAN() would SKIP an incoherent map instead of
- * stopping the board on it - the deliberate exception, deleted by the back door.
+ * failing on it - the deliberate exception, deleted by the back door.
  */
 TEST_F(PinsPresentTest, AnAlreadyOwnedPinIsStillPresentAndIsRefusedByTheAllocatorNotThePredicate) {
   PinAllocatorHal hal;
@@ -116,6 +118,6 @@ TEST_F(PinsPresentTest, AnAlreadyOwnedPinIsStillPresentAndIsRefusedByTheAllocato
   ASSERT_TRUE(hal.alloc_pins("SD", GPIO_NUM_12));
   EXPECT_TRUE(hal.pins_present("CAN", GPIO_NUM_12))
       << "a pad another component owns is a real pad - if presence answers no for it, init_CAN() "
-         "skips an incoherent pin map instead of stopping the board on it";
+         "skips an incoherent pin map instead of failing on it";
   EXPECT_FALSE(hal.alloc_pins("CAN", GPIO_NUM_12)) << "the conflict must still be refused by the allocator";
 }
