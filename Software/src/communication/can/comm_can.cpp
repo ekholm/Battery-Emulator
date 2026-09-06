@@ -735,10 +735,23 @@ bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
     // Reinitialize the native CAN interface with the new speed
     const uint32_t errorCode = init_native_can(speed, settingsespcan->mTxPin, settingsespcan->mRxPin);
     if (errorCode != 0) {
+      /* The interface is DOWN, so say so in the flag receive_can() reads.
+       *
+       * init_native_can() has already failed here, exactly as it can at boot -
+       * and the boot path clears this flag and raises the event. This one used
+       * to do neither, so after a failed runtime speed change the firmware kept
+       * calling receive_frame_can_native() on an interface whose begin() had
+       * just failed. Same class as the defect fixed in init_CAN() one function up: the
+       * failure is reported through a return value, while the state that
+       * decides whether the interface is USED still says it is fine.
+       */
+      native_can_initialized = false;
       logging.print("Error Native Can: 0x");
       logging.println(errorCode, HEX);
+      set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
       return false;
     }
+    native_can_initialized = true;
     return true;
   } else if (interface == CAN_Interface::CAN_ADDON_MCP2515 && can2515) {
     can2515->changeSpeed({(int)speed * 1000UL, quartz_frequency});
