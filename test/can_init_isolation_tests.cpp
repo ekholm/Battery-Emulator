@@ -70,8 +70,8 @@ TEST(CanInitIsolation, AFailedChipIsLeftInertRatherThanAbortingTheRest) {
   const std::string body = init_can_body(comm_can_source());
   ASSERT_FALSE(body.empty());
 
-  for (const char* marker : {"can2515 = nullptr;", "canfd = nullptr;", "canfd_2 = nullptr;",
-                             "native_can_initialized = false;"}) {
+  for (const char* marker :
+       {"can2515 = nullptr;", "canfd = nullptr;", "canfd_2 = nullptr;", "native_can_initialized = false;"}) {
     EXPECT_NE(body.find(marker), std::string::npos)
         << marker << " is gone - a chip that failed to start would be left looking usable";
   }

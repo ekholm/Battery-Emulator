@@ -16,10 +16,18 @@
  * place to put them and the wrong one. NEW EVENTS GO AT THE END, immediately before the
  * EVENT_NOF_EVENTS sentinel - which is a count, not a wire value, and may move.
  *
- * The anchors below are spread across the enum on purpose: an insertion anywhere before
- * the last one moves at least one of them. They are not a complete list and are not
- * meant to be - a complete list would have to be regenerated on every legitimate append,
- * which is the maintenance cost that makes such tests get deleted.
+ * THE ANCHORS ARE RELATIVE, NOT ABSOLUTE, and that is a correction. The first version of
+ * this test pinned six absolute ordinals "spread across the enum on purpose" - including
+ * EVENT_INVERTER_REBOOT_DECLINED at 167, "the last event that predates this lane". That
+ * anchor reds on every LIFT rather than on any mistake of ours: upstream inserts events
+ * mid-enum itself (between 2026-08-26 and 2026-08-31 it added EVENT_BYD_CHARGE_TERMINATED
+ * at index 91 and EVENT_OTA_ROLLBACK at 118, moving that anchor to 169), so rebasing this
+ * branch onto a newer upstream failed a test that was reporting upstream's renumbering,
+ * not ours. A guard that cries on every rebase is a guard that gets deleted.
+ *
+ * So this pins the property this branch actually controls: the event it ADDS is the last
+ * one before the sentinel. That is exactly "appended, not inserted", it is independent of
+ * how upstream numbers its own events, and it survives any lift.
  */
 namespace {
 
@@ -31,25 +39,17 @@ struct Anchor {
 
 }  // namespace
 
-TEST(EventOrdinalStability, NoEventIsInsertedAheadOfAnExistingOne) {
-  const Anchor anchors[] = {
-      {EVENT_CANMCP2518FD_INIT_FAILURE, 0, "the first entry - moves only if something is inserted at the very top"},
-      {EVENT_CAN_BATTERY3_DETECTED, 8, "just past the init-failure block, where three of these fixes wanted to insert"},
-      {EVENT_CAN_INVERTER_MISSING, 15, "the bus-error neighbourhood, where the transmit guard wanted to insert"},
-      {EVENT_BALANCING_END, 32, "just past the detection block, where the replay fix wanted to insert"},
-      {EVENT_BATTERY_OVERVOLTAGE, 60, "mid-enum: catches an insertion anywhere in the first third"},
-      {EVENT_INVERTER_REBOOT_DECLINED, 167, "the last event that predates this lane"},
-  };
-
-  for (const Anchor& a : anchors) {
-    EXPECT_EQ(static_cast<int>(a.event), a.ordinal)
-        << get_event_enum_string(a.event) << " has moved from ordinal " << a.ordinal << " to "
-        << static_cast<int>(a.event) << ".\n"
-        << "  Why this matters: " << a.why << ".\n"
-        << "  Event ordinals are published over ESP-NOW (ESPNOW_KEY_EVENT_ID), so renumbering one\n"
-        << "  makes every node on an older build report the wrong event. Add new events at the END\n"
-        << "  of EVENTS_ENUM_TYPE, immediately before EVENT_NOF_EVENTS.";
-  }
+TEST(EventOrdinalStability, TheEventThisBranchAddsIsAppendedNotInserted) {
+  /* The whole property, in one line: our event sits immediately before the sentinel, so
+   * nothing that predates it moved. Stated against EVENT_NOF_EVENTS rather than a number,
+   * because the number is upstream's to change and the position is ours to keep. */
+  EXPECT_EQ(static_cast<int>(EVENT_CAN_NATIVE_INIT_FAILURE) + 1, static_cast<int>(EVENT_NOF_EVENTS))
+      << get_event_enum_string(EVENT_CAN_NATIVE_INIT_FAILURE) << " is not the last event before the\n"
+      << "  sentinel, so it was INSERTED rather than appended and every event after it has been\n"
+      << "  renumbered. Event ordinals are published over ESP-NOW (ESPNOW_KEY_EVENT_ID), so a\n"
+      << "  receiver on an older build now decodes the wrong event - silently, and precisely in\n"
+      << "  the data a user reads to diagnose a fault.\n"
+      << "  Add new events at the END of EVENTS_ENUM_TYPE, immediately before EVENT_NOF_EVENTS.";
 }
 
 /* The sentinel is a count and is allowed to move - but it has to stay LAST, or the
