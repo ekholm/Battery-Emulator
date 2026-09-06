@@ -118,7 +118,15 @@ bool init_CAN() {
   // Add-on CAN interface (via MCP2515)
 
   auto addonIt = can_receivers.find(CAN_ADDON_MCP2515);
-  if (addonIt != can_receivers.end()) {
+  /* An MCP2515 the board does not have leaves this interface inert, the way a
+   * failed chip init does - it does NOT abandon the interfaces below. A pin
+   * CONFLICT still stops the whole board at the allocation call inside, and
+   * that is deliberate: an incoherent pin map is a fact about the board, not a
+   * fault in one chip, and carrying on would hand the same pad to whichever
+   * interface asks next. */
+  if (addonIt != can_receivers.end() &&
+      esp32hal->pins_present("CAN", esp32hal->MCP2515_CS(), esp32hal->MCP2515_INT(), esp32hal->MCP2515_SCK(),
+                             esp32hal->MCP2515_MISO(), esp32hal->MCP2515_MOSI())) {
     auto cs_pin = esp32hal->MCP2515_CS();
     auto int_pin = esp32hal->MCP2515_INT();
     auto sck_pin = esp32hal->MCP2515_SCK();
