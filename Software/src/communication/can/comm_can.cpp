@@ -477,6 +477,26 @@ receive_frame_can_addon() {  // This section checks if we have a complete CAN me
   if (can2515->hasErrors()) {
     datalayer.system.info.can_2515_bus_error = true;
   }
+
+  /* The 2515's speed-change verdict, asked for here because there is nowhere
+   * else to ask.
+   *
+   * change_can_speed() hands the request to the driver task and returns; the
+   * task enacts it milliseconds later, long after that caller is gone. So the
+   * status cannot go back the way the request came, and it is picked up on the
+   * receive path instead - which runs every cycle whether or not frames arrive,
+   * exactly like the hasErrors() poll above it.
+   *
+   * Reported as the chip's init failure, the same event the boot path raises,
+   * and for the same reason the native path reuses its own: an interface at an
+   * unknown bitrate is not usable, however it got there. Unlike the native path
+   * there is no flag to clear - nothing gates use of the 2515 on a "this
+   * interface is up" bool - so this reports without taking the interface out of
+   * service, and giving it such a gate is a larger change than this item.
+   */
+  if (can2515->speedChangeFailed()) {
+    set_event(EVENT_CANMCP2515_INIT_FAILURE, 0);
+  }
 }
 
 static void _receive_frame_canfd(ACAN2517FD* canfd, bool first) {
@@ -754,6 +774,12 @@ bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
     native_can_initialized = true;
     return true;
   } else if (interface == CAN_Interface::CAN_ADDON_MCP2515 && can2515) {
+    /* true here means the request was accepted, not that the speed changed:
+     * changeSpeed() hands it to the driver task and returns. That used to be
+     * indistinguishable from a change that worked, because no status existed
+     * anywhere in the chain. It does now - the task verifies the chip
+     * and receive_frame_can_addon() turns a failed verdict into an event.
+     */
     can2515->changeSpeed({(int)speed * 1000UL, quartz_frequency});
     return true;
   }
