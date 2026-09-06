@@ -82,7 +82,9 @@ class Esp32Hal {
    * have lost its CAN-FD interface this way, measured on the bench.
    *
    * Checking presence BEFORE allocating lets a caller skip an absent interface
-   * and still abort the board on a genuine conflict. It raises the same
+   * and still fail on a genuine conflict. (That failure abandons the
+   * interfaces below it rather than stopping the boot: init_CAN()'s return is
+   * discarded at its only call site.) It raises the same
    * EVENT_GPIO_NOT_DEFINED alloc_pins() would, so the failure stays visible.
    */
   template <typename... Pins>
