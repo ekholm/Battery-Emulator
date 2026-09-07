@@ -64,6 +64,42 @@ static ACAN2517FDSettings* settings2517_2;
 
 static bool native_can_initialized = false;
 
+/* Is the MCP2515 the only device on its SPI bus?
+ *
+ * The interrupt drain takes the bus at moments no task can be asked about, so
+ * it is only offered when nothing else is on it. That is a stricter question
+ * than contention: measuring it on this hardware showed that sharing does not
+ * degrade, it breaks - a second
+ * SPIClass::begin() on one controller re-routes MISO through the GPIO matrix,
+ * which can source a peripheral input from exactly one pad, so the device that
+ * called begin() first simply goes deaf. A shared bus is a broken bus, with or
+ * without this drain.
+ *
+ * The SD check is deliberately compile-time-wide: SDCARD being built in is
+ * enough to decline, because the two settings that start the SD writer are
+ * runtime ones and may be turned on long after this decision is made.
+ */
+static bool mcp2515_bus_is_exclusive() {
+  const uint8_t bus = esp32hal->MCP2515_BUS();
+
+#ifdef SDCARD
+  if (esp32hal->SD_SPI_BUS() == bus) {
+    return false;
+  }
+#endif
+
+  const bool fd_present = can_receivers.find(CANFD_ADDON_MCP2518) != can_receivers.end() ||
+                          can_receivers.find(CANFD_NATIVE) != can_receivers.end();
+  if (fd_present && esp32hal->MCP2517_BUS() == bus) {
+    return false;
+  }
+  if (can_receivers.find(CANFD_ADDON_MCP2518_2) != can_receivers.end() && esp32hal->MCP2517_BUS2() == bus) {
+    return false;
+  }
+
+  return true;
+}
+
 /* One chip's failure stops at that chip.
  *
  * This function used to `return false` on any failure, which read as "fail
@@ -176,6 +212,10 @@ void init_CAN() {
     SPI2515 = new SPIClass(esp32hal->MCP2515_BUS());
     SPI2515->begin(sck_pin, miso_pin, mosi_pin);
     can2515 = new MCP2515_Lite(*SPI2515, cs_pin, int_pin);
+
+    if (mcp2515_bus_is_exclusive()) {
+      can2515->useIsrDrain(esp32hal->MCP2515_BUS());
+    }
 
     quartz_frequency = esp32hal->MCP2515_FREQ();
     if (quartz_frequency == 0) {
