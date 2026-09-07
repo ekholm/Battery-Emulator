@@ -25,7 +25,7 @@
 
 #ifndef DISABLEMCP2517FDCOMPAT
 #error \
-    "ACAN2517FD::end() deletes the driver task between turnOffInterrupts() and turnOnInterrupts(), which MCP2517FD compatibility mode turns into a real interrupt mask, and the CAN-FD init-failure path in this file calls end()."
+    "MCP2517FD compatibility mode turns the library's turnOffInterrupts()/turnOnInterrupts() into a real interrupt mask, and this file calls ACAN2517FD::end(), whose body deletes the driver task between them. end() is not the only site: the same pair brackets the library's transmit, receive, register-access and reset paths."
 #endif
 
 /* What this file assumes about the three drivers, checked by the compiler in
