@@ -808,12 +808,28 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
   }
 }
 
+/* "Is this interface usable", which is a stricter question than "is the chip
+ * there" - and for the MCP2515 the two have different answers.
+ *
+ * The one caller is the CAN-replay interface check, and what it exists to stop
+ * is a replay that reaches no wire while every page shows it transmitting. A
+ * 2515 whose runtime speed change did not take is exactly that: the object is
+ * alive, so the pointer says yes, and the transmit path then drops every frame
+ * on !can2515_initialized and counts them as send failures. That is the symptom
+ * the check was written against, arriving through the other door.
+ *
+ * The native case has always asked the usable question - native_can_initialized
+ * is cleared by a failed change as well as by a failed init - and the 2515's
+ * counterpart flag arrived later, on another branch, so this switch kept
+ * answering with the pointer alone. Recovery still works: a later change that
+ * takes sets the flag again, and this answers yes again with it.
+ */
 bool can_interface_ready(int interface) {
   switch (interface) {
     case CAN_NATIVE:
       return native_can_initialized;
     case CAN_ADDON_MCP2515:
-      return can2515 != nullptr;
+      return can2515 != nullptr && can2515_initialized;
     case CANFD_NATIVE:
     case CANFD_ADDON_MCP2518:
       return canfd != nullptr;
