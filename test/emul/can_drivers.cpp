@@ -25,6 +25,7 @@ struct ChipState {
   bool running = false;
   bool paused = false;
   bool speed_change_failed = false;
+  bool speed_change_succeeded = false;
   bool speed_change_fails = false;
   int isr_drain_requests = 0;
   uint8_t isr_drain_bus = 0xFF;
@@ -174,6 +175,10 @@ bool ACAN_ESP32::available() const {
   return !emul_can::g_chips[static_cast<int>(Chip::Native)].rx.empty();
 }
 
+uint16_t ACAN_ESP32::driverReceiveBufferSize() const {
+  return 32;  // ACAN_ESP32_Settings::mDriverReceiveBufferSize, the shipping default
+}
+
 bool ACAN_ESP32::receive(CANMessage& outMessage) {
   auto& s = emul_can::g_chips[static_cast<int>(Chip::Native)];
   if (s.rx.empty()) {
@@ -271,7 +276,11 @@ bool MCP2515_Lite::isrDrainActive() const {
 
 void MCP2515_Lite::changeSpeed(const MCP2515_Lite_Speed& new_speed) {
   auto& s = emul_can::g_chips[static_cast<int>(Chip::Mcp2515)];
+  // The two verdicts are set together, never independently: on the real chip
+  // enacting a change retires the opposite one, so a stub that only ever sets
+  // the failure would let a caller read a stale success from an earlier change.
   s.speed_change_failed = s.speed_change_fails || s.begin_error != 0;
+  s.speed_change_succeeded = !s.speed_change_failed;
 }
 
 bool MCP2515_Lite::speedChangeFailed() {
@@ -279,6 +288,13 @@ bool MCP2515_Lite::speedChangeFailed() {
   const bool failed = s.speed_change_failed;
   s.speed_change_failed = false;
   return failed;
+}
+
+bool MCP2515_Lite::speedChangeSucceeded() {
+  auto& s = emul_can::g_chips[static_cast<int>(Chip::Mcp2515)];
+  const bool ok = s.speed_change_succeeded;
+  s.speed_change_succeeded = false;
+  return ok;
 }
 
 void MCP2515_Lite::pause(bool paused) {
@@ -375,8 +391,15 @@ namespace {
 class EmulCanHal : public Esp32Hal {
  public:
   const char* name() override { return "Emulated CAN board"; }
+  // ALL FIVE, which is what "the all-interfaces HAL" means and what every pin
+  // declaration below already describes. init_CAN() consults this list first and
+  // erases anything the board does not declare, so a HAL that names three while
+  // routing five silently removes the two it forgot - and a test asserting that
+  // every requested interface came up then fails on a refusal it never asked
+  // for, pointing at the chip rather than at this list.
   std::vector<comm_interface> available_interfaces() override {
-    return {comm_interface::CanNative, comm_interface::CanAddonMcp2515, comm_interface::CanFdAddonMcp2518};
+    return {comm_interface::CanNative, comm_interface::CanFdNative, comm_interface::CanAddonMcp2515,
+            comm_interface::CanFdAddonMcp2518, comm_interface::CanFdAddonMcp2518_2};
   }
 
   gpio_num_t CAN_TX_PIN() override { return GPIO_NUM_5; }
