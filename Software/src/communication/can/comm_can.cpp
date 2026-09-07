@@ -508,7 +508,22 @@ void init_CAN() {
   }
 
   if (!fd_bus_ok) {
+    /* Only the interfaces that would have USED this bus. The second FD chip
+     * brings up its own whenever MCP2517_BUS2() names a different controller,
+     * and the block below is written for exactly that case - its pin gate reads
+     * `fd_bus_ok || !shares_first_fd_bus`. Removing its registration here made
+     * that clause unreachable: the re-read a few lines down turns the iterator
+     * into end(), the gate short-circuits true, and the chip is reported
+     * missing without ever having been attempted. plan_canfd_init() draws the
+     * same line one level up (CanFdInitPlanTest.
+     * ASecondChipOnItsOwnBusIsNotToldTheFirstBusIsMissing), so this loop was the
+     * one place on the lane that did not.
+     */
+    const bool second_shares_this_bus = esp32hal->MCP2517_BUS() == esp32hal->MCP2517_BUS2();
     for (CAN_Interface fd : {CANFD_NATIVE, CANFD_ADDON_MCP2518, CANFD_ADDON_MCP2518_2}) {
+      if (fd == CANFD_ADDON_MCP2518_2 && !second_shares_this_bus) {
+        continue;
+      }
       if (can_receivers.find(fd) != can_receivers.end()) {
         interface_unavailable(fd);
       }

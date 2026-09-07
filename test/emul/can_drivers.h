@@ -48,6 +48,19 @@ void set_speed_change_fails(Chip chip, bool fails);
 // reachable. Set it BEFORE emul_can_init_on_full_board(); reset() clears it.
 void set_fd_bus_shared_with_2515(bool shared);
 
+// Puts the SECOND FD add-on on a controller of its own, with its own SCK/SDO/SDI
+// routed. That is how the T-2CAN carries two FD channels (hw_lilygo2can.h), and
+// it is the wiring in which a failure of the first FD bus decides nothing for
+// the second chip. Set it BEFORE emul_can_init_on_full_board(); reset() clears it.
+void set_second_fd_on_its_own_bus(bool own_bus);
+
+// Makes the first FD bus's SCK a pad the MCP2515 already owns, so alloc_pins()
+// refuses it. This is the only route to a FAILED shared FD bus: a bus whose pins
+// are merely absent is declined one level earlier, by plan_canfd_init(), which
+// leaves fd_bus_ok true and reaches none of the code this exists to drive.
+// Set it BEFORE emul_can_init_on_full_board(); reset() clears it.
+void set_first_fd_bus_pin_conflict(bool conflict);
+
 // How many times the firmware asked this chip for the interrupt drain, and the
 // SPI bus it named. The request is all the host can observe - there is no
 // interrupt to install, so isrDrainActive() stays false - but WHETHER it is made
