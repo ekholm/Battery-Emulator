@@ -63,6 +63,46 @@ static ACAN2517FD* canfd_2 = nullptr;
 static ACAN2517FDSettings* settings2517_2;
 
 static bool native_can_initialized = false;
+
+/* CAN-FD is drained from the MCP2518FD's nINT interrupt, and the handler is
+ * resident in IRAM.
+ *
+ * The library also offers a no-interrupt mode (INT pin 255), and this lineage
+ * tried it: a 1 ms task read the pin level and ran the library's poll core.
+ * That mode cannot be used on ESP32, for a reason inside the library rather
+ * than in the task. With no interrupt pin, receive() polls too - it runs that
+ * same poll core from inside its own SPI transaction, and on Arduino-ESP32 a
+ * transaction is a plain FreeRTOS mutex taken with portMAX_DELAY. The nested
+ * beginTransaction() re-takes the mutex the same task already holds, with
+ * interrupts masked (the library's turnOffInterrupts() is
+ * taskDISABLE_INTERRUPTS() on this core), so core_loop never comes back from
+ * receive() and the task watchdog reboots the board five seconds later. The
+ * path is reached the first time available() is true: an idle board lives, a
+ * board with a battery on the bus reboot-loops at ordinary load. The same mode
+ * also moves transmit frames only when the tick runs, which caps FD transmit
+ * at one driver-buffer drain per tick.
+ *
+ * What the interrupt has to satisfy instead is the flash-cache rule: an
+ * interrupt taken while a flash operation has the cache off must not fetch
+ * from flash. The handler does exactly one thing - it gives the library's
+ * semaphore, so the library's own handler task (a task, never interrupt
+ * context) runs the drain - and everything it touches is resident: this
+ * trampoline (IRAM_ATTR), the library's isr() (IRAM_ATTR on the ESP32 build),
+ * xSemaphoreGiveFromISR (the framework is built with
+ * CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH unset), and Arduino's GPIO
+ * dispatcher (CONFIG_ARDUINO_ISR_IRAM=y in the shipping sdkconfig makes
+ * __onPinInterrupt IRAM and installs the GPIO ISR service with
+ * ESP_INTR_FLAG_IRAM). The canfd/canfd_2 pointers are DRAM. That chain is
+ * audited per linked image by the notes repo's ISR IRAM audit, not by reading
+ * source - -Os has emitted "inline" helpers out-of-line into flash before.
+ */
+static void IRAM_ATTR canfd_isr() {
+  canfd->isr();
+}
+
+static void IRAM_ATTR canfd_2_isr() {
+  canfd_2->isr();
+}
 //CAN logging filter settings
 uint16_t user_selected_CAN_ID_cutoff_filter = 0;  //Messages below this ID will not be logged in webserver
 
@@ -342,7 +382,7 @@ void init_CAN() {
 }
 
 static bool begin_canfd() {
-  const uint32_t errorCode2517 = canfd->begin(*settings2517, [] { canfd->isr(); });
+  const uint32_t errorCode2517 = canfd->begin(*settings2517, canfd_isr);
   canfd->poll();
   if (errorCode2517 != 0) {
     logging.print("CAN-FD Configuration error 0x");
@@ -356,7 +396,7 @@ static bool begin_canfd() {
 }
 
 static bool begin_canfd_2() {
-  const uint32_t errorCode2517_2 = canfd_2->begin(*settings2517_2, [] { canfd_2->isr(); });
+  const uint32_t errorCode2517_2 = canfd_2->begin(*settings2517_2, canfd_2_isr);
   canfd_2->poll();
   if (errorCode2517_2 != 0) {
     logging.print("CAN-FD 2 Configuration error 0x");

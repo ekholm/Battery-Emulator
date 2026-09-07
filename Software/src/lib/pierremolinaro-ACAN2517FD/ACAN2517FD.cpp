@@ -883,7 +883,10 @@ bool ACAN2517FD::dispatchReceivedMessage (const tFilterMatchCallBack inFilterMat
 //----------------------------------------------------------------------------------------------------------------------
 
 #ifdef ARDUINO_ARCH_ESP32
-  void ACAN2517FD::isr (void) {
+  // IRAM_ATTR: this runs from the GPIO interrupt, which can arrive while a flash
+  // operation has the cache off. Everything it reaches (the semaphore give, the
+  // yield) is resident too; the linked image is audited for that, not the source.
+  void IRAM_ATTR ACAN2517FD::isr (void) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE ;
     xSemaphoreGiveFromISR (mISRSemaphore, &xHigherPriorityTaskWoken) ;
     portYIELD_FROM_ISR () ;
