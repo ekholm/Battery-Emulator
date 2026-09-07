@@ -22,12 +22,14 @@
  * after the failing one was silently never brought up, including a perfectly
  * good native channel. One absent add-on cost the user their whole CAN stack.
  *
- * comm_can.cpp is not linked into this binary - the suite substitutes
- * test/emul/can.cpp, which stubs register_can_receiver() to a no-op - so the
- * behaviour cannot be driven from a test without pulling ACAN_ESP32,
- * ACAN2517FD, MCP2515, SPI and the HAL into the host build. Reading the source
- * is therefore the available oracle, and it is a real one: the property is
- * exactly "no early return survives in init_CAN's own scope".
+ * comm_can.cpp IS in this binary now (member 10 of the CAN lane compiles it,
+ * with emulated chips under the vendored drivers), so the behaviour a case can
+ * DRIVE belongs in comm_can_tests.cpp and is written there. What stays here is
+ * what running the function cannot answer: "no early return survives in
+ * init_CAN's own scope" is a property of the whole text, and a test that
+ * exercises the paths a board reaches proves nothing about the one nobody
+ * arranged. These cases read the source deliberately, not for want of a linker
+ * - which is why they declare `oracle: file-on-disk` when they are mutated.
  *
  * NOT claimed by this test: that the silent hang itself is cured. Where the
  * boot stops has not been established - init_serial() runs well before
@@ -165,12 +167,14 @@ TEST(CanInitFailSafe, EachGateAnswersFromTheStateTheRestOfTheFileReads) {
 /* The presence gates have to be READ by init_CAN(), not merely to exist.
  *
  * pins_present() and plan_canfd_init() have thorough tests of their own, and
- * every one of them would stay green if init_CAN() stopped consulting either:
- * the suite does not link comm_can.cpp, so the call sites are only reachable by
- * reading the source. That is not hypothetical here - the gates arrived as the
- * `if (...)` heads of four blocks and had to be re-expressed as short-circuits
- * when the blocks became per-interface lambdas, which is exactly the kind of
- * rewrite that drops one of four and passes.
+ * every one of them stays green if init_CAN() stops consulting either - they
+ * call those functions directly, and say nothing about the call sites. A
+ * behavioural case only reaches a gate on a board arranged to trip it, so a
+ * dropped gate is invisible until someone writes the board that needs it; the
+ * scan asks the question about all four at once. That is not hypothetical here
+ * - the gates arrived as the `if (...)` heads of four blocks and had to be
+ * re-expressed as short-circuits when the blocks became per-interface lambdas,
+ * which is exactly the kind of rewrite that drops one of four and passes.
  *
  * The FD gates are asserted with their registration test still in front of
  * them. plan_canfd_init() is computed once, before the shared bus is brought
