@@ -245,9 +245,11 @@ TEST_F(PylonLvCanInverterTest, Frame359BmsFaultBitSetOnSystemFault) {
 }
 
 TEST_F(PylonLvCanInverterTest, Frame359OverCurrentErrorBitSetWhenDischargeExceedsLimit) {
-  datalayer.battery.status.reported_current_dA = 200;       // reported current
-  datalayer.battery.status.max_discharge_current_dA = 180;  // limit is lower
-  // current >= limit + 10 (200 >= 180 + 10 = 190): overcurrent
+  // reported_current_dA follows the datalayer's "+ = charging" convention, so a
+  // DISCHARGE over-current is a sufficiently negative current: the check is
+  // current <= -(max_discharge_current_dA + 10), here -200 <= -190.
+  datalayer.battery.status.reported_current_dA = -200;
+  datalayer.battery.status.max_discharge_current_dA = 180;
   datalayer.battery.status.real_soc = 5000;
 
   tick_1s();
@@ -263,13 +265,14 @@ TEST_F(PylonLvCanInverterTest, Frame35EContainsManufacturerName) {
   tick_1s();
   const CAN_frame* f = find_frame_with_id(0x35E);
   ASSERT_NE(f, nullptr);
-  // "BatEmuLV" ASCII
-  EXPECT_EQ(f->data.u8[0], 'B');
-  EXPECT_EQ(f->data.u8[1], 'a');
-  EXPECT_EQ(f->data.u8[2], 't');
-  EXPECT_EQ(f->data.u8[3], 'E');
-  EXPECT_EQ(f->data.u8[4], 'm');
-  EXPECT_EQ(f->data.u8[5], 'u');
-  EXPECT_EQ(f->data.u8[6], 'L');
-  EXPECT_EQ(f->data.u8[7], 'V');
+  // MANUFACTURER_NAME, "PYLON   " - eight bytes, space-padded. Inverters match
+  // on this string, so it is the vendor's name and not this firmware's.
+  EXPECT_EQ(f->data.u8[0], 'P');
+  EXPECT_EQ(f->data.u8[1], 'Y');
+  EXPECT_EQ(f->data.u8[2], 'L');
+  EXPECT_EQ(f->data.u8[3], 'O');
+  EXPECT_EQ(f->data.u8[4], 'N');
+  EXPECT_EQ(f->data.u8[5], ' ');
+  EXPECT_EQ(f->data.u8[6], ' ');
+  EXPECT_EQ(f->data.u8[7], ' ');
 }
