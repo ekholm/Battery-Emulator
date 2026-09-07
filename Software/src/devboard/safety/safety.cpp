@@ -673,15 +673,25 @@ void graceful_restart() {
   emulator_restart_request_millis = now > 0 ? now : 1;
 }
 
+// The gate owns the deadline numbers so the race policy is one testable
+// predicate; these pin that its constants and our legacy names cannot drift.
+static_assert(RESTART_PAUSED_DEADLINE_MS == INTERVAL_5_S, "the paused restart deadline moved away from INTERVAL_5_S");
+static_assert(RESTART_HARD_DEADLINE_MS == INTERVAL_10_S, "the hard restart deadline moved away from INTERVAL_10_S");
+
 void update_restart_progress() {
-  // If is a restart has been requested, check the time and restart if the
+  // If a restart has been requested, check the time and restart if the
   // conditions are met.
+  //
+  // The deadline no longer fires while the OTA confirmation this restart armed
+  // is still waiting for the main task to write it - that race restarted
+  // boards with a fresh image unconfirmed, and the bootloader reverted good
+  // updates. Policy and cap live in restart_may_fire(), beside the gate it
+  // defers to, where the race window is host-tested.
 
   if (emulator_restart_request_millis > 0) {
     uint32_t now = millis();
     uint32_t elapsed = now - emulator_restart_request_millis;
-    // Restart after 5s if the emulator has paused. Always restart after 10s.
-    if ((elapsed > INTERVAL_5_S && emulator_pause_status == PAUSED) || elapsed > INTERVAL_10_S) {
+    if (restart_may_fire(elapsed, emulator_pause_status == PAUSED, ota_confirm_pending())) {
       ESP.restart();
     }
   }

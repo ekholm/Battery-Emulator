@@ -171,7 +171,17 @@ class ESPClass {
   }
 
   uint64_t getEfuseMac() { return 0xAABBCCDDEEFFULL; }
-  void restart() {}
+
+  /* The host cannot reboot, but WHETHER the firmware asked to is the whole
+     observable of the restart-deadline tests: update_restart_progress() either
+     calls this or it does not, and an OTA confirmation that has not been
+     written yet is the difference. Counting is the emulation. */
+  void restart() { ++restarts_requested_; }
+  unsigned restarts_requested() const { return restarts_requested_; }
+  void clear_restarts() { restarts_requested_ = 0; }
+
+ private:
+  unsigned restarts_requested_ = 0;
 };
 
 extern ESPClass ESP;
