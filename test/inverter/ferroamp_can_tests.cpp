@@ -141,23 +141,53 @@ TEST_F(FerroampCanInverterTest, CellVoltageFramePassesThroughLfpValues) {
   EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 2900u);
 }
 
-TEST_F(FerroampCanInverterTest, CellVoltageFrameRemapsNonLfpValues) {
-  // 0x4231 — Non-LFP: linear interpolation [2500-4200] -> [2500-3400]
+/* 0x4231 - Non-LFP: the DONOR cell voltages are not reported at all.
+ *
+ * Ferroamp only accepts an LFP-shaped pack, and a non-LFP donor's voltage/SOC
+ * curve is a different shape, not a different range - so scaling the donor's
+ * own cell voltages into an LFP window (which is what this driver used to do)
+ * still hands the inverter a curve it does not recognise. The driver now
+ * estimates a Pylontech-LFP cell voltage from SOC instead and reports that,
+ * spread by PYLON_CELL_SPREAD_mV either side.
+ *
+ * So the property is INDEPENDENCE from the donor cell voltages, and it is
+ * asserted that way rather than by pinning one output: pinning a number alone
+ * would still pass if the remap came back under a new name. The curve point
+ * used here is 50% -> 3310 mV, read from the table in FERROAMP-CAN.cpp.
+ */
+TEST_F(FerroampCanInverterTest, CellVoltageFrameReportsAnLfpCurveForNonLfpDonors) {
   datalayer.battery.info.chemistry = battery_chemistry_enum::NCA;
-  datalayer.battery.status.cell_max_voltage_mV = 4200;  // -> 3400
-  datalayer.battery.status.cell_min_voltage_mV = 2500;  // -> 2500
+  datalayer.battery.status.reported_soc = 5000;  // 50% -> 3310 mV on the curve
+  datalayer.battery.status.cell_max_voltage_mV = 4200;
+  datalayer.battery.status.cell_min_voltage_mV = 2500;
 
   ferro->update_values();
   send_inverter_request(0x00);
 
   const CAN_frame* f = find_frame_with_id(0x4231);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 3400u);
-  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 2500u);
+  const uint16_t reported_max = u16_le(f->data.u8[0], f->data.u8[1]);
+  const uint16_t reported_min = u16_le(f->data.u8[2], f->data.u8[3]);
+  EXPECT_EQ(reported_max, 3313u) << "50% SOC is 3310 mV on the curve, + the 3 mV spread";
+  EXPECT_EQ(reported_min, 3307u) << "50% SOC is 3310 mV on the curve, - the 3 mV spread";
+
+  // Same SOC, wildly different donor cells: the frame must not move.
+  clear_transmitted_frames();
+  datalayer.battery.status.cell_max_voltage_mV = 3900;
+  datalayer.battery.status.cell_min_voltage_mV = 3600;
+  ferro->update_values();
+  send_inverter_request(0x00);
+  const CAN_frame* g = find_frame_with_id(0x4231);
+  ASSERT_NE(g, nullptr);
+  EXPECT_EQ(u16_le(g->data.u8[0], g->data.u8[1]), reported_max)
+      << "the reported cell voltage still follows the donor's own cells, so a non-LFP pack is back to "
+         "handing Ferroamp a curve it does not recognise";
+  EXPECT_EQ(u16_le(g->data.u8[2], g->data.u8[3]), reported_min);
 }
 
 TEST_F(FerroampCanInverterTest, TemperatureFrameEncodesPerCellMaxAndMin) {
-  // 0x4241 — temperature_max/min_dC, no offset (raw dC, signed)
+  // 0x4241 - temperature_max/min_dC carried with the protocol's +1000 dC offset
+  // (TEMPERATURE_OFFSET_dC), so the field is unsigned on the wire and 0 dC is 1000.
   datalayer.battery.status.temperature_max_dC = 350;  // 35.0 °C
   datalayer.battery.status.temperature_min_dC = 50;   //  5.0 °C
 
@@ -166,8 +196,8 @@ TEST_F(FerroampCanInverterTest, TemperatureFrameEncodesPerCellMaxAndMin) {
 
   const CAN_frame* f = find_frame_with_id(0x4241);
   ASSERT_NE(f, nullptr);
-  EXPECT_EQ(static_cast<int16_t>(u16_le(f->data.u8[0], f->data.u8[1])), 350);
-  EXPECT_EQ(static_cast<int16_t>(u16_le(f->data.u8[2], f->data.u8[3])), 50);
+  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 1350u) << "35.0 C + the 100.0 C offset";
+  EXPECT_EQ(u16_le(f->data.u8[2], f->data.u8[3]), 1050u) << "5.0 C + the 100.0 C offset";
 }
 
 TEST_F(FerroampCanInverterTest, StatusByteReflectsChargingCurrent) {
@@ -200,6 +230,10 @@ TEST_F(FerroampCanInverterTest, StatusByteReflectsIdle) {
 
 TEST_F(FerroampCanInverterTest, FaultModeSetsStatusByteSleepAndForbidenBytes) {
   datalayer.system.status.system_status = FAULT;
+  // A distinctive SOC, because byte 3 of the same frame carries it: leaving the
+  // fixture's default here makes "the fault blanked the SOC byte" and "the SOC
+  // was zero anyway" the same observation, and the assertion below stops biting.
+  datalayer.battery.status.reported_soc = 4200;
   ferro->update_values();
   send_inverter_request(0x00);
 
@@ -209,10 +243,14 @@ TEST_F(FerroampCanInverterTest, FaultModeSetsStatusByteSleepAndForbidenBytes) {
 
   const CAN_frame* prot = find_frame_with_id(0x4281);
   ASSERT_NE(prot, nullptr);
+  // Bytes 0 and 1 are the protection flags. Bytes 2 and 3 are NOT: 2 is the
+  // heartbeat counter stamped at transmit time and 3 is the reported SOC, so
+  // asserting 0xAA across all four would be asserting over two unrelated
+  // fields - and would red on nothing but the heartbeat's own value.
   EXPECT_EQ(prot->data.u8[0], 0xAAu);
   EXPECT_EQ(prot->data.u8[1], 0xAAu);
-  EXPECT_EQ(prot->data.u8[2], 0xAAu);
-  EXPECT_EQ(prot->data.u8[3], 0xAAu);
+  EXPECT_EQ(prot->data.u8[3], datalayer.battery.status.reported_soc / 100)
+      << "byte 3 of 0x4281 is the SOC, and a fault must not blank it";
 }
 
 TEST_F(FerroampCanInverterTest, NormalModeProtectionBytesAreClear) {
@@ -270,8 +308,8 @@ TEST_F(FerroampCanInverterTest, ZeroUserSelectedDoesNotOverrideDefaults) {
 
   const CAN_frame* f = find_frame_with_id(0x7321);
   ASSERT_NE(f, nullptr);
-  // Default TOTAL_CELL_AMOUNT = 120
-  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 120u);
-  // Default MODULES_IN_SERIES = 4
-  EXPECT_EQ(f->data.u8[2], 4u);
+  // Defaults describe a Force-H3-like pack: TOTAL_CELL_AMOUNT = 576 (3 modules
+  // x 32 cells x 6), MODULES_IN_SERIES = 3.
+  EXPECT_EQ(u16_le(f->data.u8[0], f->data.u8[1]), 576u);
+  EXPECT_EQ(f->data.u8[2], 3u);
 }
