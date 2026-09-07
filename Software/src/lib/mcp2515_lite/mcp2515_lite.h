@@ -5,6 +5,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "mcp2515_iram_spi.h"
+#include "mcp2515_rx_ring.h"
 
 /* MCP2515_Lite: Minimal MCP2515 library for Arduino+FreeRTOS.
 
@@ -33,6 +35,16 @@ Features:
 // driver is used at, with room to spare.
 #define MCP2515_LITE_MODE_CHANGE_ATTEMPTS 5
 #define MCP2515_LITE_MODE_CHANGE_POLL_MS 2
+
+// Frames the interrupt drain can hold while no task is running to take them.
+// A flash erase parks every task for tens of milliseconds, so the depth is what
+// decides whether frames survive one; 64 covers 128 ms at 500 frames/s and
+// costs 1 KB of DRAM.
+#define MCP2515_LITE_ISR_RING_DEPTH 64
+// How many times one interrupt re-reads CANINTF before handing back. The chip
+// holds two receive buffers, so a healthy drain finishes in one pass; the bound
+// is what stops a stuck flag from turning the interrupt into a spin.
+#define MCP2515_LITE_ISR_DRAIN_PASSES 4
 
 // This has the same layout as CAN_frame (with only 8 data bytes)
 typedef struct {
@@ -72,6 +84,23 @@ class MCP2515_Lite {
   // by then this caller is long gone.
   void changeSpeed(const MCP2515_Lite_Speed& new_speed);
 
+  /* Ask for received frames to be drained inside the interrupt rather than by
+   * the driver task.
+   *
+   * Only the caller can know this is safe: the drain owns the SPI bus at
+   * moments no task can be asked about, so the chip must be the only device
+   * on `spi_bus`. Call before begin(); begin() decides whether it can be
+   * honoured and isrDrainActive() reports what actually happened.
+   */
+  void useIsrDrain(uint8_t spi_bus);
+  inline bool isrDrainActive() const { return _isr_drain_enabled; }
+
+  // Interrupt-drain counters, all zero while the drain is inactive.
+  inline uint32_t isrFramesDrained() const { return _isr_frames; }
+  inline uint32_t isrFramesDropped() const { return _isr_ring.dropped(); }
+  inline uint32_t isrBusDeferrals() const { return _isr_bus_deferrals; }
+  inline uint32_t isrBusTimeouts() const { return _iram_spi.timeouts(); }
+
   // True once if the last speed change the task enacted did not take: the
   // bitrate was unreachable from this oscillator, or the chip did not report
   // the mode that was asked for. Consumed on read, like hasErrors(), so the
@@ -92,6 +121,29 @@ class MCP2515_Lite {
     _errors = false;
     return ret;
   }
+
+  // Interrupt drain. Requested by useIsrDrain(), enabled by begin()
+  // only once the register-level SPI is bound and the interrupt is installed
+  // with ESP_INTR_FLAG_IRAM.
+  Mcp2515IramSpi _iram_spi;
+  Mcp2515RxRing<MCP2515_Lite_Frame, MCP2515_LITE_ISR_RING_DEPTH> _isr_ring;
+  bool _isr_drain_requested = false;
+  uint8_t _isr_spi_bus = 0;
+  bool _isr_interrupt_installed = false;
+  volatile bool _isr_drain_enabled = false;
+  volatile uint32_t _isr_frames = 0;
+  volatile uint32_t _isr_bus_deferrals = 0;
+  uint32_t _isr_dropped_reported = 0;
+
+  // Who owns the SPI bus. Two flags rather than a lock: a lock taken in the
+  // interrupt while a task holds it would spin for the whole of the flash
+  // window this drain exists to keep working through. Only the task ever
+  // waits.
+  volatile bool _task_wants_bus = false;
+  volatile bool _isr_owns_bus = false;
+  uint32_t _task_bus_depth = 0;
+
+  // Background task for handling sequential blocking transfers
 
  private:
   SPIClass& _spi;
@@ -125,4 +177,24 @@ class MCP2515_Lite {
 
   // ISR handler for the CAN interrupt pin
   static void IRAM_ATTR mcp2515_isr_handler(void* arg);
+
+  // SPI bus ownership between the driver task and the interrupt. IRAM_ATTR
+  // is on the definitions rather than here: the attribute names a section per
+  // occurrence, and repeating it on the declaration makes the two disagree.
+  void busAcquireTask();
+  void busReleaseTask();
+  bool busTryAcquireIsr();
+  void busReleaseIsr();
+
+  // Read every frame the chip is holding into the ring. Runs in the
+  // interrupt, and in the task when the interrupt had to defer to it - never
+  // in both at once, because the caller holds the bus.
+  void drainRx();
+
+  // Install the interrupt with ESP_INTR_FLAG_IRAM. Returns false if the GPIO
+  // interrupt service is already installed by someone else, since then its
+  // allocation flags are not ours to know.
+  bool installIsrDrainInterrupt();
+
+  // ISR handler for the CAN interrupt pin
 };

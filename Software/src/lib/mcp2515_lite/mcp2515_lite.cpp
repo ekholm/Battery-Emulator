@@ -1,5 +1,7 @@
 #include "mcp2515_lite.h"
 #include <Arduino.h>
+#include <driver/gpio.h>
+#include <esp_intr_alloc.h>
 
 #include "src/devboard/utils/logging.h"
 
@@ -30,6 +32,8 @@
 #define STATUS_TX1IF 0x20
 #define STATUS_TX2IF 0x80
 
+#define CANINTF_RX0IF 0x01
+#define CANINTF_RX1IF 0x02
 #define CANINTF_TX0IF 0x04
 #define CANINTF_TX1IF 0x08
 #define CANINTF_TX2IF 0x10
@@ -39,9 +43,7 @@
 #define EFLG_EWARN 0x01
 
 static inline void packExtendedId(uint8_t* buffer, uint32_t id);
-static inline uint32_t unpackExtendedId(const uint8_t* buffer);
 static inline void packStandardId(uint8_t* buffer, uint32_t id);
-static inline uint32_t unpackStandardId(const uint8_t* buffer);
 
 MCP2515_Lite::MCP2515_Lite(SPIClass& spi, uint8_t cs, uint8_t int_pin) : _spi(spi), _cs(cs), _int_pin(int_pin) {
 
@@ -63,7 +65,11 @@ MCP2515_Lite::~MCP2515_Lite() {
     vQueueDelete(_rx_queue);
     _rx_queue = nullptr;
   }
-  detachInterrupt(digitalPinToInterrupt(_int_pin));
+  if (_isr_interrupt_installed) {
+    gpio_isr_handler_remove((gpio_num_t)_int_pin);
+  } else {
+    detachInterrupt(digitalPinToInterrupt(_int_pin));
+  }
 }
 
 static bool calculateMCP2515Config(uint32_t f_osc, uint32_t can_rate, uint8_t* cnf) {
@@ -150,7 +156,12 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   digitalWrite(_cs, HIGH);
 
   pinMode(_int_pin, INPUT_PULLUP);
-  attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING);
+  // The interrupt drain is not offered to autodetection: it runs before the
+  // chip is configured and tears its own interrupt down with detachInterrupt().
+  _isr_interrupt_installed = _isr_drain_requested && !skip_task_start && installIsrDrainInterrupt();
+  if (!_isr_interrupt_installed) {
+    attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING);
+  }
 
   // 1. Reset and configure the MCP2515
 
@@ -174,12 +185,56 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   // Leave config mode and enter normal mode
   modifyRegister(REG_CANCTRL, 0xE0, loopback ? CANCTRL_REQOP_LOOPBACK : CANCTRL_REQOP_NORMAL);
 
+  if (_isr_interrupt_installed) {
+    // One more Arduino transaction, so the peripheral carries this driver's
+    // settings at the moment the register-level service snapshots them.
+    readRegister(REG_CANSTAT);
+    if (_iram_spi.bind(_isr_spi_bus, _cs)) {
+      _isr_drain_enabled = true;
+    } else {
+      DEBUG_PRINTF("MCP2515: no register-level SPI for bus %u, draining in the task\n", _isr_spi_bus);
+    }
+  }
+
   if (!skip_task_start) {
     // Start the background task
     xTaskCreate(canTask, "MCP2515_Lite", MCP2515_LITE_TASK_STACK_SIZE, this, MCP2515_LITE_TASK_PRIORITY,
                 &_can_task_handle);
   }
 
+  return true;
+}
+
+void MCP2515_Lite::useIsrDrain(uint8_t spi_bus) {
+  _isr_drain_requested = true;
+  _isr_spi_bus = spi_bus;
+}
+
+/* Arduino's attachInterrupt() installs the GPIO interrupt service without
+ * ESP_INTR_FLAG_IRAM (CONFIG_ARDUINO_ISR_IRAM is off in this build), and a
+ * service allocated that way is masked for the whole of a flash write - which
+ * is the one window the drain exists to keep working through. So install the
+ * service here with the flag instead, and register through the IDF rather than
+ * through Arduino's dispatcher, which is itself flash-resident.
+ */
+bool MCP2515_Lite::installIsrDrainInterrupt() {
+  const esp_err_t installed = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+  if (installed == ESP_ERR_INVALID_STATE) {
+    // Someone installed the service first and its allocation flags are not
+    // ours to know. Claiming the drain would claim a window it may not have.
+    DEBUG_PRINTF("MCP2515: GPIO interrupt service already installed, draining in the task\n");
+    return false;
+  }
+  if (installed != ESP_OK) {
+    DEBUG_PRINTF("MCP2515: GPIO interrupt service install failed (0x%x)\n", installed);
+    return false;
+  }
+  if (gpio_set_intr_type((gpio_num_t)_int_pin, GPIO_INTR_NEGEDGE) != ESP_OK) {
+    return false;
+  }
+  if (gpio_isr_handler_add((gpio_num_t)_int_pin, mcp2515_isr_handler, this) != ESP_OK) {
+    return false;
+  }
   return true;
 }
 
@@ -198,6 +253,16 @@ bool MCP2515_Lite::receiveFrame(MCP2515_Lite_Frame& msg) {
   if (_rx_overflow) {
     DEBUG_PRINTF("MCP2515 RX queue overflow!\n");
     _rx_overflow = false;
+  }
+  if (_isr_drain_enabled) {
+    // Reported from here rather than from the drain: the drain may be
+    // running with the flash cache off, where a printf is a crash.
+    const uint32_t dropped = _isr_ring.dropped();
+    if (dropped != _isr_dropped_reported) {
+      DEBUG_PRINTF("MCP2515 ISR ring overflow, %u frames lost!\n", dropped);
+      _isr_dropped_reported = dropped;
+    }
+    return _isr_ring.pop(msg);
   }
   // Grab a message from the RX queue if available
   return (xQueueReceive(_rx_queue, &msg, 0) == pdTRUE);
@@ -222,11 +287,114 @@ void MCP2515_Lite::spiTransactionBlocking(const uint8_t* tx_data, uint8_t* rx_da
   // This should send as a single transaction, yielding to FreeRTOS and
   // returning after completion.
 
+  busAcquireTask();
   _spi.beginTransaction(spiSettings);
   digitalWrite(_cs, LOW);
   _spi.transferBytes(tx_data, rx_data, length);
   digitalWrite(_cs, HIGH);
   _spi.endTransaction();
+  busReleaseTask();
+}
+
+/* Bus ownership between this task and the interrupt.
+*
+* Both sides announce themselves before looking at the other, which is what
+* makes the pair exclusive without a lock: whichever announces second sees the
+* first. The task is the only side that ever waits, and it waits at most one
+* 14-byte transfer; the interrupt gives up instead, because the case it must
+* survive - a flash write - is exactly the case where the task holding the bus
+* is frozen and would never hand it back in time.
+*/
+void MCP2515_Lite::busAcquireTask() {
+  if (_task_bus_depth++ > 0) {
+    return;
+  }
+  _task_wants_bus = true;
+  __sync_synchronize();
+  while (_isr_owns_bus) {}
+}
+
+void MCP2515_Lite::busReleaseTask() {
+  if (--_task_bus_depth > 0) {
+    return;
+  }
+  __sync_synchronize();
+  _task_wants_bus = false;
+}
+
+bool IRAM_ATTR MCP2515_Lite::busTryAcquireIsr() {
+  if (_task_wants_bus) {
+    return false;
+  }
+  _isr_owns_bus = true;
+  __sync_synchronize();
+  if (_task_wants_bus) {
+    // The task announced itself while we were announcing ourselves. It is
+    // waiting on us, so back off rather than deadlock the pair.
+    _isr_owns_bus = false;
+    return false;
+  }
+  return true;
+}
+
+void IRAM_ATTR MCP2515_Lite::busReleaseIsr() {
+  __sync_synchronize();
+  _isr_owns_bus = false;
+}
+
+/* Read every frame the chip is holding into the ring.
+*
+* Runs in the interrupt, and in the task when the interrupt deferred to it -
+* never in both at once, because whoever calls it holds the bus, so the ring
+* keeps its single producer.
+*
+* Everything reachable from here must be resident when the flash cache is off:
+* the register-level SPI service, the ring and the decode are all headers or
+* IRAM_ATTR for that reason, and nothing here logs.
+*/
+void IRAM_ATTR MCP2515_Lite::drainRx() {
+  uint8_t cmd_frame[MCP2515_RXB_LENGTH + 1];
+  uint8_t rx_frame[MCP2515_RXB_LENGTH + 1];
+  MCP2515_Lite_Frame can_frame;
+
+  for (uint32_t pass = 0; pass < MCP2515_LITE_ISR_DRAIN_PASSES; pass++) {
+    cmd_frame[0] = CMD_READ;
+    cmd_frame[1] = REG_CANINTF;
+    cmd_frame[2] = 0x00;
+    /* A transfer that did not complete leaves rx_frame holding whatever was
+    * there, and acting on it is worse than not draining: a
+    * fabricated CANINTF claims receive flags that are not set, and the
+    * buffer reads below then publish frames that were never on the wire.
+    * Give up instead - the pin is still low, so the task's level check
+    * picks the real frames up.
+    */
+    if (!_iram_spi.transfer(cmd_frame, rx_frame, 3)) {
+      return;
+    }
+    const uint8_t intf = rx_frame[2];
+
+    if ((intf & (CANINTF_RX0IF | CANINTF_RX1IF)) == 0) {
+      // Nothing received. Transmit completions and errors are the task's
+      // work, and the interrupt notifies it for those.
+      return;
+    }
+
+    for (uint8_t buffer = 0; buffer < 2; buffer++) {
+      if ((intf & (1 << buffer)) == 0) {
+        continue;
+      }
+      // READ RX BUFFER clears RXnIF in hardware when chip select is
+      // released, so the drain needs no follow-up write to clear it.
+      cmd_frame[0] = CMD_READ_RX_BUFFER | (buffer * 4);
+      if (!_iram_spi.transfer(cmd_frame, rx_frame, MCP2515_RXB_LENGTH + 1)) {
+        return;
+      }
+      mcp2515_decode_rx_buffer(&rx_frame[1], can_frame);
+      if (_isr_ring.push(can_frame)) {
+        _isr_frames = _isr_frames + 1;
+      }
+    }
+  }
 }
 
 void MCP2515_Lite::canTask(void* pvParameters) {
@@ -283,29 +451,25 @@ void MCP2515_Lite::canTask(void* pvParameters) {
 
       // 3. Process any RX interrupts sequentially (clears receive flags)
 
-      for (int i = 0; i < 2; i++) {
-        // Is there a frame in this slot to read?
-        if (intf & (1 << i)) {
-          cmd_frame[0] = CMD_READ_RX_BUFFER | (i * 4);  // 0x90 (RXB0) or 0x94 (RXB1)
+      // While the interrupt drains, receive is entirely its business and the ring
+      // is the queue - two producers would race on the ring's head, and one of
+      // them cannot be locked out.
+      if (!self->_isr_drain_enabled) {
+        for (int i = 0; i < 2; i++) {
+          // Is there a frame in this slot to read?
+          if (intf & (1 << i)) {
+            cmd_frame[0] = CMD_READ_RX_BUFFER | (i * 4);  // 0x90 (RXB0) or 0x94 (RXB1)
 
-          // Write 1 command byte + 13 payload read bytes
-          self->spiTransactionBlocking(cmd_frame, rx_frame, 14);
+            // Write 1 command byte + 13 payload read bytes
+            self->spiTransactionBlocking(cmd_frame, rx_frame, 14);
 
-          can_frame.flags = 0;
-          if (rx_frame[2] & 0x08) {  // IDE bit
-            can_frame.ext = true;
-            can_frame.id = unpackExtendedId(&rx_frame[1]);
-          } else {
-            can_frame.ext = false;
-            can_frame.id = unpackStandardId(&rx_frame[1]);
+            mcp2515_decode_rx_buffer(&rx_frame[1], can_frame);
+
+            if (xQueueSend(self->_rx_queue, &can_frame, 0) != pdTRUE) {
+              self->_rx_overflow = true;
+            }
+            work_done = true;
           }
-          can_frame.dlc = rx_frame[5] > 8 ? 8 : rx_frame[5];  // 8 bytes maximum
-          memcpy(can_frame.data, &rx_frame[6], can_frame.dlc);
-
-          if (xQueueSend(self->_rx_queue, &can_frame, 0) != pdTRUE) {
-            self->_rx_overflow = true;
-          }
-          work_done = true;
         }
       }
 
@@ -400,6 +564,16 @@ void MCP2515_Lite::canTask(void* pvParameters) {
         work_done = true;
       }
     } while (work_done);
+
+    // The interrupt is edge triggered, so anything that arrived while it was
+    // deferring to this task sits behind a /INT that has already fallen and
+    // will not fall again. Reading the level here is what collects it; the
+    // 1000 ms wake above is only a backstop.
+    if (self->_isr_drain_enabled && digitalRead(self->_int_pin) == LOW) {
+      self->busAcquireTask();
+      self->drainRx();
+      self->busReleaseTask();
+    }
   }
 }
 
@@ -483,10 +657,30 @@ bool MCP2515_Lite::enterMode(uint8_t reqop) {
   return false;
 }
 
-// ISR called when MCP2515 signals an interrupt via the /INT pin.
+/* ISR called when MCP2515 signals an interrupt via the /INT pin.
+ *
+ * With the drain enabled the received frames leave the chip here, before the
+ * task is involved at all - that is what survives a flash write, during which
+ * every task on both cores is frozen but an IRAM interrupt still runs. The task
+ * is still notified, because transmit completions, errors and speed changes are
+ * its work, and because it is what re-checks the pin level afterwards.
+ *
+ * vTaskNotifyGiveFromISR() is itself IRAM-resident in this build
+ * (CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH is off), which is what makes it
+ * legal to call from here at all.
+ */
 void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg) {
   MCP2515_Lite* instance = static_cast<MCP2515_Lite*>(arg);
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+  if (instance->_isr_drain_enabled) {
+    if (instance->busTryAcquireIsr()) {
+      instance->drainRx();
+      instance->busReleaseIsr();
+    } else {
+      instance->_isr_bus_deferrals = instance->_isr_bus_deferrals + 1;
+    }
+  }
 
   // Notify task that there's an interrupt to handle
   if (instance->_can_task_handle) {
@@ -507,16 +701,7 @@ static inline void packExtendedId(uint8_t* buffer, uint32_t id) {
   buffer[3] = id;
 }
 
-static inline uint32_t unpackExtendedId(const uint8_t* buffer) {
-  return ((uint32_t)buffer[0] << 21) | ((uint32_t)(buffer[1] & 0xE0) << 13) | ((uint32_t)(buffer[1] & 0x03) << 16) |
-         ((uint32_t)buffer[2] << 8) | buffer[3];
-}
-
 static inline void packStandardId(uint8_t* buffer, uint32_t id) {
   buffer[0] = id >> 3;
   buffer[1] = (id & 0x07) << 5;
-}
-
-static inline uint32_t unpackStandardId(const uint8_t* buffer) {
-  return ((uint32_t)buffer[0] << 3) | (buffer[1] >> 5);
 }
