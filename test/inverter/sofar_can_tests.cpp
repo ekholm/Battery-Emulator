@@ -353,7 +353,7 @@ TEST_F(SofarCanInverterTest, TheChargeLimitStillPermitsChargeAtTheSocTheConsentC
 
   const CAN_frame* f30F = find_frame_with_id(0x30F);
   ASSERT_NE(f30F, nullptr);
-  EXPECT_EQ(f30F->data.u8[1], 0x01u) << "while the consent flag forbids it - the two disagree at the cap (R382, open)";
+  EXPECT_EQ(f30F->data.u8[1], 0x01u) << "while the consent flag forbids it - the two disagree at the cap";
 }
 
 TEST_F(SofarCanInverterTest, TheChargeOnlyThresholdIsOnePercentNotTwo) {
