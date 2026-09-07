@@ -72,11 +72,10 @@ TEST(FlashEraseGranularity, NoLaterLineTurnsTheSelectionBackOff) {
   ASSERT_LT(enabled_at, lines.size()) << "the enabling line is missing entirely";
 
   for (size_t i = enabled_at + 1; i < lines.size(); i++) {
-    const bool disables = lines[i].find(kEraseOption) != std::string::npos &&
-                          lines[i].find("is not set") != std::string::npos;
-    EXPECT_FALSE(disables) << "line " << (i + 1) << " disables `" << kEraseOption
-                           << "` after it was selected on line " << (enabled_at + 1)
-                           << "; the overlay is applied in file order, so the last line wins.";
+    const bool disables =
+        lines[i].find(kEraseOption) != std::string::npos && lines[i].find("is not set") != std::string::npos;
+    EXPECT_FALSE(disables) << "line " << (i + 1) << " disables `" << kEraseOption << "` after it was selected on line "
+                           << (enabled_at + 1) << "; the overlay is applied in file order, so the last line wins.";
   }
 }
 
