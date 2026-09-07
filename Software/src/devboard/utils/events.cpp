@@ -646,8 +646,9 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_OTA_UPDATE_TIMEOUT:
       return "OTA update timed out!";
     case EVENT_OTA_ROLLBACK:
-      return "A firmware update did not start up and was rolled back. This board is running the previous firmware; "
-             "the log line names which version failed.";
+      return "A firmware update never confirmed itself, so this board is running the previous firmware. Either it "
+             "failed to start, or it was reverted before its confirmation window ended - the stored state cannot "
+             "tell those apart. The log line names which version was dropped.";
     case EVENT_RECOVERY_START:
       return "CAUTION! Emergency low charge recovery started! Make sure battery cells do not overheat!";
     case EVENT_RECOVERY_END:

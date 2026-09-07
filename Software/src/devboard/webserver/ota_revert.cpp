@@ -7,17 +7,42 @@
 // number that drifts from the real threshold is worse than no number.
 #include "../utils/ota_confirm_gate.h"
 
+/* The running image's own confirmation state is INDEPENDENT of everything the
+   passive slot is doing: one is about the slot you would leave, the other about
+   the image you are on. They were not independent in the code - the two early
+   returns below sit above the clause that appended the note, so after an
+   in-window revert (which leaves the departing image ABORTED, hence
+   passive_marked_bad) the page could say only that the slot you came from is
+   dead, and never that the image you had just landed on was itself unconfirmed
+   for the next 42 seconds. That case did not exist until the write side became
+   target-aware and the reverted-into image started arriving PENDING_VERIFY,
+   which was measured on the bench twelve seconds after an in-window revert.
+
+   So the fact is stated in every outcome. The CONSEQUENCE is not: "this revert
+   is one-way" only means something where a revert is being offered, and the
+   disabled branches would be promising a trip they are refusing to sell. */
+static std::string pending_verify_note(bool running_pending_verify) {
+  if (!running_pending_verify) {
+    return "";
+  }
+  return " NOTE: the CURRENT firmware has not finished its " + std::to_string(OTA_CONFIRM_UPTIME_MS / 1000) +
+         " second confirmation yet, so a reboot before it does marks it as failed.";
+}
+
 OtaRevertDecision ota_revert_assessment(bool passive_has_valid_image, const std::string& passive_version,
                                         bool passive_marked_bad, bool running_pending_verify) {
+  const std::string pending_note = pending_verify_note(running_pending_verify);
   if (!passive_has_valid_image) {
     return {false,
             "No previous firmware to revert to: the passive OTA slot holds no valid image. A board "
-            "flashed over USB writes only one slot; the other fills on the first OTA update."};
+            "flashed over USB writes only one slot; the other fills on the first OTA update." +
+                pending_note};
   }
   if (passive_marked_bad) {
     return {false,
             "The previous firmware is marked failed: an automatic rollback already rejected it, and "
-            "the bootloader refuses to boot it again. Perform a fresh OTA update instead."};
+            "the bootloader refuses to boot it again. Perform a fresh OTA update instead." +
+                pending_note};
   }
   // The offered text is interpolated verbatim into a JS confirm('...') and an
   // HTML title="..." on the promise it contains no quote characters. The
@@ -34,11 +59,12 @@ OtaRevertDecision ota_revert_assessment(bool passive_has_valid_image, const std:
                      ")? The board will reboot into the older image. WARNING: settings saved by the "
                      "current firmware may not be readable by the older one - check the settings "
                      "page after the revert and reconfigure anything that looks wrong.";
+  text += pending_note;
   if (running_pending_verify) {
     /* Re-decided once confirm-after-run reached main: this window is no longer a
        composition curiosity, it follows EVERY update, so the note has to be worth
        reading rather than merely true.
-    
+
        The mechanism is not what the first version said. Reverting does not mark
        the running image failed - esp_ota_set_boot_partition() only writes a new
        otadata entry for the target slot. It is the REBOOT that does it: with
@@ -47,7 +73,7 @@ OtaRevertDecision ota_revert_assessment(bool passive_has_valid_image, const std:
        confirming is failed by definition, whether or not a revert was involved.
        The offer is then withdrawn on the way back, because passive_marked_bad
        above covers ABORTED.
-    
+
        Which is why the useful sentence is about WAITING, not about reverting: the
        one-way-ness is temporary, and a user who might want this image back only
        has to let it confirm first.
@@ -62,10 +88,9 @@ OtaRevertDecision ota_revert_assessment(bool passive_has_valid_image, const std:
        it would on an outside-the-window revert. Nothing here changes: the
        running image is still failed by the reboot, and (b) still withdraws the
        offer on the way back. */
-    text += " NOTE: the CURRENT firmware has not finished its " + std::to_string(OTA_CONFIRM_UPTIME_MS / 1000) +
-            " second confirmation yet. Rebooting before it does marks it as failed, so this revert is "
-            "one-way - you could not come back to this version. Wait for it to confirm first if you "
-            "might want it back.";
+    text +=
+        " That makes this revert one-way - you could not come back to this version. Wait for it to confirm "
+        "first if you might want it back.";
   }
   return {true, text};
 }
