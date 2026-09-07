@@ -51,6 +51,12 @@ class MCP2515_Lite {
   // oscillator cannot reach, or a mode the chip will not enter - and a chip that
   // never started cannot stand in for one that is now at an unknown bitrate.
   bool speedChangeFailed();
+  // The mirror of speedChangeFailed(), and mutually exclusive with it by
+  // construction on the real chip: enacting a change retires the opposite
+  // verdict, so at most one is true and it is always the most recent answer.
+  // The caller that takes the interface out of service on a failure needs this
+  // to bring it back, and without it the gate is a one-way door.
+  bool speedChangeSucceeded();
   void pause(bool paused);
 
   bool hasErrors();
