@@ -3,6 +3,8 @@
 #include <fstream>
 #include <string>
 
+#include "utils/source_scan.h"
+
 /* an earlier pass: selecting a CAN controller the board does not have must not cost the
  * boot.
  *
@@ -39,7 +41,18 @@ namespace {
 std::string init_can_body() {
   std::ifstream src(std::string(TEST_REPO_ROOT) + "/Software/src/communication/can/comm_can.cpp");
   EXPECT_TRUE(src.is_open()) << "comm_can.cpp is where this test looks; it was not there";
-  const std::string all((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+  /* Comments BLANKED before anything is searched. Every case in this file
+   * decides whether the firmware does something by looking for the text of a
+   * statement, and init_CAN() is surrounded by prose that names the very
+   * expressions being pinned - the doc comment above it discusses `return
+   * false`, the block comments inside name pins_present() and the gates. A
+   * guard commented out with its name left on the line then satisfies the
+   * search on dead code, which is how a scan over this same file was made
+   * decorative once already. Newlines are kept, so the brace walk below still
+   * measures the structure it means to.
+   */
+  const std::string all =
+      strip_comments(std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>()));
   const size_t at = all.find("void init_CAN() {");
   if (at == std::string::npos) {
     // Returning here rather than indexing from npos: every case below asserts
