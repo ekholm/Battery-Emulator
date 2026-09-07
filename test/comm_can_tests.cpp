@@ -533,6 +533,91 @@ TEST_F(CommCanTest, ASpeedChangeThatTookIsReportedAsNothing) {
       << "a speed change that worked must not look like an init failure";
 }
 
+/* A second FD add-on on its OWN SPI bus is not taken down with the first one.
+ *
+ * plan_canfd_init() already draws this line (CanFdInitPlanTest.
+ * ASecondChipOnItsOwnBusIsNotToldTheFirstBusIsMissing), and the second chip's
+ * own pin gate is written for it - `fd_bus_ok || !shares_first_fd_bus`. Between
+ * the two sat a loop that marked all three FD interfaces unavailable whenever
+ * the FIRST bus failed, which erased the second chip's registration before that
+ * gate could run: the re-read below it turned the iterator into end(), the
+ * gate short-circuited true, and the chip was reported missing without ever
+ * having been attempted.
+ *
+ * Neither branch could see it. The offer that added interface_unavailable() has
+ * no separate-bus gate, and the branch that added the separate-bus gate erases
+ * nothing; the two arrive from different arms and only the merge has both. The
+ * T-2CAN in its FD fitment is wired this way - hw_lilygo2can.h puts the second
+ * MCP2518 on the controller the MCP2515 would have used.
+ *
+ * A pin CONFLICT is how the first bus is made to fail, and it has to be: a bus
+ * whose pins are merely absent is declined by plan_canfd_init() one level up,
+ * which leaves fd_bus_ok true and reaches none of this.
+ */
+TEST_F(CommCanTest, ASecondFdChipOnItsOwnBusSurvivesTheFirstFdBusFailing) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_second_fd_on_its_own_bus(true);
+  emul_can::set_first_fd_bus_pin_conflict(true);
+
+  RecordingReceiver receiver;
+  // The 2515 is registered so that its pads are allocated first; the first FD
+  // bus then asks for one of them and alloc_pins() refuses it.
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  register_can_receiver(&receiver, CANFD_ADDON_MCP2518);
+  register_can_receiver(&receiver, CANFD_ADDON_MCP2518_2);
+  emul_can_init_on_full_board();
+
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515)) << "the conflict is on the FD bus, not on the 2515";
+  ASSERT_FALSE(emul_can::is_running(Chip::Mcp2518fd))
+      << "the first FD chip has no bus to talk over, so it must not have started";
+
+  EXPECT_TRUE(emul_can::is_running(Chip::Mcp2518fd2))
+      << "the second FD add-on has a bus of its own; a failure of the first one decides nothing for it";
+
+  // ...and it is still a registered interface, not merely a live chip: the
+  // erase is what a driver on this channel would have lost.
+  EXPECT_EQ(get_event_pointer(EVENT_INTERFACE_MISSING)->occurences, 1)
+      << "one interface was lost (the first FD chip); the second was reported missing too";
+
+  CAN_frame frame = make_frame(0x321, 8);
+  emul_can::queue_received(Chip::Mcp2518fd2, frame);
+  receive_can();
+  ASSERT_EQ(receiver.received.size(), 1u) << "the driver registered on the second FD add-on no longer receives";
+  EXPECT_EQ(receiver.received[0].ID, 0x321u);
+}
+
+/* The same failure with both FD chips on ONE bus: there the second one really
+ * does go with the first, and this is the case that must keep working.
+ *
+ * It is a characterization case and no mutation bites it alone - measured, not
+ * assumed. Dropping the second chip from the loop entirely, sharing or not,
+ * leaves this green, because the chip block below re-raises it: its pin gate
+ * reads `fd_bus_ok || !shares_first_fd_bus`, which is false on a shared bus, so
+ * the chip is nulled and marked unavailable a few lines later instead. The two
+ * spellings differ only in WHERE the interface is written off, and nothing
+ * observable separates them. What this case is here for is the other direction:
+ * the fix above must not become "the second chip is never taken down", and this
+ * is the board on which that would be wrong.
+ */
+TEST_F(CommCanTest, ASecondFdChipSharingTheFailedBusIsMarkedUnavailableWithIt) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_first_fd_bus_pin_conflict(true);
+
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  register_can_receiver(&receiver, CANFD_ADDON_MCP2518);
+  register_can_receiver(&receiver, CANFD_ADDON_MCP2518_2);
+  emul_can_init_on_full_board();
+
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+  EXPECT_FALSE(emul_can::is_running(Chip::Mcp2518fd));
+  EXPECT_FALSE(emul_can::is_running(Chip::Mcp2518fd2)) << "both FD chips are on the bus that never came up";
+  EXPECT_EQ(get_event_pointer(EVENT_INTERFACE_MISSING)->occurences, 2)
+      << "both FD interfaces are reported missing, and only those two";
+}
+
 // ---------------------------------------------------------------------------
 // mcp2515_bus_is_exclusive()
 // ---------------------------------------------------------------------------
