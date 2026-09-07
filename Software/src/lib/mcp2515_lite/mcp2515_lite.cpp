@@ -77,8 +77,8 @@ MCP2515_Lite::~MCP2515_Lite() {
 }
 
 void MCP2515_Lite::detachIsrPin() {
-    detachInterrupt(digitalPinToInterrupt(_int_pin));
-    _isr_interrupt_installed = false;
+  detachInterrupt(digitalPinToInterrupt(_int_pin));
+  _isr_interrupt_installed = false;
   // Removing the handler disables the pin, so a pending mask has nothing left
   // to re-arm; leaving the flag set would re-arm a pin nobody handles.
   _isr_pin_masked = false;
@@ -168,7 +168,7 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
   digitalWrite(_cs, HIGH);
 
   pinMode(_int_pin, INPUT_PULLUP);
-    /* One registration path for every caller (wq295). CONFIG_ARDUINO_ISR_IRAM=y
+  /* One registration path for every caller. CONFIG_ARDUINO_ISR_IRAM=y
      * makes Arduino's GPIO service and its dispatcher IRAM-resident, so the
      * bespoke IDF-level service allocation this drain used to carry is gone:
      * ESP_INTR_FLAG_IRAM is a property of the interrupt SOURCE, and allocating
@@ -181,12 +181,12 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
      * degraded but safe. The deep call chain (drainRx, the register-level SPI,
      * the ring) is audited per linked image by mcp2515_isr_iram_audit.py.
    */
-    if (esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler))) {
+  if (esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler))) {
     attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING);
-        _isr_interrupt_installed = _isr_drain_requested;
-    } else {
-        DEBUG_PRINTF("MCP2515: ISR handler is not IRAM-resident, not attaching the interrupt\n");
-        _isr_interrupt_installed = false;
+    _isr_interrupt_installed = _isr_drain_requested;
+  } else {
+    DEBUG_PRINTF("MCP2515: ISR handler is not IRAM-resident, not attaching the interrupt\n");
+    _isr_interrupt_installed = false;
   }
 
   // 1. Reset and configure the MCP2515
@@ -484,12 +484,12 @@ void MCP2515_Lite::canTask(void* pvParameters) {
   while (true) {
     // Sleep the task until ISR or `sendFrame` wakes us up. We also wake
     // after a timeout just in case we've missed an interrupt and there's
-        // something pending to do - and sooner while the interrupt drains,
-        // because then this poll is the only backstop left for everything that
-        // is not receive.
-        const uint32_t poll_timeout_ms =
-            self->_isr_drain_enabled ? MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS : MCP2515_LITE_POLL_TIMEOUT_MS;
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(poll_timeout_ms));
+    // something pending to do - and sooner while the interrupt drains,
+    // because then this poll is the only backstop left for everything that
+    // is not receive.
+    const uint32_t poll_timeout_ms =
+        self->_isr_drain_enabled ? MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS : MCP2515_LITE_POLL_TIMEOUT_MS;
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(poll_timeout_ms));
 
     // 1. Pause/unpause if requested
 
