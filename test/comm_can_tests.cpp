@@ -515,6 +515,58 @@ TEST_F(CommCanTest, ASpeedChangeThatDidNotTakeIsReportedOnTheReceivePath) {
       << "an interface left at an unknown bitrate is not usable, and must say so";
 }
 
+/* The RECOVERY half of the verdict, which nothing drove until now.
+ *
+ * Taking the interface out of service on a failed change is only safe because a
+ * later change that TAKES puts it back - poll_can_addon_speed_change() reads
+ * speedChangeSucceeded() for exactly that, and the poll deliberately runs
+ * outside the usability gate so the answer can still arrive. Both halves are
+ * one edit apart from a one-way door: an interface that goes out of service on
+ * a bad change and never returns.
+ *
+ * The two cases above assert the EVENT, which the failing half raises and the
+ * recovering half does not, so neither of them can see that door. The oracle
+ * here is whether frames get out - the state the gate actually decides - and
+ * the losing side is live before the winning one is asserted: the middle block
+ * proves the interface really is down before the last block proves it comes
+ * back, so a fixture that never took it out of service cannot pass this.
+ */
+TEST_F(CommCanTest, AnInterfaceTakenOutOfServiceByABadSpeedChangeComesBack) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  reset_all_events();
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+
+  CAN_frame frame = make_frame(0x123, 8);
+  transmit_can_frame_to_interface(&frame, CAN_ADDON_MCP2515);
+  ASSERT_EQ(emul_can::sent_frames().size(), 1u) << "the interface is up before anything changes its speed";
+
+  // Out of service: the change is accepted, the chip reports it did not take.
+  emul_can::set_speed_change_fails(Chip::Mcp2515, true);
+  ASSERT_TRUE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_250KBPS));
+  receive_can();
+
+  datalayer.system.info.can_2515_send_fail = false;
+  transmit_can_frame_to_interface(&frame, CAN_ADDON_MCP2515);
+  ASSERT_EQ(emul_can::sent_frames().size(), 1u)
+      << "a chip at an unknown bitrate must not be transmitted to - nothing new should have gone out";
+  ASSERT_TRUE(datalayer.system.info.can_2515_send_fail) << "and the frame that went nowhere has to say so";
+
+  // Back in service: a later change that takes.
+  emul_can::set_speed_change_fails(Chip::Mcp2515, false);
+  ASSERT_TRUE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_500KBPS));
+  receive_can();
+
+  datalayer.system.info.can_2515_send_fail = false;
+  transmit_can_frame_to_interface(&frame, CAN_ADDON_MCP2515);
+  EXPECT_EQ(emul_can::sent_frames().size(), 2u)
+      << "a change that took puts the interface back; without that the failure gate is a one-way door";
+  EXPECT_FALSE(datalayer.system.info.can_2515_send_fail);
+}
+
 TEST_F(CommCanTest, ASpeedChangeThatTookIsReportedAsNothing) {
   emul_can_tear_down_all_interfaces();
   emul_can::reset();
