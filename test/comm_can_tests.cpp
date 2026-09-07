@@ -567,6 +567,42 @@ TEST_F(CommCanTest, AnInterfaceTakenOutOfServiceByABadSpeedChangeComesBack) {
   EXPECT_FALSE(datalayer.system.info.can_2515_send_fail);
 }
 
+/* The replay check answers the same question the transmit path does.
+ *
+ * can_interface_ready() is consulted before a CAN replay is allowed to start,
+ * and what it exists to refuse is an interface whose frames will reach no wire
+ * while every page shows the replay running. A 2515 at an unknown bitrate is
+ * that interface: the driver object is alive, so a pointer test says yes, and
+ * the transmit path then drops every frame. The native case never had the gap -
+ * its flag is cleared by a failed change as well as by a failed init.
+ *
+ * Both sides are live in this fixture: the interface answers yes before the bad
+ * change, so a walkover cannot pass it, and yes again after the good one.
+ */
+TEST_F(CommCanTest, AnAddonAtAnUnknownBitrateIsNotOfferedToTheReplay) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  reset_all_events();
+  RecordingReceiver receiver;
+  register_can_receiver(&receiver, CAN_ADDON_MCP2515);
+  emul_can_init_on_full_board();
+  ASSERT_TRUE(emul_can::is_running(Chip::Mcp2515));
+  ASSERT_TRUE(can_interface_ready(CAN_ADDON_MCP2515)) << "the chip started, so a replay may use it";
+
+  emul_can::set_speed_change_fails(Chip::Mcp2515, true);
+  ASSERT_TRUE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_250KBPS));
+  receive_can();
+
+  EXPECT_FALSE(can_interface_ready(CAN_ADDON_MCP2515))
+      << "a replay onto a chip at an unknown bitrate reaches no wire, which is what this check refuses";
+
+  emul_can::set_speed_change_fails(Chip::Mcp2515, false);
+  ASSERT_TRUE(change_can_speed(CAN_ADDON_MCP2515, CAN_Speed::CAN_SPEED_500KBPS));
+  receive_can();
+
+  EXPECT_TRUE(can_interface_ready(CAN_ADDON_MCP2515)) << "a change that took puts the interface back on offer";
+}
+
 TEST_F(CommCanTest, ASpeedChangeThatTookIsReportedAsNothing) {
   emul_can_tear_down_all_interfaces();
   emul_can::reset();
