@@ -114,15 +114,18 @@ CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 # IRAM-resident; otherwise the masked interrupt becomes a cache-off fetch, i.e.
 # a crash instead of data loss.
 #
-# MERGE GATE - this flag must NOT ship ahead of the CAN-FD polled drain
-# (wq243a). On this base there are exactly TWO attachInterrupt registration
+# MERGE GATE - this flag ships only with handlers that are IRAM-resident all
+# the way down. On this base there are exactly TWO attachInterrupt registration
 # sites, both vendored, zero project-level users:
 #   - mcp2515_lite's mcp2515_isr_handler: IRAM_ATTR, safe.
-#   - ACAN2517FD: comm_can.cpp hands begin() a flash-resident lambda and the
-#     library's whole isr() chain is flash-resident. With this flag ON, an FD
-#     interrupt during a flash write is a cache-off CRASH on every FD-equipped
-#     board. The polled drain removes that registration entirely; until it is
-#     in the same image, this line stays on this branch only.
-# Re-run that audit before carrying this flag anywhere else.
+#   - ACAN2517FD: comm_can.cpp registers IRAM_ATTR trampolines that call the
+#     library's isr(), itself IRAM_ATTR on the ESP32 build; the only thing
+#     below that is xSemaphoreGiveFromISR and the yield, both resident. (A
+#     polled drain once removed this registration instead, and reboot-looped
+#     the board under ordinary receive load - the library's no-interrupt mode
+#     polls from inside receive()'s own SPI transaction and deadlocks the
+#     caller on the framework's SPI mutex. The interrupt is back, resident.)
+# Re-run that audit (acan_esp32_isr_iram_audit.py, presets twai and fd) on the
+# linked image before carrying this flag anywhere else.
 # -----------------------------------------------------------------------------
 CONFIG_ARDUINO_ISR_IRAM=y
