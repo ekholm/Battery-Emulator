@@ -47,9 +47,41 @@ std::vector<SentFrame> g_sent;
 // EmulCanHal, so a test sets it BEFORE emul_can_init_on_full_board().
 bool g_fd_bus_shared = false;
 
-// Both FD add-ons are the same class, so an ACAN2517FD takes its identity from
-// the order comm_can.cpp constructs them in: canfd first, canfd_2 second.
-int g_next_fd_chip = 0;
+/* The second FD add-on on a controller of its OWN, with its own SCK/SDO/SDI.
+ * The T-2CAN in its FD fitment is wired this way (hw_lilygo2can.h puts the
+ * second MCP2518 on the bus the MCP2515 would have used), and it is the shape
+ * in which a failure of the FIRST FD bus decides nothing for the second chip.
+ * Read by EmulCanHal, so a test sets it BEFORE emul_can_init_on_full_board().
+ */
+bool g_second_fd_own_bus = false;
+
+/* Makes the first FD bus's SCK the pad the MCP2515 has already been given, so
+ * alloc_pins() refuses it with EVENT_GPIO_CONFLICT. This is the only way to
+ * reach a FAILED shared FD bus: a bus whose pins are merely absent is refused
+ * one level earlier by plan_canfd_init(), which leaves fd_bus_ok true. Real
+ * boards do declare one pad twice - hw_3LB gives MCP2515_MISO and MCP2517_INT
+ * the same number.
+ */
+bool g_fd_bus_pin_conflict = false;
+
+/* Both FD add-ons are the same class, so an ACAN2517FD takes its identity from
+ * the chip select it was handed - the one thing the two blocks in init_CAN() do
+ * not share.
+ *
+ * It used to be construction ORDER, canfd first and canfd_2 second, and that is
+ * only equivalent while both are constructed. The second chip can be on its own
+ * SPI bus and come up after the first one's bus has failed, in which case the
+ * first is never built and the SECOND takes its identity - so a test asserting
+ * about "the second FD add-on" would be reading the first one's state, and
+ * would say so about a chip that does not exist.
+ */
+int fd_chip_for_cs(uint8_t cs) {
+  const gpio_num_t cs2 = esp32hal != nullptr ? esp32hal->MCP2517_CS2() : GPIO_NUM_NC;
+  if (cs2 != GPIO_NUM_NC && cs == static_cast<uint8_t>(cs2)) {
+    return static_cast<int>(Chip::Mcp2518fd2);
+  }
+  return static_cast<int>(Chip::Mcp2518fd);
+}
 
 ChipState& state(Chip chip) {
   return g_chips[static_cast<int>(chip)];
@@ -81,8 +113,9 @@ void reset() {
   g_native_status = 0;
   g_sent.clear();
   g_emul_transmitted_frames.clear();
-  g_next_fd_chip = 0;
   g_fd_bus_shared = false;
+  g_second_fd_own_bus = false;
+  g_fd_bus_pin_conflict = false;
 }
 
 void set_begin_error(Chip chip, uint32_t error_code) {
@@ -99,6 +132,14 @@ void set_speed_change_fails(Chip chip, bool fails) {
 
 void set_fd_bus_shared_with_2515(bool shared) {
   g_fd_bus_shared = shared;
+}
+
+void set_second_fd_on_its_own_bus(bool own_bus) {
+  g_second_fd_own_bus = own_bus;
+}
+
+void set_first_fd_bus_pin_conflict(bool conflict) {
+  g_fd_bus_pin_conflict = conflict;
 }
 
 int isr_drain_requests(Chip chip) {
@@ -310,11 +351,7 @@ bool MCP2515_Lite::hasErrors() {
 // ---------------------------------------------------------------------------
 
 ACAN2517FD::ACAN2517FD(const uint8_t inCS, SPIClass& inSPI, const uint8_t inINT)
-    : chip_(static_cast<int>(emul_can::g_next_fd_chip == 0 ? Chip::Mcp2518fd : Chip::Mcp2518fd2)),
-      cs_(inCS),
-      int_(inINT) {
-  emul_can::g_next_fd_chip++;
-}
+    : chip_(emul_can::fd_chip_for_cs(inCS)), cs_(inCS), int_(inINT) {}
 
 ACAN2517FD::~ACAN2517FD() {}
 
@@ -414,7 +451,9 @@ class EmulCanHal : public Esp32Hal {
   uint32_t MCP2515_FREQ() override { return 8000000; }
 
   uint8_t MCP2517_BUS() override { return emul_can::g_fd_bus_shared ? VSPI : HSPI; }
-  gpio_num_t MCP2517_SCK() override { return GPIO_NUM_12; }
+  // The MCP2515's SCK when a test asks for a conflict: alloc_pins() records the
+  // 2515's pads first, so this one is refused where the bus is brought up.
+  gpio_num_t MCP2517_SCK() override { return emul_can::g_fd_bus_pin_conflict ? GPIO_NUM_22 : GPIO_NUM_12; }
   gpio_num_t MCP2517_SDI() override { return GPIO_NUM_13; }
   gpio_num_t MCP2517_SDO() override { return GPIO_NUM_14; }
   gpio_num_t MCP2517_CS() override { return GPIO_NUM_15; }
@@ -423,9 +462,20 @@ class EmulCanHal : public Esp32Hal {
 
   // Second FD add-on on the same SPI bus, which is how the boards that carry two
   // of them are wired - only CS and INT are its own.
-  uint8_t MCP2517_BUS2() override { return emul_can::g_fd_bus_shared ? VSPI : HSPI; }
+  uint8_t MCP2517_BUS2() override {
+    if (emul_can::g_second_fd_own_bus) {
+      // A controller the first FD chip is not on, whichever one that is.
+      return emul_can::g_fd_bus_shared ? HSPI : VSPI;
+    }
+    return emul_can::g_fd_bus_shared ? VSPI : HSPI;
+  }
   gpio_num_t MCP2517_CS2() override { return GPIO_NUM_25; }
   gpio_num_t MCP2517_INT2() override { return GPIO_NUM_26; }
+  // Routed only in the own-bus wiring; NC otherwise, which is what "this chip
+  // shares the first bus" means to plan_canfd_init().
+  gpio_num_t MCP2517_SCK2() override { return emul_can::g_second_fd_own_bus ? GPIO_NUM_27 : GPIO_NUM_NC; }
+  gpio_num_t MCP2517_SDI2() override { return emul_can::g_second_fd_own_bus ? GPIO_NUM_32 : GPIO_NUM_NC; }
+  gpio_num_t MCP2517_SDO2() override { return emul_can::g_second_fd_own_bus ? GPIO_NUM_33 : GPIO_NUM_NC; }
   uint32_t MCP2517_FREQ2() override { return 40000000; }
 };
 
@@ -442,7 +492,6 @@ NullCanReceiver g_null_receiver;
 
 void emul_can_tear_down_all_interfaces() {
   comm_can_reset_for_test();
-  emul_can::g_next_fd_chip = 0;
 }
 
 void emul_can_init_on_full_board() {
