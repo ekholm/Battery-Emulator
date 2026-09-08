@@ -252,9 +252,17 @@ TEST_F(SolArkLvInverterTest, ManufacturerFrameIsFixedBatEmu) {
 }
 
 TEST_F(SolArkLvInverterTest, ProtectionByte1OvercurrentBitSet) {
-  // 0x359 bit 7 of byte 0: current >= max_discharge + 50
+  // 0x359 bit 7 of byte 0: current <= -(max_discharge + 50).
+  //
+  // reported_current_dA is POSITIVE while charging and NEGATIVE while discharging, so a discharge
+  // over-current is a current below the negated limit. This test used to feed +551 against a
+  // discharge limit of 500 and expect the bit, which characterized a driver that compared a
+  // charging current against the discharge limit; that comparison has since been corrected, and a
+  // test pinning it now asserts the opposite of SolArkLvOverCurrent.HeavyChargingDoesNotClaim-
+  // DischargeOverCurrent, which feeds +1500 inside the charge limit and requires this bit clear.
+  // What this test is for is the 0x359 assembly path, not the threshold, which that suite owns.
   datalayer.battery.status.max_discharge_current_dA = 500;
-  datalayer.battery.status.reported_current_dA = 551;  // 500 + 51 > 50 threshold
+  datalayer.battery.status.reported_current_dA = -551;  // one dA past -(500 + 50)
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
