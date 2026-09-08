@@ -50,90 +50,41 @@ constexpr uint64_t board_cap_bit(BoardCap cap) {
 // build folds a requirement check away entirely, so a row gated off on this
 // board costs it nothing.
 inline constexpr uint64_t BOARD_CAPS_3LB =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::Chademo) |
-    board_cap_bit(BoardCap::Contactors) |
-    board_cap_bit(BoardCap::PrechargeAuto) |
-    board_cap_bit(BoardCap::Sma) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::EquipmentStop) |
-    board_cap_bit(BoardCap::BatteryWakeup);
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::Chademo) |
+    board_cap_bit(BoardCap::Contactors) | board_cap_bit(BoardCap::PrechargeAuto) | board_cap_bit(BoardCap::Sma) |
+    board_cap_bit(BoardCap::RgbLed) | board_cap_bit(BoardCap::EquipmentStop) | board_cap_bit(BoardCap::BatteryWakeup);
 inline constexpr uint64_t BOARD_CAPS_BECOM =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::Contactors) |
-    board_cap_bit(BoardCap::PrechargeAuto) |
-    board_cap_bit(BoardCap::Sma) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::EquipmentStop) |
-    board_cap_bit(BoardCap::BatteryWakeup) |
-    board_cap_bit(BoardCap::ApButton);
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::Contactors) |
+    board_cap_bit(BoardCap::PrechargeAuto) | board_cap_bit(BoardCap::Sma) | board_cap_bit(BoardCap::RgbLed) |
+    board_cap_bit(BoardCap::EquipmentStop) | board_cap_bit(BoardCap::BatteryWakeup) | board_cap_bit(BoardCap::ApButton);
 inline constexpr uint64_t BOARD_CAPS_DEVKIT =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::Contactors) |
-    board_cap_bit(BoardCap::PrechargeAuto) |
-    board_cap_bit(BoardCap::Sma) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::EquipmentStop) |
-    board_cap_bit(BoardCap::BatteryWakeup) |
-    board_cap_bit(BoardCap::ApButton);
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::Contactors) |
+    board_cap_bit(BoardCap::PrechargeAuto) | board_cap_bit(BoardCap::Sma) | board_cap_bit(BoardCap::RgbLed) |
+    board_cap_bit(BoardCap::EquipmentStop) | board_cap_bit(BoardCap::BatteryWakeup) | board_cap_bit(BoardCap::ApButton);
 inline constexpr uint64_t BOARD_CAPS_DFROBOT_EDGE101 =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::SdSpi) |
-    board_cap_bit(BoardCap::SdCard) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::ApButton) |
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::SdSpi) |
+    board_cap_bit(BoardCap::SdCard) | board_cap_bit(BoardCap::RgbLed) | board_cap_bit(BoardCap::ApButton) |
     board_cap_bit(BoardCap::Ethernet);
 inline constexpr uint64_t BOARD_CAPS_LILYGO =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::Chademo) |
-    board_cap_bit(BoardCap::Contactors) |
-    board_cap_bit(BoardCap::PrechargeAuto) |
-    board_cap_bit(BoardCap::Sma) |
-    board_cap_bit(BoardCap::SdMmc) |
-    board_cap_bit(BoardCap::SdCard) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::EquipmentStop) |
-    board_cap_bit(BoardCap::BatteryWakeup) |
-    board_cap_bit(BoardCap::ApButton) |
-    board_cap_bit(BoardCap::DisplayI2c);
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::Chademo) |
+    board_cap_bit(BoardCap::Contactors) | board_cap_bit(BoardCap::PrechargeAuto) | board_cap_bit(BoardCap::Sma) |
+    board_cap_bit(BoardCap::SdMmc) | board_cap_bit(BoardCap::SdCard) | board_cap_bit(BoardCap::RgbLed) |
+    board_cap_bit(BoardCap::EquipmentStop) | board_cap_bit(BoardCap::BatteryWakeup) |
+    board_cap_bit(BoardCap::ApButton) | board_cap_bit(BoardCap::DisplayI2c);
 inline constexpr uint64_t BOARD_CAPS_LILYGO2CAN =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::Chademo) |
-    board_cap_bit(BoardCap::Contactors) |
-    board_cap_bit(BoardCap::PrechargeAuto) |
-    board_cap_bit(BoardCap::Sma) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::EquipmentStop) |
-    board_cap_bit(BoardCap::BatteryWakeup) |
-    board_cap_bit(BoardCap::ApButton) |
-    board_cap_bit(BoardCap::DisplayI2c);
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::Chademo) |
+    board_cap_bit(BoardCap::Contactors) | board_cap_bit(BoardCap::PrechargeAuto) | board_cap_bit(BoardCap::Sma) |
+    board_cap_bit(BoardCap::RgbLed) | board_cap_bit(BoardCap::EquipmentStop) | board_cap_bit(BoardCap::BatteryWakeup) |
+    board_cap_bit(BoardCap::ApButton) | board_cap_bit(BoardCap::DisplayI2c);
 inline constexpr uint64_t BOARD_CAPS_STARK =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::Contactors) |
-    board_cap_bit(BoardCap::PrechargeAuto) |
-    board_cap_bit(BoardCap::Sma) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::EquipmentStop) |
-    board_cap_bit(BoardCap::BatteryWakeup) |
-    board_cap_bit(BoardCap::ApButton);
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::Contactors) |
+    board_cap_bit(BoardCap::PrechargeAuto) | board_cap_bit(BoardCap::Sma) | board_cap_bit(BoardCap::RgbLed) |
+    board_cap_bit(BoardCap::EquipmentStop) | board_cap_bit(BoardCap::BatteryWakeup) | board_cap_bit(BoardCap::ApButton);
 inline constexpr uint64_t BOARD_CAPS_WAVESHARE =
-    board_cap_bit(BoardCap::Rs485) |
-    board_cap_bit(BoardCap::Can) |
-    board_cap_bit(BoardCap::Contactors) |
-    board_cap_bit(BoardCap::PrechargeAuto) |
-    board_cap_bit(BoardCap::Sma) |
-    board_cap_bit(BoardCap::RgbLed) |
-    board_cap_bit(BoardCap::EquipmentStop) |
-    board_cap_bit(BoardCap::BatteryWakeup) |
-    board_cap_bit(BoardCap::ApButton) |
-    board_cap_bit(BoardCap::DisplayI2c);
+    board_cap_bit(BoardCap::Rs485) | board_cap_bit(BoardCap::Can) | board_cap_bit(BoardCap::Contactors) |
+    board_cap_bit(BoardCap::PrechargeAuto) | board_cap_bit(BoardCap::Sma) | board_cap_bit(BoardCap::RgbLed) |
+    board_cap_bit(BoardCap::EquipmentStop) | board_cap_bit(BoardCap::BatteryWakeup) |
+    board_cap_bit(BoardCap::ApButton) | board_cap_bit(BoardCap::DisplayI2c);
 
 // The active board's set, where the build has exactly one board - the same
 // macro hal.cpp switches on. A build that compiles every board (one image
