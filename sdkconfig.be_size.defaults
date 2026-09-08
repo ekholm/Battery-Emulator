@@ -167,7 +167,7 @@ CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE=y
 
 
 # -----------------------------------------------------------------------------
-# Keep GPIO interrupt dispatch alive while the flash cache is disabled (wq295).
+# Keep GPIO interrupt dispatch alive while the flash cache is disabled.
 #
 # With this OFF, the Arduino GPIO ISR service is not IRAM-resident, so every INT
 # arriving during an NVS commit or an OTA write is MASKED until the window ends
