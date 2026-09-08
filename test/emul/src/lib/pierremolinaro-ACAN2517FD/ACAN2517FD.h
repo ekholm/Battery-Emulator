@@ -1,5 +1,13 @@
 #pragma once
 
+// Mirrors the define the vendored header makes unconditionally at
+// ACAN2517FD.h:26. Nothing in this stub uses it - there are no
+// interrupt-mask wrappers here to switch off - but this header is what the
+// host build puts in front of the vendored one, and comm_can.cpp's CAN-FD
+// teardown is written against that define being set. Dropping the mirror
+// hides the substitution from anything that checks the assumption holds.
+#define DISABLEMCP2517FDCOMPAT
+
 #include <SPI.h>
 #include <stdint.h>
 
