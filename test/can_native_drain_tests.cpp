@@ -4,6 +4,8 @@
 #include <regex>
 #include <string>
 
+#include "utils/source_scan.h"
+
 /* Every CAN interface must drain a BATCH of received frames per call, not one.
  *
  * receive_can() runs once per iteration of the 1 kHz core loop, so a path that
@@ -12,11 +14,11 @@
  * silicon losing 74.7 % of a 3956 f/s stream on an idle board, while the three
  * add-on paths beside it had always drained a batch.
  *
- * comm_can.cpp is not part of this binary - it reaches for the ESP32 CAN drivers
- * - so this reads the source, which is why it is deliberately about the SHAPE
- * common to all four paths rather than about any one of them: the defect was one
- * interface being unlike its siblings, and that is a property a reader can see
- * and a text scan can check.
+ * This reads comm_can.cpp as source. Not because it is absent - it is compiled
+ * into this binary, with emulated chips under the vendored drivers - but because
+ * the property is the SHAPE common to all four paths rather than any one of
+ * them: the defect was one interface being unlike its siblings, and a
+ * behavioural case only ever drives the interfaces its board arrangement has.
  */
 namespace {
 
@@ -29,33 +31,10 @@ std::string comm_can_source() {
   return std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
 }
 
-// The definition's body by brace depth. Skips a forward declaration of the same
-// signature: comm_can.cpp declares its statics at the top, and a plain find()
-// would land on the declaration and read whatever function follows it.
-std::string function_body(const std::string& src, const std::string& signature) {
-  for (size_t at = src.find(signature); at != std::string::npos; at = src.find(signature, at + 1)) {
-    const size_t brace = src.find('{', at);
-    const size_t semicolon = src.find(';', at);
-    if (brace == std::string::npos || semicolon < brace) {
-      continue;
-    }
-    int depth = 0;
-    for (size_t i = brace; i < src.size(); ++i) {
-      if (src[i] == '{') {
-        ++depth;
-      } else if (src[i] == '}' && --depth == 0) {
-        return src.substr(brace, i - brace + 1);
-      }
-    }
-  }
-  ADD_FAILURE() << signature << " has no definition where this test looks";
-  return "";
-}
-
 }  // namespace
 
 TEST(CanNativeDrainSource, TheNativePathDrainsAWholeBatchPerCall) {
-  const std::string body = function_body(comm_can_source(), "receive_frame_can_native()");
+  const std::string body = required_function_body(comm_can_source(), "receive_frame_can_native()");
   ASSERT_FALSE(body.empty());
 
   EXPECT_NE(body.find("while ("), std::string::npos)
@@ -66,7 +45,7 @@ TEST(CanNativeDrainSource, TheNativePathDrainsAWholeBatchPerCall) {
 }
 
 TEST(CanNativeDrainSource, TheNativeBoundIsAskedOfTheRingRatherThanCopied) {
-  const std::string body = function_body(comm_can_source(), "receive_frame_can_native()");
+  const std::string body = required_function_body(comm_can_source(), "receive_frame_can_native()");
   ASSERT_FALSE(body.empty());
 
   EXPECT_NE(body.find("driverReceiveBufferSize()"), std::string::npos)
@@ -78,7 +57,7 @@ TEST(CanNativeDrainSource, TheNativeBoundIsAskedOfTheRingRatherThanCopied) {
 TEST(CanNativeDrainSource, NoInterfaceIsLeftDrainingOneFrameAtATime) {
   const std::string src = comm_can_source();
   for (const char* fn : {"receive_frame_can_native()", "receive_frame_can_addon()", "_receive_frame_canfd("}) {
-    const std::string body = function_body(src, fn);
+    const std::string body = required_function_body(src, fn);
     ASSERT_FALSE(body.empty()) << fn;
     EXPECT_NE(body.find("while ("), std::string::npos)
         << fn

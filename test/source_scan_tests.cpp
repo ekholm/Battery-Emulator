@@ -1,3 +1,4 @@
+#include <gtest/gtest-spi.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -82,4 +83,58 @@ TEST(SourceScan, RemovesBracesThatOnlyExistInsideComments) {
   const size_t close_brace = out.find('}', open_brace);
   ASSERT_NE(close_brace, std::string::npos);
   EXPECT_GT(close_brace, out.find("body();")) << "a brace inside a comment still closes the body a scan extracts";
+}
+
+/* function_body(), the extraction the CAN and OTA scans read their subjects
+ * through.
+ *
+ * Four hand-rolled copies of it grew up in those suites and each got a
+ * different subset of the three properties right. The one that matters most is
+ * the last, because it fails SILENTLY in the direction that reads as good
+ * news: the scan reports a property missing from a function that has it, and
+ * whoever is looking at the red goes and re-adds code that is already there.
+ */
+
+TEST(SourceScanBody, ReadsTheDefinitionAndNotAForwardDeclarationOfTheSameName) {
+  const std::string in =
+      "static void wanted(void);\n"
+      "static void other(void) {\n  decoy();\n}\n"
+      "static void wanted(void) {\n  the_real_thing();\n}\n";
+
+  const std::string body = function_body(in, "static void wanted(void)");
+
+  EXPECT_NE(body.find("the_real_thing();"), std::string::npos)
+      << "the declaration at the top was read, and the next '{' belongs to the function below it";
+  EXPECT_EQ(body.find("decoy();"), std::string::npos) << "the body of a different function was returned: " << body;
+}
+
+TEST(SourceScanBody, MatchesBracesRatherThanStoppingAtTheFirstClosingOne) {
+  const std::string in = "void f() {\n  std::vector<int> v = {1, 2};\n  after_the_list();\n}\n";
+
+  EXPECT_NE(function_body(in, "void f()").find("after_the_list();"), std::string::npos)
+      << "the slice stopped at the end of the initializer list";
+}
+
+TEST(SourceScanBody, IsNotEndedByABraceInACommentOrAStringLiteral) {
+  const std::string commented = "void f() {\n  // }\n  in_the_body();\n}\nvoid g() {\n  elsewhere();\n}\n";
+  EXPECT_NE(function_body(commented, "void f()").find("in_the_body();"), std::string::npos)
+      << "a brace in a comment ended the body";
+
+  const std::string quoted = "void f() {\n  log(\"}\");\n  in_the_body();\n}\n";
+  EXPECT_NE(function_body(quoted, "void f()").find("in_the_body();"), std::string::npos)
+      << "a brace in a string literal ended the body";
+}
+
+TEST(SourceScanBody, AnswersEmptyWhenThereIsNoDefinitionAtAll) {
+  EXPECT_EQ(function_body("void declared_only(void);\n", "void declared_only(void)"), "")
+      << "a declaration with no definition anywhere was read as a body";
+}
+
+/* The quiet form's failure mode, which is why the loud one exists: an empty
+ * body satisfies every "must not contain" assertion written over it, so a
+ * renamed signature turns a guard into a test that cannot fail.
+ */
+TEST(SourceScanBody, TheRequiredFormSaysSoWhenTheFunctionIsGone) {
+  EXPECT_NONFATAL_FAILURE(required_function_body("void here(void) {\n}\n", "void renamed_away(void)"),
+                          "has no definition where this test looks");
 }

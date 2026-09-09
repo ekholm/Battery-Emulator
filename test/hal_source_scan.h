@@ -2,6 +2,12 @@
 
 /* Reading a board HAL as SOURCE, shared by the two tests that have to.
  *
+ * The extraction and the comment stripper are utils/source_scan.h's - the whole
+ * suite's, pinned by source_scan_tests.cpp. What is left here is what is about
+ * the HAL: which function the board scans read, and code_only(), which blanks
+ * literals as well as comments because these checks ask whether a board
+ * DECLARES an interface and never what string it returns.
+ *
  * Both `can_interface_availability_tests.cpp` and
  * `hal_interface_declaration_tests.cpp` scan the HAL headers as text, because
  * they cannot do the obvious thing and construct the boards: `types.h` declares
@@ -29,61 +35,24 @@
 
 #include <string>
 
+#include "utils/source_scan.h"
+
 namespace hal_scan {
 
-/* The body of the function whose signature contains `signature`, braces matched,
- * comments and literals skipped while matching.
+/* The body of the function whose signature contains `signature`.
+ *
+ * The extraction itself lives in utils/source_scan.h, which the comm_can.cpp
+ * scans share: brace-matched, comments and literals skipped while matching,
+ * and a forward declaration of the same name skipped rather than read. This
+ * used to be a second implementation of the first two of those and never had
+ * the third.
  *
  * Parameterised because the page-side check needs the same extraction over
  * settings_html.cpp, and re-deriving it a third time is precisely the mistake
  * this header was created to stop.
  */
 inline std::string body_of(const std::string& source, const std::string& signature) {
-  const size_t at = source.find(signature);
-  if (at == std::string::npos) {
-    return "";
-  }
-  const size_t open = source.find('{', at);
-  if (open == std::string::npos) {
-    return "";
-  }
-  size_t close = open;
-  int depth = 0;
-  while (close < source.size()) {
-    const char c = source[close];
-    if (c == '/' && close + 1 < source.size() && source[close + 1] == '/') {
-      const size_t eol = source.find('\n', close);
-      if (eol == std::string::npos) {
-        break;
-      }
-      close = eol;
-      continue;
-    }
-    if (c == '/' && close + 1 < source.size() && source[close + 1] == '*') {
-      const size_t end = source.find("*/", close + 2);
-      if (end == std::string::npos) {
-        break;
-      }
-      close = end + 2;
-      continue;
-    }
-    if (c == '"' || c == '\'') {
-      const char quote = c;
-      ++close;
-      while (close < source.size() && source[close] != quote) {
-        close += (source[close] == '\\') ? 2 : 1;
-      }
-      ++close;
-      continue;
-    }
-    if (c == '{') {
-      ++depth;
-    } else if (c == '}' && --depth == 0) {
-      break;
-    }
-    ++close;
-  }
-  return source.substr(open, close - open);
+  return ::function_body(source, signature);
 }
 
 // The body of available_interfaces(), braces matched, comments and literals skipped.
@@ -158,52 +127,12 @@ inline std::string code_only(const std::string& text) {
  * the commit that added the rule those checks enforce, so all three stopped
  * being covered by it. House style here is long explanatory comments; a scan
  * that reads raw text will keep meeting them.
+ *
+ * The implementation is utils/source_scan.h's, which source_scan_tests.cpp
+ * pins; this was a second copy of it with the same intent.
  */
 inline std::string without_comments(const std::string& text) {
-  std::string out;
-  out.reserve(text.size());
-  size_t i = 0;
-  while (i < text.size()) {
-    const char c = text[i];
-    if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
-      while (i < text.size() && text[i] != '\n') {
-        out += ' ';
-        ++i;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
-      const size_t end = text.find("*/", i + 2);
-      const size_t stop = (end == std::string::npos) ? text.size() : end + 2;
-      for (; i < stop; ++i) {
-        out += (text[i] == '\n') ? '\n' : ' ';
-      }
-      continue;
-    }
-    if (c == '"' || c == '\'') {
-      // Copied through verbatim: a comment marker inside a literal is not a
-      // comment, and the literal itself is what the caller came for.
-      const char quote = c;
-      out += c;
-      ++i;
-      while (i < text.size() && text[i] != quote) {
-        if (text[i] == '\\' && i + 1 < text.size()) {
-          out += text[i];
-          ++i;
-        }
-        out += text[i];
-        ++i;
-      }
-      if (i < text.size()) {
-        out += text[i];
-        ++i;
-      }
-      continue;
-    }
-    out += c;
-    ++i;
-  }
-  return out;
+  return strip_comments(text);
 }
 
 }  // namespace hal_scan
