@@ -40,6 +40,45 @@ class Esp32Hal {
 
   virtual void set_default_configuration_values() {}
 
+  /* THREE ANSWERS TO ONE QUESTION - WHAT DOES A GPIO_NUM_NC PIN MEAN? - AND
+   * WHICH CALLER WANTS WHICH.
+   *
+   * alloc_pins(), pins_present() and alloc_pins_ignore_unused() all take a
+   * name and some pins and all return bool, and they disagree about the pin
+   * that is not routed on this board. That is deliberate and each is right for
+   * its own caller, but the choice is not visible from any one of them, so it
+   * is written down once here and each points back at it.
+   *
+   *   - alloc_pins(): NC means the board is misconfigured. It raises
+   *     EVENT_GPIO_NOT_DEFINED and refuses, and it is also the only one that
+   *     takes ownership of the pads, so a second caller asking for one of them
+   *     gets EVENT_GPIO_CONFLICT. Every caller that needs a pin to exist wants
+   *     this one - the contactor pins, the CAN TX/RX pair, an SPI bus.
+   *
+   *   - pins_present(): NC means this interface is not FITTED. It answers the
+   *     presence question and allocates nothing, so a caller can skip an
+   *     absent interface and still fail on a genuine conflict when it goes on
+   *     to allocate. All-or-nothing per interface: the CAN add-ons want this,
+   *     because a board configured for an MCP2515 it does not have used to lose
+   *     every interface declared after it - measured on the bench, a CAN-FD
+   *     interface lost to a stale stored setting.
+   *
+   *   - alloc_pins_ignore_unused(): NC means this PIN is optional and the rest
+   *     of the group is still wanted. It drops the NC pins and allocates what
+   *     is left, so it returns true even when every pin is NC. Only a caller
+   *     whose pins are individually optional wants it - RS485's enable and 5 V
+   *     pins, AKASOL's KL30/KL15 lines. It is the WRONG answer for an
+   *     interface, because an all-NC group looks like a success and the caller
+   *     walks on to use hardware that is not there.
+   *
+   * The distinction between the first two is the one that has cost something,
+   * and the ruling that separated them applies per INTERFACE, not per pin: the
+   * CAN-FD group asks presence for the whole group before allocating anything,
+   * because its blocks depend on each other and skipping one of them
+   * individually would leave a later one dereferencing a bus that was never
+   * constructed. A genuine pin CONFLICT still fails, whichever predicate asked.
+   */
+  // NC is a misconfiguration here; see the three-answers note above.
   template <typename... Pins>
   bool alloc_pins(const char* name, Pins... pins) {
     std::vector<gpio_num_t> requested_pins = {static_cast<gpio_num_t>(pins)...};
@@ -70,6 +109,8 @@ class Esp32Hal {
   }
 
   /* Is every one of these pins a real pad on THIS board?
+   *
+   * NC means "not fitted" here; see the three-answers note above alloc_pins().
 
    * `alloc_pins()` fails for two different reasons and returns the same false
    * for both: a pin that is GPIO_NUM_NC, meaning the interface does not exist
@@ -126,7 +167,10 @@ class Esp32Hal {
     return alloc_pins(name, pins...);
   }
 
-  // Entry point
+  // Entry point. NC means "this pin is optional" here - which makes an all-NC
+  // group a success - so this is for a caller whose pins are individually
+  // optional and never for an interface; see the three-answers note above
+  // alloc_pins().
   template <typename... Pins>
   bool alloc_pins_ignore_unused(const char* name, Pins... pins) {
     return alloc_pins_ignore_unused_impl(name, static_cast<gpio_num_t>(pins)...);
