@@ -8,6 +8,7 @@
 #include "../Software/src/devboard/hal/hal.h"
 #include "../Software/src/devboard/safety/safety.h"
 #include "../Software/src/devboard/utils/events.h"
+#include "utils/source_scan.h"
 
 /* An add-on CAN chip that never started must not be reported as a full buffer.
  *
@@ -19,9 +20,18 @@
  * bus wiring for a fault the boot-time init event already named.
  *
  * The reporting half links into this binary and is tested for real. The guards
- * themselves live in comm_can.cpp, which is not part of this build - test/emul
- * SUPPLIES transmit_can_frame_to_interface, so the real one is not merely
- * absent, it is replaced - so they are read from the source.
+ * themselves are read from the source: not because comm_can.cpp is absent - it
+ * is compiled in, with emulated chips under the vendored drivers - but because
+ * the property is that all THREE add-on arms of one switch carry the same
+ * guard, and a behavioural case only ever drives the arms its board arrangement
+ * has. comm_can_tests.cpp drives the 2515 arm for real.
+ *
+ * The source is read through strip_comments(). Every matcher below is satisfied
+ * by text, so a comment that DESCRIBES the guard satisfies a matcher no code
+ * satisfies: replacing the 2515 refusal with a block comment carrying
+ * `can_2515_not_initialized` and `break;` left all three of these green while
+ * the frame reached sendFrame() on a null pointer. The three sibling suites
+ * over this file had the stripper and this one did not.
  */
 namespace {
 
@@ -33,7 +43,7 @@ std::string comm_can_source() {
   const std::string path = dir + "/../Software/src/communication/can/comm_can.cpp";
   std::ifstream src(path);
   EXPECT_TRUE(src.is_open()) << "comm_can.cpp is where this test looks: " << path;
-  return std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>());
+  return strip_comments(std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>()));
 }
 
 // The brace-balanced block that opens at the first '{' at or after 'from'.
