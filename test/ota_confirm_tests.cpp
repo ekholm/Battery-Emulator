@@ -7,6 +7,7 @@
 #include "../Software/src/devboard/safety/safety.h"
 #include "../Software/src/devboard/utils/events.h"
 #include "../Software/src/devboard/utils/ota_confirm_gate.h"
+#include "utils/source_scan.h"
 
 /* A fresh image is confirmed by a RUNNING system, and every steady state
  * this firmware can be in has to reach that confirmation.
@@ -34,30 +35,11 @@ namespace {
  * its name in place and the assertion passes on dead code, which is exactly
  * how an earlier mutation harness certified a mutation it never ran. Newlines
  * are kept so brace depth and ordering still mean what they meant.
+ *
+ * utils/source_scan.h's copy is the one that is maintained, and it tracks
+ * string and character literals, so a `//` inside one no longer starts a
+ * comment that never ends.
  */
-std::string strip_comments(const std::string& src) {
-  std::string out;
-  out.reserve(src.size());
-  for (size_t i = 0; i < src.size();) {
-    if (src.compare(i, 2, "//") == 0) {
-      while (i < src.size() && src[i] != '\n') {
-        ++i;
-      }
-    } else if (src.compare(i, 2, "/*") == 0) {
-      const size_t end = src.find("*/", i + 2);
-      const size_t stop = end == std::string::npos ? src.size() : end + 2;
-      for (; i < stop; ++i) {
-        if (src[i] == '\n') {
-          out += '\n';
-        }
-      }
-    } else {
-      out += src[i++];
-    }
-  }
-  return out;
-}
-
 std::string read_source(const std::string& relative_to_test_dir) {
   // Located relative to this file rather than through a CMake define, so the
   // test needs no build-system plumbing to run.
@@ -67,27 +49,6 @@ std::string read_source(const std::string& relative_to_test_dir) {
   std::ifstream src(path);
   EXPECT_TRUE(src.is_open()) << "this test reads " << path;
   return strip_comments(std::string((std::istreambuf_iterator<char>(src)), std::istreambuf_iterator<char>()));
-}
-
-// The body of a function, by brace depth from its signature line.
-std::string function_body(const std::string& src, const std::string& signature) {
-  const size_t at = src.find(signature);
-  EXPECT_NE(at, std::string::npos) << "no `" << signature << "` in the source this test reads";
-  if (at == std::string::npos) {
-    return "";
-  }
-  const size_t open = src.find('{', at);
-  int depth = 0;
-  for (size_t i = open; i < src.size(); ++i) {
-    if (src[i] == '{') {
-      ++depth;
-    } else if (src[i] == '}') {
-      if (--depth == 0) {
-        return src.substr(open, i - open + 1);
-      }
-    }
-  }
-  return "";
 }
 
 // The `{ ... }` block that follows `at`, by brace depth. Used to ask whether a
@@ -226,7 +187,7 @@ TEST_F(OtaConfirmGate, GracefulRestartArmsTheConfirmation) {
  * covered was decided by a race of microseconds.
  */
 TEST(OtaConfirmPlacement, SetupDoesNotConfirmTheImage) {
-  const std::string setup = function_body(read_source("../Software/Software.cpp"), "void setup() {");
+  const std::string setup = required_function_body(read_source("../Software/Software.cpp"), "void setup() {");
   ASSERT_FALSE(setup.empty());
 
   EXPECT_EQ(setup.find("mark_ota_image_valid"), std::string::npos)
@@ -276,7 +237,8 @@ TEST(OtaConfirmPlacement, TheRollbackReportRunsOnceLoggingIsConfigured) {
  * sub-task ran, which is a weaker statement than the tick itself coming round.
  */
 TEST(OtaConfirmPlacement, TheCoreTickChecksUnconditionally) {
-  const std::string core_loop = function_body(read_source("../Software/Software.cpp"), "void core_loop(void*) {");
+  const std::string core_loop =
+      required_function_body(read_source("../Software/Software.cpp"), "void core_loop(void*) {");
   ASSERT_FALSE(core_loop.empty());
   ASSERT_NE(core_loop.find("ota_confirm_check("), std::string::npos)
       << "the core tick no longer checks - in normal mode nothing would ever confirm the image";
@@ -300,7 +262,7 @@ TEST(OtaConfirmPlacement, TheCoreTickChecksUnconditionally) {
 
 /* The write side is reached from ordinary main-task context. */
 TEST(OtaConfirmPlacement, LoopPerformsTheConfirmationWrite) {
-  const std::string loop = function_body(read_source("../Software/Software.cpp"), "void loop() {");
+  const std::string loop = required_function_body(read_source("../Software/Software.cpp"), "void loop() {");
   EXPECT_NE(loop.find("ota_confirm_service("), std::string::npos)
       << "loop() no longer services the gate - the check would set a flag nobody acts on";
 }
@@ -323,14 +285,14 @@ TEST(OtaConfirmPlacement, LoopPerformsTheConfirmationWrite) {
  */
 TEST(OtaConfirmPlacement, AnEarlyReturnFromSetupBringsItsOwnCheck) {
   const std::string src = read_source("../Software/Software.cpp");
-  const std::string setup = function_body(src, "void setup() {");
+  const std::string setup = required_function_body(src, "void setup() {");
   ASSERT_FALSE(setup.empty());
 
   if (setup.find("return;") == std::string::npos) {
     GTEST_SKIP() << "setup() has no early exit on this branch - nothing to compose with yet";
   }
 
-  const std::string service = function_body(src, "void connectivity_loop(void*) {");
+  const std::string service = required_function_body(src, "void connectivity_loop(void*) {");
   ASSERT_FALSE(service.empty());
   ASSERT_NE(service.find("ota_confirm_check("), std::string::npos)
       << "setup() can now return before the core tick is started, and the loop that keeps running when it does "
@@ -364,7 +326,8 @@ TEST(OtaConfirmPlacement, AnEarlyReturnFromSetupBringsItsOwnCheck) {
  * absolute uptime the same way the constant is.
  */
 TEST(OtaConfirmPlacement, TheCoreTickChecksAgainstAbsoluteUptime) {
-  const std::string core_loop = function_body(read_source("../Software/Software.cpp"), "void core_loop(void*) {");
+  const std::string core_loop =
+      required_function_body(read_source("../Software/Software.cpp"), "void core_loop(void*) {");
   ASSERT_FALSE(core_loop.empty());
 
   const std::string argument = call_argument(core_loop, "ota_confirm_check(");
@@ -387,8 +350,8 @@ TEST(OtaConfirmPlacement, TheCoreTickChecksAgainstAbsoluteUptime) {
  * Read it, then, the same way Software.cpp is read.
  */
 TEST(OtaConfirmPlacement, TheServiceWritesExactlyWhenTheGateSaysSo) {
-  const std::string service =
-      function_body(read_source("../Software/src/devboard/utils/ota_rollback.cpp"), "void ota_confirm_service(void) {");
+  const std::string service = required_function_body(read_source("../Software/src/devboard/utils/ota_rollback.cpp"),
+                                                     "void ota_confirm_service(void) {");
   ASSERT_FALSE(service.empty());
 
   const size_t gate = service.find("if (ota_confirm_take_pending()) {");
