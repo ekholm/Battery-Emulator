@@ -17,7 +17,7 @@ cannot fix ourselves.
 since fixed is removed rather than left to waste your time. Last checked at `a2851c23`, 2026-09-02.
 
 *Every branch is rebased onto upstream `main` at `a2851c23` (2026-09-02), rebuilt, and the host
-test suite run on the result - all green. The pinned commits below are the rebased, tested ones.*
+test suite run on the result - all green - unless its entry says otherwise. The pinned commits below are the rebased, tested ones.*
 
 
 ---
@@ -61,6 +61,77 @@ When a log line ends at the DLC, `strtok(NULL, " ")` is called with no live toke
 The data-byte parse moves into a small helper that owns its buffer for the whole parse and is host-testable in isolation. The accompanying test reproduces the use-after-free shape (it fails against the old code for the defect's actual reason, not a proxy), and the helper is exercised by the DLC-bound tests as well.
 
 Stacked on `can-replay-dlc-bound`: this branch contains that fix, and the two together make the replay parser refuse malformed lines and parse well-formed ones without touching freed memory.
+</details>
+
+---
+
+**Builds depend on which machine made them: 24 Arduino-core `__FILE__` strings carry the builder's PlatformIO path**
+Branch [`file-prefix-map`](https://github.com/ekholm/Battery-Emulator/tree/file-prefix-map) @ `a25cbf34` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:file-prefix-map) · on upstream `main` at `c011e9767` (2026-09-11)
+The Arduino core's `log_e()`/assert sites put `__FILE__` in flash with the absolute package path it was compiled from, so the same commit built by two people gives different binaries. Two `-ffile-prefix-map` lines in the shared `[env]` flags remove all 24 strings, −1,312 B of `.flash.rodata` on both measured envs (the exact figure is 24 × the builder's core-path length minus 8, so about 1.3 kB on a default install), with `.text`/`.iram0`/`.dram0` byte-identical. The map is narrowed to the Arduino package on purpose: a wider one also matches the IDF tree, outranks IDF's own `/IDF` macro map, and grows the image by 1,648 B. Build flags only, so the host test suite does not see it; built and measured on `lilygo_330` and `esp32devkit_330`.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The Arduino core is compiled from its absolute PlatformIO package path, and its `log_e()` and
+assert sites put `__FILE__` into flash. That puts **24 strings carrying the builder's own
+PlatformIO core directory** into every image - so two people building the same commit get
+different binaries, differing by the length of a path that has nothing to do with the firmware.
+
+Two `build_flags` lines in the shared `[env]` section fix it:
+
+```ini
+    "-ffile-prefix-map=$PROJECT_DIR=."
+    "-ffile-prefix-map=${platformio.packages_dir}/framework-arduinoespressif32=/ARDUINO"
+```
+
+**Measured** on current `main` (baseline and subject built from detached checkouts, build dirs
+wiped, each env built on its own):
+
+| env | delta | where |
+|---|---|---|
+| `lilygo_330` | **−1,312 B** | all `.flash.rodata` |
+| `esp32devkit_330` | **−1,312 B** | all `.flash.rodata` |
+
+`.text`, `.iram0` and `.dram0` are byte-identical across the change - it removes string bytes and
+touches nothing else. A census of the built images shows the core-directory strings going
+**24 → 0**, each one reappearing as `/ARDUINO/...`.
+
+**The exact figure depends on who builds it, which is the point of the change.** Each of the 24
+strings loses the length of the builder's Arduino core directory minus the 8 bytes of `/ARDUINO`,
+so the saving is 24 × (that length − 8): about 1.3 kB on a default PlatformIO install, more for a
+longer home path. The image tail rounds to 16, and which way it rounds follows the length of the
+version string the build embeds, so the same change can show figures 16 B apart between envs or
+checkouts. The map matches whether `__FILE__` spells the path with backslashes or forward slashes.
+
+The reproducibility half is checked directly rather than argued: two worktrees whose paths differ
+by 24 characters produce images identical in every code and data byte - the four allocated
+sections hash the same. What still differs is the app descriptor and the image's own footer: the
+descriptor's `project_name` is the project directory's basename, and the ELF sha and the appended
+checksum move with it. So this removes the path from the firmware, not the directory name from the
+descriptor; that field is metadata, and whether upstream wants it pinned as well is a separate
+question this change does not answer.
+
+**Two things that look like tidying and are not, so they do not get "simplified" later:**
+
+**The map is deliberately narrowed to the Arduino package.** pioarduino already maps the IDF tree
+and the project directory itself (`-fmacro-prefix-map=<IDF>=/IDF` and `<project>=.`, from
+`CONFIG_COMPILER_HIDE_PATHS_MACROS`), which is why the project path was never in an image. Widening
+this map to the whole packages directory makes it match the IDF tree too - and
+`-ffile-prefix-map` takes precedence over `-fmacro-prefix-map` for the same path **in either
+order**, so it replaces IDF's short `/IDF` with a longer prefix across ~150 IDF assert strings and
+the image **grows by 1,648 B**. Measured, not predicted.
+
+**Both lines are quoted.** PlatformIO hands `build_flags` to SCons' `shlex.split`. Unquoted, a
+packages directory containing a space (`C:\Users\First Last\.platformio`) splits into two tokens
+and loses its backslashes, so on such an install the map silently never matches and the stray
+second token reaches the compiler as an input filename. The quoting is a verified no-op on Linux:
+resolved flags byte-identical, image identical.
+
+There is no functional change and no runtime cost. An assert or `log_e()` that fires now reports
+its path as `/ARDUINO/...` instead of the builder's home directory.
+
+Note: drafted with AI assistance, reviewed by me.
+
 </details>
 
 ---
