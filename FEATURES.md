@@ -8,9 +8,12 @@ pinned commit and the full diff against upstream `main`, and carries the PR body
 with. Unlike a fix, an entry here may deserve a design conversation before code review - say so
 and we will start one.*
 
-**Kept current.** Every entry is re-checked against upstream `main`, and one whose need `main` has
-since met is removed rather than left to waste your time. Every branch is rebased onto upstream
-`main` at `a2851c23` (2026-09-02), rebuilt, and the host test suite run on the result - all green.
+**Kept current.** Every entry is re-checked against upstream `main`, and one whose need `main`
+has since met is removed rather than left to waste your time.
+
+*Each entry's branch line names the upstream `main` commit its branch is rebased onto. The branch
+was rebuilt there and the host test suite run on the result, all green, unless its entry says
+otherwise.*
 
 See also [FIXES.md](FIXES.md) for defect repairs, and [FINDINGS.md](FINDINGS.md) for open
 questions on hardware we do not run.
@@ -18,13 +21,13 @@ questions on hardware we do not run.
 ---
 
 **OTA: revert to the previous firmware, and the confirmation path it exposed - requested by the maintainer**
-Branch [`ota-revert`](https://github.com/ekholm/Battery-Emulator/tree/ota-revert) @ `443e33bb` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ota-revert) · two commits
+Branch [`ota-revert`](https://github.com/ekholm/Battery-Emulator/tree/ota-revert) @ `443e33bb` · on upstream `main` @ `f4f7341b` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ota-revert) · two commits
 A web-UI control to boot the other OTA slot. Most of the feature is the states it must refuse - a USB-flashed board with no passive image, a slot a rollback already marked aborted, a half-written slot that fails validation at click time - each rendered as a reason, never a dead button. Building it exposed the confirmation path around it, and the second half hardens that: the revert button reports the server's answer instead of blind-reloading, and the page counts consecutive failed polls at one-second cadence, so a single dropped request during the restart cannot read as a rollback; a restart deadline defers while a confirmation is still owed, so a healthy board under load cannot be rolled back by ordinary scheduling; a confirmation is a statement about the image that has run, so the write declines once the boot selection has moved; and an upload beginning is the last moment the running image can still be confirmed, so OTA start arms it - two flag writes in the TCP task, the otadata write stays on the main-task path. Run on hardware: an in-window revert flips slots cleanly and the reverted-into image earns its own confirmation window. Ships with the refusal-ladder, gate and feedback test suites.
 
 ---
 
 **Ford Mach-E: hand the UDS transport to the shared superclass, and fix two latent superclass bugs it exposed**
-Branch [`mache-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mache-uds-superclass) @ `f4142713` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mache-uds-superclass)
+Branch [`mache-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mache-uds-superclass) @ `f4142713` · on upstream `main` @ `a2851c23` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mache-uds-superclass)
 The same move #2824 makes for the Zoe Gen2, applied to the Mach-E: the driver's hand-rolled diagnostics were a 1:1 duplicate of what `UdsCanBattery` already does. It keeps only what is genuinely Ford's, and the conversion exposed two latent bugs in the superclass itself - a queued sequence lost to a retry race, and a readout that leaves the page pending forever - which are fixed here and benefit four other drivers today.
 
 <details>
@@ -58,7 +61,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **MG5: the same conversion, and the DTC readout stops being serial-log-only**
-Branch [`mg5-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mg5-uds-superclass) @ `2c005363` · stacked on `mache-uds-superclass` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mg5-uds-superclass)
+Branch [`mg5-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mg5-uds-superclass) @ `2c005363` · on upstream `main` @ `a2851c23` · stacked on `mache-uds-superclass` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mg5-uds-superclass)
 The MG5 duplicated the same transport machinery, down to its own 1 KB ISO-TP reassembly context. It keeps what is genuinely MG5's - the broadcast decode, now pinned by golden tests for the first time, and the `0x8A` contactor-close handshake - and its DTC readout moves from the serial log to the standard UDS page with working read and erase buttons.
 
 Note on upstream direction: upstream's MGHS driver (`MG-GEN1`, already on the UDS superclass) has begun absorbing MG5 variants - the 50 kWh LFP is detected today and the hardware-number table knows the 52 kWh NMC this driver serves. If that route wins, this conversion retires with the driver it converts, and retiring it would be fine. Until then it keeps the 52 kWh pack's broadcast decode golden-tested and its DTC readout on the standard page - and if the better end-state is one MG driver, we would rather help that happen than defend this one. Worth a design conversation before code review.
@@ -89,7 +92,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **T-CAN485: give the SD card its own SPI controller, and check SD writes**
-Branch [`sd-spi-bus-hspi`](https://github.com/ekholm/Battery-Emulator/tree/sd-spi-bus-hspi) @ `13bb1e94` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:sd-spi-bus-hspi)
+Branch [`sd-spi-bus-hspi`](https://github.com/ekholm/Battery-Emulator/tree/sd-spi-bus-hspi) @ `13bb1e94` · on upstream `main` @ `a2851c23` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:sd-spi-bus-hspi)
 The SD card and the MCP2515 add-on share VSPI, and two `SPIClass::begin()` calls on one ESP32 controller cannot coexist - the card mounts, then goes deaf when `init_CAN()` runs. Every later log write failed with nothing reporting it, because the only SD event guards the mount. Two HAL overrides and checked write paths. Measured on hardware for the bus half.
 
 <details>
@@ -127,7 +130,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Silent assertions: drop the assert message strings, keep every check (−55 KB flash per board)**
-Branch [`assertions-silent`](https://github.com/ekholm/Battery-Emulator/tree/assertions-silent) @ `66d242da` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:assertions-silent)
+Branch [`assertions-silent`](https://github.com/ekholm/Battery-Emulator/tree/assertions-silent) @ `66d242da` · on upstream `main` @ `a2851c23` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:assertions-silent)
 One config line in the shared size defaults; every check still compiled in and still aborts - only the per-assert message strings go. Measured −55,680 B (lilygo) / −55,432 B (devkit) from wiped, flag-verified builds.
 
 <details>
