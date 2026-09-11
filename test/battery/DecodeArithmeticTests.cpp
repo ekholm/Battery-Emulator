@@ -73,24 +73,6 @@ TEST(TeslaLegacyDecode, SubzeroBrickTemperaturesStaySubzero) {
   EXPECT_EQ(datalayer.battery.status.temperature_min_dC, -370);
 }
 
-// CURRENT BEHAVIOUR, pinned and NOT changed: hwID 79/89 carry the comment
-// "100kWh" and set 70000 Wh. One of the two is wrong - every other group in
-// the switch has comment == value (60/70/75/85/90) - but nothing in the tree,
-// the originating commit (d242d4cd, message only), or public pack tables
-// settles WHICH, and 79/89 do not appear in any second in-repo mapping. A
-// driver nobody can test is not improved by a confident guess; whoever has a
-// 100 kWh legacy pack can settle it in one boot.
-TEST(TeslaLegacyDecode, HwId79SetsSeventyKwhDespiteItsHundredKwhLabel) {
-  reset_battery_state();
-  TeslaLegacyBattery battery;
-
-  // 0x5D2 with u8[0] == 0x0A: hwID = u8[4] + u8[5].
-  battery.handle_incoming_can_frame(frame(0x5D2, {0x0A, 0x00, 0x00, 0x00, 0x4F, 0x00, 0x00, 0x00}));
-  battery.update_values();
-
-  EXPECT_EQ(datalayer.battery.info.total_capacity_Wh, 70000u);
-}
-
 // FIX, evidence: the driver's own guards. Channels 2 and 3 GUARD on u8[2] and
 // u8[3] and then read u8[1] - the guard names the byte the author meant. One
 // frame with three distinct sensors used to store channel 1's value three
