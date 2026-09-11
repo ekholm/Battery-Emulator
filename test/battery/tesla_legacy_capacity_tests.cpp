@@ -2,6 +2,7 @@
 
 #include "../../Software/src/battery/TESLA-LEGACY-BATTERY.h"
 #include "../../Software/src/datalayer/datalayer.h"
+#include "../../Software/src/devboard/utils/events.h"
 
 #include "Arduino.h"
 
@@ -40,6 +41,8 @@ struct HwIdCapacity {
   uint32_t capacity_Wh;
 };
 
+constexpr uint8_t kUnlistedHwId = 1;  // in no group of the switch
+
 }  // namespace
 
 TEST(TeslaLegacyCapacity, EveryHwIdGroupSetsTheCapacityItIsLabelledWith) {
@@ -60,12 +63,28 @@ TEST(TeslaLegacyCapacity, EveryHwIdGroupSetsTheCapacityItIsLabelledWith) {
 
 TEST(TeslaLegacyCapacity, HwIdZeroLeavesCapacityUntouched) {
   // hwID 0 means "not read yet": whatever was loaded before (the stored
-  // BATTERY_WH_MAX, or nothing) stays.
+  // BATTERY_WH_MAX, or nothing) stays, and it is not reported as an unknown
+  // hwID on every boot before the first 0x5D2 arrives.
   reset_battery_state();
+  reset_all_events();
   datalayer.battery.info.total_capacity_Wh = 12345;
   TeslaLegacyBattery battery;
   battery.update_values();
   EXPECT_EQ(datalayer.battery.info.total_capacity_Wh, 12345u);
+  EXPECT_NE(get_event_pointer(EVENT_BATTERY_VALUE_UNAVAILABLE)->state, EVENT_STATE_ACTIVE);
+}
+
+// The other side of the event check above, live in this fixture: an hwID in
+// no group does raise the event and leaves the capacity alone.
+TEST(TeslaLegacyCapacity, UnlistedHwIdRaisesValueUnavailable) {
+  reset_battery_state();
+  reset_all_events();
+  datalayer.battery.info.total_capacity_Wh = 12345;
+  TeslaLegacyBattery battery;
+  battery.handle_incoming_can_frame(hwid_frame(kUnlistedHwId));
+  battery.update_values();
+  EXPECT_EQ(datalayer.battery.info.total_capacity_Wh, 12345u);
+  EXPECT_EQ(get_event_pointer(EVENT_BATTERY_VALUE_UNAVAILABLE)->state, EVENT_STATE_ACTIVE);
 }
 
 // PIN of current behaviour, not a design claim: once the hwID is known the
