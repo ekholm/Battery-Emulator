@@ -1,5 +1,6 @@
 #include "webserver.h"
 #include <Preferences.h>
+#include <esp_ota_ops.h>
 #include <esp_random.h>
 #include <algorithm>
 #include <atomic>
@@ -27,6 +28,7 @@
 #include "../utils/events.h"
 #include "../utils/led_handler.h"
 #include "../utils/millis64.h"
+#include "../utils/ota_confirm_gate.h"
 #include "../utils/time_format.h"
 #include "../utils/timer.h"
 #include "../utils/version.h"
@@ -61,6 +63,7 @@ static MyTimer ota_progress_timer = MyTimer(1000);
 #include "debug_logging_html.h"
 #include "events_html.h"
 #include "index_html.h"
+#include "ota_revert.h"
 #include "settings_html.h"
 
 MyTimer ota_timeout_timer = MyTimer(15000);
@@ -203,6 +206,33 @@ void def_route_with_auth(const char* uri, AsyncWebServer& serv, WebRequestMethod
     }
     handler(request);
   });
+}
+
+/* Extracts the four facts ota_revert_assessment() decides on. Target-only:
+   the decision logic itself is host-tested. */
+static OtaRevertDecision current_ota_revert_decision() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  const esp_partition_t* passive = esp_ota_get_next_update_partition(NULL);
+  bool has_image = false;
+  std::string version;
+  bool marked_bad = false;
+  bool running_pending = false;
+  if (passive != NULL && passive != running) {
+    esp_app_desc_t desc;
+    has_image = (esp_ota_get_partition_description(passive, &desc) == ESP_OK);
+    if (has_image) {
+      version = desc.version;
+    }
+    esp_ota_img_states_t state;
+    if (esp_ota_get_state_partition(passive, &state) == ESP_OK) {
+      marked_bad = (state == ESP_OTA_IMG_INVALID || state == ESP_OTA_IMG_ABORTED);
+    }
+  }
+  esp_ota_img_states_t running_state;
+  if (running != NULL && esp_ota_get_state_partition(running, &running_state) == ESP_OK) {
+    running_pending = (running_state == ESP_OTA_IMG_PENDING_VERIFY);
+  }
+  return ota_revert_assessment(has_image, version, marked_bad, running_pending);
 }
 
 void init_webserver() {
@@ -1052,6 +1082,29 @@ void init_webserver() {
   def_route_with_auth("/debug", server, HTTP_GET,
                       [](AsyncWebServerRequest* request) { request->send(200, "text/plain", "Debug: all OK."); });
 
+  // Route to revert to the firmware in the passive OTA slot. The decision is
+  // recomputed server-side on every call - the rendered page's state is stale
+  // the moment an OTA update or rollback changes the slots.
+  def_route_with_auth("/revertFirmware", server, HTTP_GET, [](AsyncWebServerRequest* request) {
+    OtaRevertDecision decision = current_ota_revert_decision();
+    if (!decision.offered) {
+      request->send(400, "text/plain", decision.text.c_str());
+      return;
+    }
+    const esp_partition_t* passive = esp_ota_get_next_update_partition(NULL);
+    esp_err_t err = esp_ota_set_boot_partition(passive);
+    if (err != ESP_OK) {
+      // esp_ota_set_boot_partition re-validates the image and the state; a
+      // refusal here (e.g. a rollback marked the slot between render and
+      // click) must reach the user as text, never as a dead reboot.
+      request->send(500, "text/plain", ota_revert_refusal_text(esp_err_to_name(err)).c_str());
+      return;
+    }
+    request->send(200, "text/plain", "Boot partition set - rebooting into the previous firmware...");
+    hold_pins_across_reset();
+    graceful_restart();
+  });
+
   // Route to handle reboot command
   def_route_with_auth("/reboot", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(200, "text/plain", "Rebooting server...");
@@ -1756,7 +1809,111 @@ h4{margin:.6em 0;line-height:1.2}
 <div id='bxUpd' style='text-align:center'></div><h4 id='note' hidden style='color:#F5CC00'></h4><div id='live'>)html";
 
 static const char main_page_buttons[] =
-    R"html(</div><button id='P0' hidden onclick="if(confirm('Are you sure you want to pause charging and discharging? This will set the maximum charge and discharge values to zero, preventing any further power flow.')) { PauseBattery(true); }">Pause charge/discharge</button><button id='P1' hidden onclick='PauseBattery(false)'>Resume charge/discharge</button> <button onclick="location='/update'">Perform OTA update</button> <button onclick="location='/settings'">Change Settings</button> <button onclick="location='/advanced'">More Battery/Cell Info</button> <button onclick="location='/canreplay'">CAN tools</button> )html";
+    R"html(</div><button id='P0' hidden onclick="if(confirm('Are you sure you want to pause charging and discharging? This will set the maximum charge and discharge values to zero, preventing any further power flow.')) { PauseBattery(true); }">Pause charge/discharge</button><button id='P1' hidden onclick='PauseBattery(false)'>Resume charge/discharge</button> <button onclick="location='/update'">Perform OTA update</button> )html";
+static const char main_page_settings_buttons[] =
+    R"html(<button onclick="location='/settings'">Change Settings</button> <button onclick="location='/advanced'">More Battery/Cell Info</button> <button onclick="location='/canreplay'">CAN tools</button> )html";
+/* Revert to the previous firmware. The button itself is rendered per request (whether a
+   revert is offered, and why not); everything it runs is fixed and comes from here.
+
+   The server's answer is the outcome - a refusal carries its reason, and a success is followed
+   by a reboot the user otherwise stares at blind. So the flow shows each one. It polls
+   /GetFirmwareInfo until the board answers with a DIFFERENT version ("was X, now Y" - two dev
+   builds differ only in a hash suffix, so the change is announced rather than left to be
+   spotted), and a board that went down and came back with the SAME version is reported as the
+   rollback it is, not as success. The verdict survives the reload via sessionStorage, so the
+   fresh page says what just happened.
+
+   THE POLLING HAPPENS ON THIS PAGE, not on the one the board serves after the reboot, because
+   the image being reverted TO is the previous one and usually predates this code: its page
+   could say nothing. That is also why the page's own /live poll stands down while a revert is
+   in flight (V): it reloads the page the moment it sees a new boot, which would tear this flow
+   away mid-verdict. revEnd() hands polling back once there is nothing left to wait for.
+
+   WHY "WENT DOWN" IS TWO POLLS AND NOT ONE. `down` counts CONSECUTIVE failed polls, the
+   rollback branch needs two of them, and any poll that answers resets the count to zero. One
+   boolean latched by the first rejected fetch reads a successful revert as a rollback:
+   /revertFirmware answers 200 and then asks for a graceful restart, which normally fires at the
+   5 s PAUSED deadline (the 10 s one is the hard bound; graceful_restart() pauses first, and
+   safety.cpp static_asserts both), so the board stays up and answering for several more polls -
+   all of them correctly reporting the version that is still running. One dropped request in
+   that window latched the flag, the next poll answered with the unchanged version, and the page
+   announced a rollback and STOPPED polling, so the revert that completed seconds later was never
+   reported at all. It is a busy window to drop a request in: the graceful restart pauses the
+   emulator and opens the contactors before it reboots.
+
+   THE INTERVAL IS PART OF THE THRESHOLD, which is why it is one second. Measured on a T-CAN485
+   by driving /reboot - the same 200-then-hold_pins-then-graceful_restart tail this endpoint has
+   - and polling at 0.4 s: the board stops answering 1.5-5 s after the 200 and is back 3.1-5.1 s
+   later, three rounds. A 3.1 s outage on a TWO-second grid can drop as few as ONE poll depending
+   on where the grid falls, so "two consecutive" would miss a real rollback about as often as it
+   caught one. On a one-second grid the shortest measured outage is three polls wide, so the
+   threshold keeps a whole poll of margin while a lone transient drop is still filtered. Raise
+   this interval and the threshold stops meaning what it says.
+
+   The residual, stated because the trade is deliberate: a rollback whose downtime spans fewer
+   than two polls is not named, and runs to the two-minute bound instead. The bound says "look
+   at the board", which is true and actionable.
+
+   THE ROLLBACK VERDICT IS STICKY. Once it is shown, revEnd() lets the /live poll run again, and
+   that poll finds the new boot and reloads the page. A verdict that lived only in the DOM would
+   be gone with it, and a failed update is not something a user should have to have been
+   watching the screen to learn. So it stays until it is DISMISSED, and it carries the control
+   that dismisses it. Sticky is made safe by a VERSION GUARD rather than by a timer: the verdict
+   says "you are still on this version because the update failed", which is true exactly while
+   the board still runs the version it was written about; a later revert or a fresh update boots
+   something else and the message is dropped, unread, on the first page the new image serves.
+   The success verdict needs none of this - it is replayed once, beside a version string in the
+   header that now says what it announced.
+
+   The button carries the running version in data-v, and has the id revBtn in BOTH of its
+   states, because the status message anchors to it. */
+static const char main_page_revert_script[] = R"html(<script>
+function revSt(){var st=document.getElementById('revSt');if(!st){
+if(!document.getElementById('revSpinCss')){var sc=document.createElement('style');sc.id='revSpinCss';
+sc.textContent='@keyframes revspin{to{transform:rotate(360deg)}}';document.head.appendChild(sc)}
+st=document.createElement('div');st.id='revSt';
+st.style.cssText='margin:10px auto;padding:10px 16px;max-width:640px;border-radius:8px;background:#505E67;color:#fff;font-weight:bold;';
+var b=document.getElementById('revBtn');if(b&&b.parentNode){b.parentNode.insertBefore(st,b.nextSibling)}else{document.body.appendChild(st)}}
+return st}
+function revSpin(){return "<span style='display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:revspin 1s linear infinite;vertical-align:-2px;margin-right:8px'></span>"}
+function revEnd(){V=0;tick()}
+function revFailShow(m){var st=revSt();st.style.background='#b71c1c';
+st.innerHTML=m+" <button id='revFailX' style='margin-left:10px;padding:2px 10px;cursor:pointer;border-radius:4px'>Dismiss</button>";
+var x=document.getElementById('revFailX');if(x){x.onclick=function(){
+try{sessionStorage.removeItem('revFail');sessionStorage.removeItem('revFailVer')}catch(e){}
+if(st.parentNode){st.parentNode.removeChild(st)}}}}
+function RevertFW(){var b=document.getElementById('revBtn'),cur=b?b.getAttribute('data-v'):'',st=revSt();
+V=1;if(b){b.disabled=true}
+st.style.background='#505E67';st.innerHTML=revSpin()+'Asking the board to revert...';
+var x=new XMLHttpRequest();x.open('GET','/revertFirmware',true);
+x.onload=function(){if(x.status==200){
+st.innerHTML=revSpin()+'Rebooting into the previous firmware. Now leaving '+cur+' - waiting for the board to come back...';revPoll(cur,st,Date.now(),0);
+}else{st.style.background='#b71c1c';st.innerHTML='Revert not performed: '+x.responseText;if(b){b.disabled=false}revEnd()}};
+x.onerror=function(){st.style.background='#b71c1c';st.innerHTML='Revert request failed: no reply from the board.';if(b){b.disabled=false}revEnd()};
+x.send()}
+function revPoll(cur,st,t0,down){
+if(Date.now()-t0>120000){st.style.background='#b71c1c';
+st.innerHTML='The board has not come back within 2 minutes. It may be up on another address; reload this page and check the button state.';revEnd();return}
+setTimeout(function(){
+fetch('/GetFirmwareInfo',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+if(d&&d.firmware&&d.firmware!=cur){
+try{sessionStorage.setItem('revDone','Reverted: was '+cur+', now running '+d.firmware+'.')}catch(e){}
+st.style.background='#1b5e20';st.innerHTML='Reverted: was '+cur+', now running '+d.firmware+'. Reloading...';
+setTimeout(function(){location.reload(true)},3000);
+}else if(d&&d.firmware&&down>=2){
+var m='The board rebooted but came back on the SAME version ('+cur+'): the previous firmware failed to start and was automatically rolled back. The revert button is now disabled until a new update arrives.';
+try{sessionStorage.setItem('revFail',m);sessionStorage.setItem('revFailVer',cur)}catch(e){}
+revFailShow(m);revEnd();
+}else{revPoll(cur,st,t0,0)}
+}).catch(function(){revPoll(cur,st,t0,down+1)})},1000)}
+(function(){var b=document.getElementById('revBtn');if(!b)return;var cur=b.getAttribute('data-v');
+try{var m=sessionStorage.getItem('revDone');if(m){sessionStorage.removeItem('revDone');
+var st=revSt();st.style.background='#1b5e20';st.innerHTML=m}
+var f=sessionStorage.getItem('revFail');
+if(f&&sessionStorage.getItem('revFailVer')==cur){revFailShow(f)}
+else if(f){sessionStorage.removeItem('revFail');sessionStorage.removeItem('revFailVer')}
+}catch(e){}})();
+</script>)html";
 static const char main_page_log_button[] = "<button onclick=\"location='/log'\">Log</button> ";
 static const char main_page_more_buttons[] =
     "<button onclick='Events()'>Events</button> <button onclick='askReboot()'>Reboot Emulator</button> ";
@@ -1784,6 +1941,8 @@ fetch('https://api.github.com/repos/dalathegreat/Battery-Emulator/releases/lates
    - A poll answered by a different boot means the emulator restarted (reboot, OTA update), so
      the page reloads to get the page of the firmware now running. Rebooting from this page just
      keeps polling until that happens, instead of navigating away after a fixed delay.
+   - While a firmware revert is in flight (V) it does not poll at all: the revert flow polls on
+     its own, and a reload on the new boot would tear it away before it can report.
    - Pause and the contactor buttons refresh the live part right away instead of reloading.
    - A tap or click on the live part (or on the note above it) refreshes it at once, dimming it
      briefly as acknowledgement. Not when it lands on a link, a button or a help text of its own,
@@ -1800,11 +1959,11 @@ function send(u,f){var x=new XMLHttpRequest();x.onload=function(){if(f)f();tick(
 function PauseBattery(p){send('/pause?value='+p)}
 function estop(s){send('/equipmentStop?value='+s)}
 function askReboot(){if(confirm('Are you sure you want to reboot the emulator? NOTE: If emulator is handling contactors, they will open during reboot!'))send('/reboot',function(){R=1})}
-var L=g('live'),N=g('note'),T,B,F=0,R=0,Q=0,M=0;
+var L=g('live'),N=g('note'),T,B,F=0,R=0,Q=0,M=0,V=0;
 function state(){var s=g('S');if(!s)return'';var p=s.getAttribute('data-p')=='1',e=s.getAttribute('data-e')=='1';
 g('P0').hidden=p;g('P1').hidden=!p;g('E0').hidden=e;g('E1').hidden=!e;return s.getAttribute('data-b')}
 function later(ms){clearTimeout(T);T=setTimeout(tick,ms)}
-function tick(){clearTimeout(T);if(document.hidden)return;if(Q){Q=2;return}
+function tick(){clearTimeout(T);if(document.hidden||V)return;if(Q){Q=2;return}
 if(!window.fetch)return location.reload();
 Q=1;M=+new Date;var a=window.AbortController?new AbortController():0,w=a&&setTimeout(function(){a.abort()},8000);
 function end(ms){clearTimeout(w);var q=Q;Q=0;later(q>1?0:ms>0?ms:15000)}
@@ -1874,9 +2033,10 @@ class MainPageResponse : public AsyncAbstractResponse {
   }
 
   String live;
+  String revert;
 
  private:
-  static constexpr uint8_t MAX_PARTS = 8;
+  static constexpr uint8_t MAX_PARTS = 12;
   const char* parts[MAX_PARTS] = {};
   size_t lengths[MAX_PARTS] = {};
   uint8_t count = 0;
@@ -1895,6 +2055,27 @@ static void send_unavailable(AsyncWebServerRequest* request, const char* reason)
   AsyncWebServerResponse* response = request->beginResponse(503, "text/plain", reason);
   response->addHeader("Cache-Control", "no-store");
   request->send(response);
+}
+
+/* The revert button beside the OTA one: offered with its confirmation text, or disabled with the
+   reason as its tooltip. The decision text is authored without quote characters, so it can sit
+   inside the JS confirm() and the HTML title attribute verbatim.
+
+   The id is on BOTH branches because it is what the status message anchors to - revSt() inserts
+   itself after it, and falls back to the bottom of the document when it is missing. A rollback
+   verdict is re-rendered on a page whose revert offer has just been withdrawn (the passive slot
+   is marked failed), so the disabled button is precisely the state that message has to appear
+   under. data-v is the version now running, which the revert flow reports as "was". */
+static String render_revert_button() {
+  OtaRevertDecision revert = current_ota_revert_decision();
+  String html = "<button id='revBtn' data-v='" + String(version_number) + "' ";
+  if (revert.offered) {
+    html += "onclick=\"if(confirm('" + String(revert.text.c_str()) + "')) { RevertFW(); }\">";
+  } else {
+    html += "disabled title=\"" + String(revert.text.c_str()) + "\" style='cursor:not-allowed;'>";
+  }
+  html += "Revert to previous firmware</button> ";
+  return html;
 }
 
 static void send_main_page(AsyncWebServerRequest* request, bool live_only) {
@@ -1937,6 +2118,10 @@ static void send_main_page(AsyncWebServerRequest* request, bool live_only) {
       add_part(page, main_page_low_memory);
     }
     add_part(page, main_page_buttons);
+    page->revert = render_revert_button();
+    page->add(page->revert.c_str(), page->revert.length());
+    add_part(page, main_page_revert_script);
+    add_part(page, main_page_settings_buttons);
     if (datalayer.system.info.web_logging_active
 #ifdef SDCARD
         || datalayer.system.info.SD_logging_active
@@ -1954,6 +2139,17 @@ static void send_main_page(AsyncWebServerRequest* request, bool live_only) {
 }
 
 void onOTAStart() {
+  /* Confirm the image that is about to be replaced, while it is still the boot
+   * selection. Update.end() moves the selection to the slot being written; from
+   * that moment the write side declines (BOOT_SELECTION_MOVED), this image stays
+   * PENDING_VERIFY, and the bootloader rewrites it to ABORTED on the way past -
+   * so the fresh image comes up reporting a rollback nobody asked for, with no
+   * confirmed sibling left to fall back to if it dies in its own window.
+   *
+   * Arming rather than writing: this runs in the async TCP task and the otadata
+   * write belongs on the ordinary main-task path (ota_confirm_gate.h). */
+  ota_confirm_request();
+
   //try to Pause the battery
   setBatteryPause(true, false, EquipmentStop::UNCHANGED, false);
 

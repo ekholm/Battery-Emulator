@@ -27,6 +27,10 @@ void ota_confirm_request(void) {
   }
 }
 
+bool ota_confirm_pending(void) {
+  return confirmation_owed;
+}
+
 bool ota_confirm_take_pending(void) {
   if (!confirmation_owed) {
     return false;
@@ -34,6 +38,16 @@ bool ota_confirm_take_pending(void) {
   confirmation_owed = false;
   confirmation_taken = true;
   return true;
+}
+
+OtaConfirmVerdict ota_confirm_verdict(bool running_pending_verify, bool running_is_boot_selection) {
+  if (!running_pending_verify) {
+    return OtaConfirmVerdict::NOT_PENDING;
+  }
+  if (!running_is_boot_selection) {
+    return OtaConfirmVerdict::BOOT_SELECTION_MOVED;
+  }
+  return OtaConfirmVerdict::CONFIRM;
 }
 
 #ifdef UNIT_TEST
