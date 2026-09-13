@@ -49,6 +49,7 @@ constexpr uint64_t board_cap_bit(BoardCap cap) {
 // Per-board capability sets. Constant expressions on purpose: a per-board
 // build folds a requirement check away entirely, so a row gated off on this
 // board costs it nothing.
+// clang-format off
 inline constexpr uint64_t BOARD_CAPS_3LB =
     board_cap_bit(BoardCap::Rs485) |
     board_cap_bit(BoardCap::Can) |
@@ -134,6 +135,7 @@ inline constexpr uint64_t BOARD_CAPS_WAVESHARE =
     board_cap_bit(BoardCap::BatteryWakeup) |
     board_cap_bit(BoardCap::ApButton) |
     board_cap_bit(BoardCap::DisplayI2c);
+// clang-format on
 
 // The active board's set, where the build has exactly one board - the same
 // macro hal.cpp switches on. A build that compiles every board (one image

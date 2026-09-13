@@ -642,7 +642,15 @@ def capabilities_header(boards, previous):
               '}', '',
               '// Per-board capability sets. Constant expressions on purpose: a per-board',
               '// build folds a requirement check away entirely, so a row gated off on this',
-              '// board costs it nothing.']
+              '// board costs it nothing.',
+              # One capability per line is the point of this block: it is read down
+              # the column and it diffs a line per change. The repo's pinned
+              # clang-format packs it to fill the column limit instead, which made
+              # this file violate the pin it declares. The guard is emitted HERE
+              # rather than added to the output by hand, because the next run of
+              # this generator would delete a hand-added one and CI fails when the
+              # file and the declarations disagree.
+              '// clang-format off']
     for board, data in boards:
         caps = caps_of(data)
         const = f'BOARD_CAPS_{board.upper()}'
@@ -652,7 +660,8 @@ def capabilities_header(boards, previous):
             body = 'uint64_t{0}'
         lines.append(f'inline constexpr uint64_t {const} =')
         lines.append(f'    {body};')
-    lines += ['',
+    lines += ['// clang-format on',
+              '',
               "// The active board's set, where the build has exactly one board - the same",
               '// macro hal.cpp switches on. A build that compiles every board (one image',
               '// for all of them) matches no branch and leaves this undefined, which is the',
