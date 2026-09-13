@@ -745,8 +745,8 @@ TEST_F(UdsCanBatteryTest, SequenceQueuedDuringPidRetryIsHeldNotLost) {
   tick(1000);  // PID request goes out, no reply will come.
   ASSERT_EQ(get_transmitted_frames().size(), 1u);
 
-  battery->auto_send_state = 42;    // The dispatch hook sends the first step.
-  battery->start_sequence(42);      // Queued while the PID is in flight.
+  battery->auto_send_state = 42;  // The dispatch hook sends the first step.
+  battery->start_sequence(42);    // Queued while the PID is in flight.
 
   bool dispatched = false;
   for (int k = 2; k <= 60 && !dispatched; k++) {

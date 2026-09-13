@@ -126,7 +126,6 @@ void FordMachEBattery::update_values() {
   datalayer_extended.fordMachE.pid_battery_capacity_ah = pid_battery_capacity_ah;
   datalayer_extended.fordMachE.pid_maintenance_rebalance_status = pid_maintenance_rebalance_status;
   datalayer_extended.fordMachE.pid_hvb_max_charge_current = pid_hvb_max_charge_current;
-
 }
 
 void FordMachEBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
@@ -316,7 +315,8 @@ uint16_t FordMachEBattery::handle_pid(uint16_t pid, uint32_t value, const uint8_
       pid_hvb_soc = ((data[0] << 8) | data[1]) * 2;
       break;
     case PID_HVB_CONTACTOR_STATUS:
-      pid_hvb_contactor_status = ((uint32_t)data[0] << 24) | ((uint32_t)data[1] << 16) | ((uint32_t)data[2] << 8) | data[3];
+      pid_hvb_contactor_status =
+          ((uint32_t)data[0] << 24) | ((uint32_t)data[1] << 16) | ((uint32_t)data[2] << 8) | data[3];
       break;
     case PID_HVB_CONTACTOR_POSITIVE_LEAK_VOLTAGE:
       pid_hvb_contactor_positive_leak_voltage = (data[0] << 8) | data[1];
@@ -371,7 +371,6 @@ uint16_t FordMachEBattery::handle_pid(uint16_t pid, uint32_t value, const uint8_
   }
   return 0;  // Continue the scan list in order.
 }
-
 
 void FordMachEBattery::transmit_can(unsigned long currentMillis) {
   // UDS transmit path: PID scan (one per 100 ms tick) and any in-flight
