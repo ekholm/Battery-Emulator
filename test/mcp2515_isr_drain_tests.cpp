@@ -9,6 +9,7 @@
 
 #include "../Software/src/lib/mcp2515_lite/mcp2515_rx_ring.h"
 #include "../Software/src/lib/mcp2515_lite/mcp2515_tx_status.h"
+#include "utils/source_scan.h"
 
 /* The MCP2515's received frames leave the chip inside the interrupt.
  *
@@ -58,19 +59,6 @@ std::string source(const char* relative) {
 
 std::string driver_source() {
   return source("Software/src/lib/mcp2515_lite/mcp2515_lite.cpp");
-}
-
-// The body of one function, from its signature to the next line that starts in
-// column zero with a closing brace.
-std::string body_of(const std::string& src, const std::string& signature) {
-  const size_t start = src.find(signature);
-  EXPECT_NE(start, std::string::npos) << signature << " is gone";
-  if (start == std::string::npos) {
-    return "";
-  }
-  const size_t end = src.find("\n}", start);
-  EXPECT_NE(end, std::string::npos);
-  return src.substr(start, end - start);
 }
 
 /* The extent of the `{ ... }` block opening at or after `at`, by brace depth.
@@ -297,7 +285,7 @@ TEST(Mcp2515IsrDrain, EverythingTheInterruptCallsIsPinnedIntoIram) {
 }
 
 TEST(Mcp2515IsrDrain, TheDrainCallsNothingThatLivesInFlash) {
-  const std::string drain = body_of(driver_source(), "bool IRAM_ATTR MCP2515_Lite::drainRx()");
+  const std::string drain = required_function_body(driver_source(), "bool IRAM_ATTR MCP2515_Lite::drainRx()");
 
   // Each of these is flash-resident here: the Arduino SPI class, the logging
   // macro and the queue API. The ring, the decode and the register-level
@@ -358,7 +346,7 @@ TEST(Mcp2515IsrDrain, TheHeaderCodeTheDrainReachesCannotBeLeftOutOfLine) {
  */
 TEST(Mcp2515IsrDrain, AnIncompleteTransferIsDroppedRatherThanDecoded) {
   const std::string spi = source("Software/src/lib/mcp2515_lite/mcp2515_iram_spi.cpp");
-  const std::string transfer = body_of(spi, "IRAM_ATTR Mcp2515IramSpi::transfer(");
+  const std::string transfer = required_function_body(spi, "IRAM_ATTR Mcp2515IramSpi::transfer(");
 
   const size_t timeout = transfer.find("_timeouts = _timeouts + 1");
   ASSERT_NE(timeout, std::string::npos) << "the transfer no longer counts giving up on the peripheral";
@@ -368,7 +356,7 @@ TEST(Mcp2515IsrDrain, AnIncompleteTransferIsDroppedRatherThanDecoded) {
   EXPECT_NE(transfer.find("return completed;"), std::string::npos)
       << "an incomplete transfer still copies the receive registers out - those bytes are not what the chip sent";
 
-  const std::string drain = body_of(driver_source(), "bool IRAM_ATTR MCP2515_Lite::drainRx()");
+  const std::string drain = required_function_body(driver_source(), "bool IRAM_ATTR MCP2515_Lite::drainRx()");
   EXPECT_NE(drain.find("if (!_iram_spi.transfer(cmd_frame, rx_frame, 3)) {"), std::string::npos)
       << "the drain acts on a CANINTF read that may never have happened - a fabricated flag byte makes it read "
          "receive buffers that hold nothing";
@@ -510,7 +498,7 @@ TEST(Mcp2515IsrDrain, OscillatorAutodetectionCannotLockTheDrainOut) {
  */
 TEST(Mcp2515IsrDrain, TheRingHasExactlyOneProducer) {
   const std::string src = driver_source();
-  const std::string task = body_of(src, "void MCP2515_Lite::canTask(void* pvParameters)");
+  const std::string task = required_function_body(src, "void MCP2515_Lite::canTask(void* pvParameters)");
 
   EXPECT_NE(task.find("if (!self->_isr_drain_enabled) {"), std::string::npos)
       << "the task drains receive buffers even with the interrupt drain live - two producers on one ring head";
@@ -520,8 +508,9 @@ TEST(Mcp2515IsrDrain, TheRingHasExactlyOneProducer) {
       << "the task is back to re-reading the pin, which is the recovery that does not work in the window it is for";
 
   // And the one caller that is left is the interrupt.
-  EXPECT_NE(body_of(src, "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)").find("drainRx()"),
-            std::string::npos)
+  EXPECT_NE(
+      required_function_body(src, "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)").find("drainRx()"),
+      std::string::npos)
       << "the interrupt no longer drains, so nothing does";
 }
 
@@ -534,7 +523,8 @@ TEST(Mcp2515IsrDrain, TheRingHasExactlyOneProducer) {
  * flash write. One transmit completion would hold the pin low for the window.
  */
 TEST(Mcp2515IsrDrain, OnlyReceiveFlagsCanPullTheInterruptPinLow) {
-  const std::string begin = body_of(driver_source(), "bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed");
+  const std::string begin =
+      required_function_body(driver_source(), "bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed");
 
   const size_t enable = begin.find("modifyRegister(REG_CANINTE,");
   ASSERT_NE(enable, std::string::npos) << "nothing configures CANINTE";
@@ -601,7 +591,8 @@ TEST(Mcp2515IsrDrain, ThePinIsLevelTriggeredOnlyOnceThereIsADrainBehindIt) {
  */
 TEST(Mcp2515IsrDrain, AnInterruptThatCouldNotDrainMasksItsOwnPin) {
   const std::string src = driver_source();
-  const std::string handler = body_of(src, "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
+  const std::string handler =
+      required_function_body(src, "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
 
   const size_t deferral = handler.find("_isr_bus_deferrals = instance->_isr_bus_deferrals + 1");
   ASSERT_NE(deferral, std::string::npos) << "the interrupt no longer counts deferring to the task";
@@ -616,7 +607,7 @@ TEST(Mcp2515IsrDrain, AnInterruptThatCouldNotDrainMasksItsOwnPin) {
   EXPECT_NE(handler.find("maskIsrPin()", incomplete), std::string::npos);
 
   // The mask itself may only be register writes: it runs with the cache off.
-  const std::string mask = body_of(src, "void IRAM_ATTR MCP2515_Lite::maskIsrPin()");
+  const std::string mask = required_function_body(src, "void IRAM_ATTR MCP2515_Lite::maskIsrPin()");
   EXPECT_NE(mask.find("gpio_ll_intr_disable("), std::string::npos)
       << "the mask goes through something other than the always_inline register write - gpio_intr_disable() is "
          "flash-resident and would fault in the window this path exists for";
@@ -641,7 +632,8 @@ TEST(Mcp2515IsrDrain, AnInterruptThatCouldNotDrainMasksItsOwnPin) {
  * only a task transaction re-arms it.
  */
 TEST(Mcp2515IsrDrain, ADrainThatFinishedItsWorkWakesNobody) {
-  const std::string handler = body_of(driver_source(), "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
+  const std::string handler =
+      required_function_body(driver_source(), "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
 
   const size_t notify = handler.find("vTaskNotifyGiveFromISR(");
   ASSERT_NE(notify, std::string::npos) << "the interrupt can no longer wake the task at all";
@@ -695,7 +687,7 @@ TEST(Mcp2515IsrDrain, TheDrainShortensThePollThatIsNowItsOnlyBackstop) {
                             << " ms - it is meant to be SHORTER, because with receive answered by the interrupt "
                                "this poll is the only thing left that finds an error or frees a transmit buffer";
 
-  const std::string task = body_of(driver_source(), "void MCP2515_Lite::canTask(void* pvParameters)");
+  const std::string task = required_function_body(driver_source(), "void MCP2515_Lite::canTask(void* pvParameters)");
   EXPECT_NE(
       task.find("self->_isr_drain_enabled ? MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS : MCP2515_LITE_POLL_TIMEOUT_MS"),
       std::string::npos)
@@ -706,7 +698,7 @@ TEST(Mcp2515IsrDrain, TheDrainShortensThePollThatIsNowItsOnlyBackstop) {
 }
 
 TEST(Mcp2515IsrDrain, TheTaskRearmsThePinWhenItReleasesTheBus) {
-  const std::string release = body_of(driver_source(), "void MCP2515_Lite::busReleaseTask()");
+  const std::string release = required_function_body(driver_source(), "void MCP2515_Lite::busReleaseTask()");
 
   const size_t clear = release.find("_isr_pin_masked = false;");
   const size_t rearm = release.find("gpio_ll_intr_enable_on_core(");
@@ -736,7 +728,7 @@ TEST(Mcp2515IsrDrain, TheTaskRearmsThePinWhenItReleasesTheBus) {
  * transaction, which is the question the mask was approximating.
  */
 TEST(Mcp2515IsrDrain, TheDriverAsksTheChipWhichTransmitBuffersAreFree) {
-  const std::string task = body_of(driver_source(), "void MCP2515_Lite::canTask(void* pvParameters)");
+  const std::string task = required_function_body(driver_source(), "void MCP2515_Lite::canTask(void* pvParameters)");
 
   EXPECT_NE(task.find("cmd_frame[0] = CMD_READ_STATUS;"), std::string::npos)
       << "nothing reads the chip's transmit status, so the free-buffer answer is a shadow again";
@@ -767,7 +759,8 @@ TEST(Mcp2515IsrDrain, TheDriverAsksTheChipWhichTransmitBuffersAreFree) {
  * wake_task can still reach it.
  */
 TEST(Mcp2515IsrDrain, EveryMaskComesWithAWake) {
-  const std::string handler = body_of(driver_source(), "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
+  const std::string handler =
+      required_function_body(driver_source(), "void IRAM_ATTR MCP2515_Lite::mcp2515_isr_handler(void* arg)");
 
   const size_t notify = handler.find("vTaskNotifyGiveFromISR(");
   ASSERT_NE(notify, std::string::npos) << "the interrupt no longer wakes the task at all";
@@ -800,7 +793,7 @@ TEST(Mcp2515IsrDrain, EveryMaskComesWithAWake) {
  * is a boot path, not a corner.
  */
 TEST(Mcp2515IsrDrain, DetachingTheHandlerForgetsAPendingMask) {
-  const std::string detach = body_of(driver_source(), "void MCP2515_Lite::detachIsrPin()");
+  const std::string detach = required_function_body(driver_source(), "void MCP2515_Lite::detachIsrPin()");
 
   EXPECT_NE(detach.find("_isr_pin_masked = false;"), std::string::npos)
       << "detachIsrPin() keeps a pending mask - the next busReleaseTask() re-arms a pin whose handler is gone";
@@ -816,7 +809,8 @@ TEST(Mcp2515IsrDrain, DetachingTheHandlerForgetsAPendingMask) {
  * autodetect times out at 100 ms and answers 8 MHz, on every 16 MHz board.
  */
 TEST(Mcp2515IsrDrain, AutodetectionReceivesItsOwnTestFrame) {
-  const std::string autodetect = body_of(driver_source(), "uint32_t MCP2515_Lite::autodetectOscillatorFrequency()");
+  const std::string autodetect =
+      required_function_body(driver_source(), "uint32_t MCP2515_Lite::autodetectOscillatorFrequency()");
 
   EXPECT_NE(autodetect.find("begin({7813, 8000000}, true, true)"), std::string::npos)
       << "autodetection does not run the chip in loopback - with CANINTE receive-only, no interrupt ever fires and "
@@ -842,7 +836,8 @@ TEST(Mcp2515TxStatus, TheDecodeMatchesTheDatasheetOnEveryStatusByte) {
 }
 
 TEST(Mcp2515IsrDrain, TheInterruptNeverWaitsForTheTask) {
-  const std::string acquire = body_of(driver_source(), "bool IRAM_ATTR MCP2515_Lite::busTryAcquireIsr()");
+  const std::string acquire =
+      required_function_body(driver_source(), "bool IRAM_ATTR MCP2515_Lite::busTryAcquireIsr()");
 
   // A lock in the interrupt is the one shape that cannot work: the task holding
   // it is frozen for the whole flash window, so the interrupt would spin
@@ -854,7 +849,7 @@ TEST(Mcp2515IsrDrain, TheInterruptNeverWaitsForTheTask) {
 
 TEST(Mcp2515IsrDrain, TheDrainIsOnlyOfferedOnABusThisChipHasToItself) {
   const std::string src = source("Software/src/communication/can/comm_can.cpp");
-  const std::string exclusive = body_of(src, "static bool mcp2515_bus_is_exclusive()");
+  const std::string exclusive = required_function_body(src, "static bool mcp2515_bus_is_exclusive()");
 
   EXPECT_NE(exclusive.find("#ifdef SDCARD"), std::string::npos)
       << "the SD card no longer disqualifies the bus - on the T-CAN485 that is the pair measured going deaf when the "
