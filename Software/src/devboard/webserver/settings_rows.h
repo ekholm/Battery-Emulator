@@ -200,6 +200,6 @@
   BE_ROW_VolatileFloatSetting("TMP_CHARGERSETPOINTV", 0.0f, 1000.0f, [](float value) { if (value >= CHARGER_MIN_HV && value <= CHARGER_MAX_HV) datalayer.charger.charger_setpoint_HV_VDC = (float)value; }, []() { return (float)datalayer.charger.charger_setpoint_HV_VDC; }) \
   BE_ROW_VolatileFloatSetting("TMP_CHARGERSETPOINTA", 0.0f, 100.0f, [](float value) { if ((value <= CHARGER_MAX_A) && (value <= datalayer.battery.settings.max_user_set_charge_dA) && (value * datalayer.charger.charger_setpoint_HV_VDC <= CHARGER_MAX_POWER)) datalayer.charger.charger_setpoint_HV_IDC = (float)value; }, []() { return (float)datalayer.charger.charger_setpoint_HV_IDC; }) \
   BE_ROW_VolatileFloatSetting("TMP_CHARGERENDA", 0.0f, 100.0f, [](float value) { datalayer.charger.charger_setpoint_HV_IDC_END = (float)value; }, []() { return (float)datalayer.charger.charger_setpoint_HV_IDC_END; }) \
-  BE_ROW_VolatileScaledSetting("TMP_BALTIME", 0.0f, (float)UINT32_MAX / 60000.0f, 60000.0f, [](float value) { datalayer.battery.settings.balancing_max_time_ms = (uint32_t)value; }, []() { return (float)datalayer.battery.settings.balancing_max_time_ms; }) \
+  BE_ROW_VolatileScaledSetting("TMP_BALTIME", 0.0f, (float)UINT32_MAX / 60000.0f, 60000.0f, [](float value) { datalayer.battery.settings.balancing_max_time_ms = (uint32_t)value; }, []() { return (float)datalayer.battery.settings.balancing_max_time_ms; })
 
 // clang-format on

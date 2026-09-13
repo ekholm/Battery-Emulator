@@ -1,6 +1,6 @@
 #include "settings.h"
-#include "settings_rows.h"
 #include "settings_handlers.h"
+#include "settings_rows.h"
 #include "webserver_new.h"
 
 #include <cmath>
@@ -309,9 +309,7 @@ namespace {
 #define BE_ROW_InstantScaledSetting(name, ...) name,
 #define BE_ROW_InstantBoolSetting(name, ...) name,
 #include "settings_rows_null.h"
-constexpr const char* BE_PERSISTED_KEYS[] = {
-  BE_SETTINGS_LIST
-};
+constexpr const char* BE_PERSISTED_KEYS[] = {BE_SETTINGS_LIST};
 #include "settings_rows_undef.h"
 
 constexpr size_t BE_PERSISTED_KEY_COUNT = sizeof(BE_PERSISTED_KEYS) / sizeof(BE_PERSISTED_KEYS[0]);
