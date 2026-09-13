@@ -141,9 +141,9 @@ TEST_F(SettingsAccessorTest, WrongTaggedEntryReadsAsTheDefault) {
 TEST_F(SettingsAccessorTest, MistaggedEntriesDefaultRatherThanBleedZerosAcross) {
   BatteryEmulatorSettingsStore store;
 
-  store.saveInt(row(Sid::MQTTPORT).nvs_key, 999);        // row kind is U32
-  store.saveUInt(row(Sid::WIFIAPENABLED).nvs_key, 1);    // row kind is BoolU8
-  store.saveUInt(row(Sid::HTTPUSER).nvs_key, 7);         // row kind is Str
+  store.saveInt(row(Sid::MQTTPORT).nvs_key, 999);      // row kind is U32
+  store.saveUInt(row(Sid::WIFIAPENABLED).nvs_key, 1);  // row kind is BoolU8
+  store.saveUInt(row(Sid::HTTPUSER).nvs_key, 7);       // row kind is Str
 
   EXPECT_EQ(setting_get<Sid::MQTTPORT>(store), 1883u) << "a mistagged read must return the row default, not 0";
   EXPECT_TRUE(setting_get<Sid::WIFIAPENABLED>(store)) << "a mistagged read must return the row default, not false";
