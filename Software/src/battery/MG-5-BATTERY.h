@@ -83,7 +83,7 @@ class Mg5Battery : public UdsCanBattery {
 
   bool userRequestContactorClose = true;
   bool contactorClosed = false;
-  bool dtc_clear_wanted = false;   // Contactor close wants the stored DTCs erased
+  bool dtc_clear_wanted = false;  // Contactor close wants the stored DTCs erased
   // The BMS answers diagnostics only inside the extended session; when the
   // diag side goes quiet this long, (re-)enter it - the pre-superclass code
   // did the same on every transaction timeout.
