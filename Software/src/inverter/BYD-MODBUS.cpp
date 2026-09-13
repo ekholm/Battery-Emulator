@@ -109,7 +109,7 @@ void BydModbusInverter::handle_update_data_modbusp301_byd() {
   if (reported_status == ACTIVE) {
     // DC and Power values after contactors (outter values).
     mbPV[308] = datalayer.batteries[0].status.voltage_dV;  // DC outter voltage
-    mbPV[309] = byd_power_W();                        // DC outter power, BYD reports charging as negative.
+    mbPV[309] = byd_power_W();                             // DC outter power, BYD reports charging as negative.
   } else {
     mbPV[308] = 0;
     mbPV[309] = 0;

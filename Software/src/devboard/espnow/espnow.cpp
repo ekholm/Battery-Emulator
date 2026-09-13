@@ -453,7 +453,8 @@ static void send_battery_frame(uint8_t index) {
       // with integer maths to millivolts to keep floats out of the send path.
       put_u16_field(
           ESPNOW_KEY_DCDC_VOLTAGE_MV,
-          static_cast<uint16_t>((static_cast<uint32_t>(datalayer.batteries[0].extended.tesla.battery_dcdcLvBusVolt) * 625u) / 16u));
+          static_cast<uint16_t>(
+              (static_cast<uint32_t>(datalayer.batteries[0].extended.tesla.battery_dcdcLvBusVolt) * 625u) / 16u));
     }
     if (user_selected_battery_type == BatteryType::BydAtto3) {
       const DATALAYER_INFO_BYDATTO3& byd = datalayer.batteries[index].extended.bydAtto3;

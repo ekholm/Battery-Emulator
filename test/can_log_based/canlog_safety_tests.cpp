@@ -136,8 +136,10 @@ class CanLogTestFixture : public testing::Test {
   void PrintValues() {
     std::cout << "Battery voltage: " << (datalayer.batteries[0].status.voltage_dV / 10.0) << " V" << std::endl;
     std::cout << "Battery current: " << (datalayer.batteries[0].status.current_dA / 10.0) << " A" << std::endl;
-    std::cout << "Battery cell min voltage: " << datalayer.batteries[0].status.cell_min_voltage_mV << " mV" << std::endl;
-    std::cout << "Battery cell max voltage: " << datalayer.batteries[0].status.cell_max_voltage_mV << " mV" << std::endl;
+    std::cout << "Battery cell min voltage: " << datalayer.batteries[0].status.cell_min_voltage_mV << " mV"
+              << std::endl;
+    std::cout << "Battery cell max voltage: " << datalayer.batteries[0].status.cell_max_voltage_mV << " mV"
+              << std::endl;
     std::cout << "Battery real SoC: " << (datalayer.batteries[0].status.real_soc / 100.0) << " %" << std::endl;
     std::cout << "Battery temperature max: " << (datalayer.batteries[0].status.temperature_max_dC / 10.0) << " C"
               << std::endl;

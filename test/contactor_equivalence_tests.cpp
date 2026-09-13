@@ -21,12 +21,12 @@
 #include <Arduino.h>
 
 #include "../Software/src/battery/BMW-I3-BATTERY.h"
-#include "../Software/src/shunt/BMW-SBOX.h"
 #include "../Software/src/communication/contactorcontrol/comm_contactorcontrol.h"
 #include "../Software/src/datalayer/datalayer.h"
 #include "../Software/src/devboard/hal/hal.h"
 #include "../Software/src/devboard/safety/safety.h"
 #include "../Software/src/devboard/utils/events.h"
+#include "../Software/src/shunt/BMW-SBOX.h"
 
 extern const std::vector<CAN_frame>& get_transmitted_frames();
 extern void clear_transmitted_frames();

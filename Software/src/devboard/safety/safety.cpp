@@ -271,8 +271,7 @@ static void check_battery_machinery_protection(int instance, MachineryProtection
      aggregation below sees a uniform "evaluated, not exceeded" verdict. */
   v.charge_limit_evaluated = true;
   v.discharge_limit_evaluated = true;
-  if (emulator_pause_request_ON || emulator_pause_status != NORMAL ||
-      datalayer.system.status.system_status == FAULT) {
+  if (emulator_pause_request_ON || emulator_pause_status != NORMAL || datalayer.system.status.system_status == FAULT) {
     safety.charge_limit_failures[instance] = 0;
     safety.discharge_limit_failures[instance] = 0;
   } else {
@@ -527,7 +526,6 @@ void update_machineryprotection() {
     check_can_component_alive(datalayer.charger.CAN_charger_still_alive, safety.charger_detected,
                               EVENT_CAN_CHARGER_DETECTED, EVENT_CAN_CHARGER_MISSING, charger->interface());
   }
-
 
   // Temperature limits are shared by all batteries, so all of them are checked in one pass
   check_battery_temperatures();

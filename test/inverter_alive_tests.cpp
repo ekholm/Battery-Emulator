@@ -13,7 +13,6 @@
 // fixture now clears it directly, the same way battery_alive_tests.cpp clears
 // the battery and charger latches, so these tests are order-independent.
 
-
 namespace {
 
 void setup_can_inverter_test() {

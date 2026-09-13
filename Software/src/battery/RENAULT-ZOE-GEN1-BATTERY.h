@@ -14,7 +14,8 @@ class RenaultZoeGen1Battery : public UdsCanBattery {
         &datalayer.system.status.battery_link[datalayer_battery_instance(datalayer_ptr)].allows_contactor_closing;
     dtc = &datalayer_battery->dtc;
     if (datalayer_battery_instance(datalayer_ptr) != 0) {
-      calculated_total_pack_voltage_mV = 0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
+      calculated_total_pack_voltage_mV =
+          0;  //Zero out pack voltage to avoid contactor closing before we know value via CAN
     }
   }
 

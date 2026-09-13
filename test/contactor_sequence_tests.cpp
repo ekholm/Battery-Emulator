@@ -38,7 +38,6 @@ constexpr unsigned long kBootMs = 100000;  // Well past INTERVAL_10_S
 
 }  // namespace
 
-
 class ContactorSequenceTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -90,7 +89,8 @@ TEST_F(ContactorSequenceTest, DoesNotCloseContactorsDuringTheStartupWindow) {
 
   for (unsigned long t = 0; t < INTERVAL_10_S; t += 1000) {
     tick_at(t);
-    ASSERT_EQ(precharge_fsm.state(), ContactorActuator::START_PRECHARGE) << "the ladder advanced at t=" << t << ", inside the startup window";
+    ASSERT_EQ(precharge_fsm.state(), ContactorActuator::START_PRECHARGE)
+        << "the ladder advanced at t=" << t << ", inside the startup window";
   }
 
   tick_at(INTERVAL_10_S + 1);
@@ -157,7 +157,8 @@ TEST_F(ContactorSequenceTest, ClosesInOrderWithEachStepGatedOnItsTimer) {
 
   // Too early for precharge.
   tick_at(negative_closed_at + kNegativeToPrechargeMs - 1);
-  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE) << "precharge engaged before the negative settling time elapsed";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE)
+      << "precharge engaged before the negative settling time elapsed";
 
   tick_at(negative_closed_at + kNegativeToPrechargeMs);
   ASSERT_EQ(precharge_fsm.state(), ContactorActuator::POSITIVE);
@@ -165,7 +166,8 @@ TEST_F(ContactorSequenceTest, ClosesInOrderWithEachStepGatedOnItsTimer) {
 
   // Too early for the positive contactor.
   tick_at(precharge_started_at + precharge_time_ms - 1);
-  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::POSITIVE) << "positive contactor closed before precharge finished";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::POSITIVE)
+      << "positive contactor closed before precharge finished";
 
   tick_at(precharge_started_at + precharge_time_ms);
   ASSERT_EQ(precharge_fsm.state(), ContactorActuator::PRECHARGE_OFF);
@@ -242,7 +244,8 @@ TEST_F(ContactorSequenceTest, SustainedFaultLatchesShutdownAndDoesNotRecover) {
     tick_at(kBootMs + kFaultTicksBeforeShutdown + 100 + i);
   }
 
-  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::SHUTDOWN_REQUESTED) << "the fault latch must survive the fault clearing";
+  EXPECT_EQ(precharge_fsm.state(), ContactorActuator::SHUTDOWN_REQUESTED)
+      << "the fault latch must survive the fault clearing";
   EXPECT_EQ(datalayer.system.status.contactors_engaged, kEngagedFaultLatched);
 }
 
@@ -291,7 +294,8 @@ TEST_F(ContactorSequenceTest, ShutdownLatchRaisesTheOpenContactorEvent) {
   precharge_fsm.set_state(ContactorActuator::COMPLETED);
   datalayer.system.status.system_status = FAULT;
 
-  for (unsigned long i = 0; i <= kFaultTicksBeforeShutdown + 1 && precharge_fsm.state() != ContactorActuator::SHUTDOWN_REQUESTED; ++i) {
+  for (unsigned long i = 0;
+       i <= kFaultTicksBeforeShutdown + 1 && precharge_fsm.state() != ContactorActuator::SHUTDOWN_REQUESTED; ++i) {
     tick_at(kBootMs + i);
   }
   ASSERT_EQ(precharge_fsm.state(), ContactorActuator::SHUTDOWN_REQUESTED);
