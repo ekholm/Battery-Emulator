@@ -201,24 +201,24 @@ struct PidGolden {
 
 TEST_F(FordMachEDtcTests, PidDecodeMatchesTheOriginalParser) {
   const PidGolden golden[] = {
-      {0x4800, {0x50, 0x00}, "u8[4] - 50", 30},                                    // pid_hvb_temp
-      {0x4801, {0x12, 0x34}, "((u8[4] << 8) | u8[5]) * 2", 0x1234 * 2},            // pid_hvb_soc
+      {0x4800, {0x50, 0x00}, "u8[4] - 50", 30},                                        // pid_hvb_temp
+      {0x4801, {0x12, 0x34}, "((u8[4] << 8) | u8[5]) * 2", 0x1234 * 2},                // pid_hvb_soc
       {0x4802, {0xA0, 0x0A, 0x84, 0x00}, "u8[4..7] big-endian", (int32_t)0xA00A8400},  // contactor status
-      {0x4803, {0x01, 0x02}, "(u8[4] << 8) | u8[5]", 0x0102},                      // pos leak voltage
-      {0x4804, {0x03, 0x04}, "(u8[4] << 8) | u8[5]", 0x0304},                      // neg leak voltage
-      {0x4805, {0x05, 0x06}, "(u8[4] << 8) | u8[5]", 0x0506},                      // pos voltage
-      {0x4806, {0x07, 0x08}, "(u8[4] << 8) | u8[5]", 0x0708},                      // neg voltage
-      {0x4811, {0x09, 0x0A}, "(u8[4] << 8) | u8[5]", 0x090A},                      // pos bus leak R
-      {0x4812, {0x0B, 0x0C}, "(u8[4] << 8) | u8[5]", 0x0B0C},                      // neg bus leak R
-      {0x4813, {0x0D, 0x0E}, "(u8[4] << 8) | u8[5]", 0x0D0E},                      // overall leak R
-      {0x4814, {0x0F, 0x10}, "(u8[4] << 8) | u8[5]", 0x0F10},                      // open leak R
-      {0x4848, {0x11, 0x12}, "(u8[4] << 8) | u8[5]", 0x1112},                      // ETE
-      {0x490C, {0xC8, 0x00}, "u8[4] / 2 (guarded > 0)", 100},                      // SoH
-      {0x480D, {0x13, 0x14}, "(u8[4] << 8) | u8[5]", 0x1314},                      // voltage
-      {0x48BC, {0x15, 0x16}, "(u8[4] << 8) | u8[5]", 0x1516},                      // max charge current
-      {0x4810, {0x17, 0x18}, "((u8[4] << 8) | u8[5]) / 2", 0x1718 / 2},            // calendar age
-      {0x485C, {0x19, 0x1A}, "(u8[4] << 8) | u8[5]", 0x191A},                      // capacity Ah
-      {0x4818, {0x02, 0x00}, "u8[4]", 2},                                          // rebalance status
+      {0x4803, {0x01, 0x02}, "(u8[4] << 8) | u8[5]", 0x0102},                          // pos leak voltage
+      {0x4804, {0x03, 0x04}, "(u8[4] << 8) | u8[5]", 0x0304},                          // neg leak voltage
+      {0x4805, {0x05, 0x06}, "(u8[4] << 8) | u8[5]", 0x0506},                          // pos voltage
+      {0x4806, {0x07, 0x08}, "(u8[4] << 8) | u8[5]", 0x0708},                          // neg voltage
+      {0x4811, {0x09, 0x0A}, "(u8[4] << 8) | u8[5]", 0x090A},                          // pos bus leak R
+      {0x4812, {0x0B, 0x0C}, "(u8[4] << 8) | u8[5]", 0x0B0C},                          // neg bus leak R
+      {0x4813, {0x0D, 0x0E}, "(u8[4] << 8) | u8[5]", 0x0D0E},                          // overall leak R
+      {0x4814, {0x0F, 0x10}, "(u8[4] << 8) | u8[5]", 0x0F10},                          // open leak R
+      {0x4848, {0x11, 0x12}, "(u8[4] << 8) | u8[5]", 0x1112},                          // ETE
+      {0x490C, {0xC8, 0x00}, "u8[4] / 2 (guarded > 0)", 100},                          // SoH
+      {0x480D, {0x13, 0x14}, "(u8[4] << 8) | u8[5]", 0x1314},                          // voltage
+      {0x48BC, {0x15, 0x16}, "(u8[4] << 8) | u8[5]", 0x1516},                          // max charge current
+      {0x4810, {0x17, 0x18}, "((u8[4] << 8) | u8[5]) / 2", 0x1718 / 2},                // calendar age
+      {0x485C, {0x19, 0x1A}, "(u8[4] << 8) | u8[5]", 0x191A},                          // capacity Ah
+      {0x4818, {0x02, 0x00}, "u8[4]", 2},                                              // rebalance status
   };
 
   // Answer every scan request as it arrives - golden payload where one is
