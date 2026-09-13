@@ -256,8 +256,7 @@ void handle_contactors() {
        * permission terms below in the order the layer-00 resolution records.
        */
       if (datalayer.system.status.system_status == ACTIVE &&
-          datalayer.system.status.inverter_allows_contactor_closing &&
-          !datalayer.system.info.equipment_stop_active) {
+          datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active) {
         contactorStatus = START_PRECHARGE;
       }
     }
