@@ -102,6 +102,68 @@ CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 # work on every target. Leave commented until you've tested it.
 # # CONFIG_LWIP_IPV6 is not set
 
+# -----------------------------------------------------------------------------
+# LATENCY (not size) - what a firmware upload does to the CAN streams
+# -----------------------------------------------------------------------------
+
+# Erase in 4 KB sectors, never in 64 KB blocks.
+#
+# A flash erase is ATOMIC: the cache is off for the whole command, both cores
+# are parked, and no task runs - so nothing sends a CAN frame and nothing drains
+# a receive FIFO. The erase COMMAND is therefore the unit of CAN starvation, and
+# the two available commands are an order of magnitude apart on this part: a
+# 4 KB sector erase measures 16-24 ms, a 64 KB block erase 88 ms. Nothing can
+# shorten a command once it has been issued - erase suspend is either absent
+# (ESP32/LX6) or, where it exists, no better than sector erasing and unsafe on
+# flash parts outside IDF's whitelist - so the only lever is which command the
+# driver issues, which is what this option decides.
+#
+# It matters because the OTA path takes the block branch by default. Arduino's
+# UpdateClass calls partitionEraseRange() for a whole SPI_FLASH_BLOCK_SIZE
+# whenever at least that much of the image is left and the offset is on a block
+# boundary (Updater.cpp, `block_erase`), so a ~1.9 MB upload is a train of 29
+# block erases - one every 64 KB - and each one is a multi-hundred-millisecond
+# hole in whatever the emulator was transmitting.
+#
+# 29 rather than 28, and the difference is the uploader: ElegantOTA calls
+# Update.begin(UPDATE_SIZE_UNKNOWN), so `_size` is the PARTITION size and not
+# the image size. Every block-aligned offset the upload reaches therefore has a
+# whole block "left" behind it, the final partial block included, and the
+# unaligned-partition branches (`part_head_sectors` / `part_tail_sectors`) never
+# fire at all on a table whose app slots are on 64 KB boundaries. An uploader
+# that passed the real content length would erase 28 blocks and finish the tail
+# in sectors.
+#
+# MEASURED on a LilyGo T_2CAN pair (ESP32-S3) over a 500 kbit native link, one
+# board transmitting a paced stream while it takes the upload and the other
+# recording the interval between arrivals - the pack's view, which is the one a
+# keepalive timeout is run against:
+#
+#   64 KB block erases (this option off), ~1.9 MB upload:
+#     100 f/s offered:  worst 106.5 ms, 15 intervals over 100 ms, 0 frames lost
+#    1000 f/s offered:  worst 101.2 ms,  6 intervals over 100 ms, 0 frames lost
+#
+#   4 KB sector erases (this option on), same rig, same image:
+#     100 f/s offered:  worst  30.5 ms,  0 intervals over 100 ms, 0 frames lost
+#    1000 f/s offered:  worst  29.0 ms,  0 intervals over 100 ms, 0 frames lost
+#
+#   The slower, more realistic cadence is the worse one without this option:
+#   there are 29 block erases in an upload of this size, and at 10 ms between
+#   frames half of them are long enough to be a breach on their own.
+#
+# The cost is real rather than slight, and it is the reason this is a deliberate
+# trade and not a free win: erasing 64 KB as sixteen sector commands takes
+# longer than one block command, so the upload runs slower. Measured on the same
+# legs: 11.1-11.4 s becomes 18.2-18.9 s for a 1.89 MB image, about 64 % longer,
+# paid once per firmware update.
+#
+# That is the trade this firmware wants. It is a battery emulator on a live bus
+# and a late keepalive outranks a fast upload, and the exposure is bounded to
+# the upload itself: every other flash write this firmware makes is an NVS
+# settings write, which erases a single sector and takes the sector branch with
+# or without this option.
+CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE=y
+
 
 
 # -----------------------------------------------------------------------------
