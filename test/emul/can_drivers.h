@@ -89,6 +89,8 @@ const std::vector<SentFrame>& sent_frames();
 
 // Lifecycle counters, for the stop_can()/restart_can() paths.
 int begin_count(Chip chip);
+// The receive ring depth the chip's driver was last begun with (0 if never).
+uint16_t rx_ring_depth(Chip chip);
 int end_count(Chip chip);
 bool is_running(Chip chip);
 bool is_paused(Chip chip);

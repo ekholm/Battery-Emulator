@@ -31,6 +31,8 @@ struct ChipState {
   uint8_t isr_drain_bus = 0xFF;
   int begin_count = 0;
   int end_count = 0;
+  // The receive ring depth the last begin() was configured with; 0 until then.
+  uint16_t rx_ring_depth = 0;
   std::deque<CAN_frame> rx;
 };
 
@@ -169,6 +171,10 @@ const std::vector<SentFrame>& sent_frames() {
   return g_sent;
 }
 
+uint16_t rx_ring_depth(Chip chip) {
+  return state(chip).rx_ring_depth;
+}
+
 int begin_count(Chip chip) {
   return state(chip).begin_count;
 }
@@ -198,6 +204,7 @@ ACAN_ESP32 ACAN_ESP32::can;
 uint32_t ACAN_ESP32::begin(const ACAN_ESP32_Settings& inSettings) {
   auto& s = emul_can::g_chips[static_cast<int>(Chip::Native)];
   s.begin_count++;
+  s.rx_ring_depth = inSettings.mDriverReceiveBufferSize;
   if (s.begin_error != 0) {
     s.running = false;
     return s.begin_error;
@@ -217,7 +224,7 @@ bool ACAN_ESP32::available() const {
 }
 
 uint16_t ACAN_ESP32::driverReceiveBufferSize() const {
-  return 32;  // ACAN_ESP32_Settings::mDriverReceiveBufferSize, the shipping default
+  return emul_can::g_chips[static_cast<int>(Chip::Native)].rx_ring_depth;
 }
 
 bool ACAN_ESP32::receive(CANMessage& outMessage) {
@@ -358,6 +365,7 @@ ACAN2517FD::~ACAN2517FD() {}
 uint32_t ACAN2517FD::begin(const ACAN2517FDSettings& inSettings, void (*inInterruptServiceRoutine)(void)) {
   auto& s = emul_can::g_chips[chip_];
   s.begin_count++;
+  s.rx_ring_depth = inSettings.mDriverReceiveFIFOSize;
   if (s.begin_error != 0) {
     s.running = false;
     return s.begin_error;

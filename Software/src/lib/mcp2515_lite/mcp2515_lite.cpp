@@ -1,6 +1,7 @@
 #include "mcp2515_lite.h"
 #include <Arduino.h>
 #include <driver/gpio.h>
+#include <esp_heap_caps.h>
 #include <esp_intr_alloc.h>
 #include <esp_memory_utils.h>
 #include <hal/gpio_ll.h>
@@ -53,6 +54,18 @@
 
 static inline void packExtendedId(uint8_t* buffer, uint32_t id);
 static inline void packStandardId(uint8_t* buffer, uint32_t id);
+
+void* MCP2515_Lite::operator new(size_t size) {
+  void* storage = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (storage == nullptr) {
+    abort();
+  }
+  return storage;
+}
+
+void MCP2515_Lite::operator delete(void* ptr) {
+  heap_caps_free(ptr);
+}
 
 MCP2515_Lite::MCP2515_Lite(SPIClass& spi, uint8_t cs, uint8_t int_pin) : _spi(spi), _cs(cs), _int_pin(int_pin) {
 
@@ -153,11 +166,18 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
      * the ring) is audited per linked image by the notes repo's ISR IRAM audit
      * (its mcp2515 preset).
    */
-  if (esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler))) {
+  /* The data half of the same audit. operator new above places a heap instance
+   * in internal DRAM, but an instance made some other way (a static in a bench
+   * image, say) could still sit in PSRAM, and there the interrupt's first write
+   * to the ring would fault in a flash window. So the ring's address is checked
+   * too, and a ring outside internal DRAM gets the task drain instead.
+   */
+  if (esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler)) &&
+      esp_ptr_internal(&_isr_ring)) {
     attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING);
     _isr_interrupt_installed = _isr_drain_requested;
   } else {
-    DEBUG_PRINTF("MCP2515: ISR handler is not IRAM-resident, not attaching the interrupt\n");
+    DEBUG_PRINTF("MCP2515: ISR handler or its ring is not IRAM-safe, not attaching the interrupt\n");
     _isr_interrupt_installed = false;
   }
 

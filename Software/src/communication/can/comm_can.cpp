@@ -5,6 +5,7 @@
 // directory and cannot be redirected. Everything else here already does this.
 #include "CanReceiver.h"
 #include "can_init_plan.h"
+#include "can_rx_ring_depth.h"
 #include "canfd_init_error.h"
 #include "comm_can.h"
 #include "src/datalayer/datalayer.h"
@@ -576,6 +577,9 @@ void init_CAN() {
       settings2517->mRequestedMode =
           ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
 
+      // Deep enough to carry the bus through a flash write; see can_rx_ring_depth.h.
+      settings2517->mDriverReceiveFIFOSize = CAN_DRIVER_RX_RING_DEPTH;
+
       if (!begin_canfd()) {
         // begin_canfd() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
         canfd = nullptr;
@@ -645,6 +649,8 @@ void init_CAN() {
 
       settings2517_2->mRequestedMode =
           ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
+
+      settings2517_2->mDriverReceiveFIFOSize = CAN_DRIVER_RX_RING_DEPTH;
 
       if (!begin_canfd_2()) {
         // begin_canfd_2() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
@@ -1289,6 +1295,9 @@ static uint32_t init_native_can(CAN_Speed speed, gpio_num_t tx_pin, gpio_num_t r
   settingsespcan->mRequestedCANMode = ACAN_ESP32_Settings::NormalMode;
   settingsespcan->mTxPin = tx_pin;
   settingsespcan->mRxPin = rx_pin;
+  // A new settings object on every speed change, so the depth is set here rather
+  // than once: see can_rx_ring_depth.h.
+  settingsespcan->mDriverReceiveBufferSize = CAN_DRIVER_RX_RING_DEPTH;
 
   // (Re)start the CAN interface
   return ACAN_ESP32::can.begin(*settingsespcan);
