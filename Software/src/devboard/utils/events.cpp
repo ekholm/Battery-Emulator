@@ -232,7 +232,7 @@ void init_events(void) {
   events.entries[EVENT_AUTOMATIC_PRECHARGE_FAILURE].level = EVENT_LEVEL_ERROR;
   set_battery_event_level(EVENT_INTERNAL_OPEN_FAULT, EVENT_LEVEL_ERROR);
   events.entries[EVENT_INVERTER_OPEN_CONTACTOR].level = EVENT_LEVEL_INFO;
-  events.entries[EVENT_INTERFACE_MISSING].level = EVENT_LEVEL_INFO;
+  events.entries[EVENT_INTERFACE_MISSING].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_MODBUS_INVERTER_MISSING].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_MODBUS_INVERTER_DETECTED].level = EVENT_LEVEL_INFO;
   events.entries[EVENT_NO_ENABLE_DETECTED].level = EVENT_LEVEL_INFO;
@@ -569,7 +569,8 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_INVERTER_OPEN_CONTACTOR:
       return "Inverter side opened contactors. Normal operation.";
     case EVENT_INTERFACE_MISSING:
-      return "Configuration trying to use CAN interface not baked into the software. Recompile software!";
+      return "Selected CAN interface is not available on this board - that interface was not "
+             "started. Check the interface setting against the hardware you have fitted.";
     case EVENT_ERROR_OPEN_CONTACTOR:
       return "Too much time spent in error state. Opening contactors, not safe to continue. "
              "Check other active ERROR code for reason. Reboot emulator after problem is solved!";

@@ -80,7 +80,9 @@ class WaveshareS3Rs485CanHal : public Esp32Hal {
   virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_14; }
 
   std::vector<comm_interface> available_interfaces() {
-    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative};
+    // MCP2517_CS is routed for a user-fitted CAN FD add-on; see hw_devkit.h.
+    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative,
+            comm_interface::CanFdAddonMcp2518};
   }
 
   virtual const char* name_for_comm_interface(comm_interface comm) {
@@ -90,7 +92,17 @@ class WaveshareS3Rs485CanHal : public Esp32Hal {
       case comm_interface::CanFdNative:
         return "";
       case comm_interface::CanAddonMcp2515:
-        return "";
+        /* Named, not blanked. This board does not declare the 2515 and
+           does not route its pins, which is correct - but the settings page
+           drops blank-named options BEFORE it checks the declaration, so an
+           override to "" also removed the SELECTED value from the list and the
+           page then showed some other interface as current. Naming it lets the
+           page say "CAN (MCP2515 add-on) (not available on this board)", which
+           is what a user needs to see to correct a stale stored value. Only the
+           selected value is shown, so a normally configured board sees nothing.
+           This is the same principle the Stark half of this branch argues:
+           hiding an interface is how a wrong stored value stays wrong. */
+        return "CAN (MCP2515 add-on)";
       case comm_interface::CanFdAddonMcp2518:
         return "CAN FD (MCP2518 add-on)";
       case comm_interface::Modbus:

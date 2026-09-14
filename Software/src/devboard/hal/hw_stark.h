@@ -57,10 +57,11 @@ class StarkHal : public Esp32Hal {
   virtual gpio_num_t MCP2517_INT() { return GPIO_NUM_35; }
   virtual uint32_t MCP2517_FREQ() { return 40000000; }
 
-  // MCP2518FD add-on via the GPIO pins
-  // SPI Bus is shared with the 1st interface, only INT and CS pins are needed
-  virtual gpio_num_t MCP2517_CS2() { return GPIO_NUM_12; }
-  virtual gpio_num_t MCP2517_INT2() { return GPIO_NUM_14; }
+  // No second MCP2518FD is fitted on this board. The declaration used to name CS=GPIO12 /
+  // INT=GPIO14 and the settings page OFFERED it, so selecting it drove a chip select at pins
+  // where nothing answers - "autodetected crystal: 0MHz" then "CAN-FD 2 Configuration error
+  // 0x1", reproduced on silicon. Falling back to the NC defaults in hal.h removes the phantom
+  // and frees GPIO12.
 
   // Contactor handling
   virtual gpio_num_t POSITIVE_CONTACTOR_PIN() { return GPIO_NUM_32; }
@@ -110,8 +111,23 @@ class StarkHal : public Esp32Hal {
   virtual gpio_num_t AP_BUTTON_PIN() { return GPIO_NUM_0; }
 
   std::vector<comm_interface> available_interfaces() {
-    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanAddonMcp2515,
-            comm_interface::CanFdNative};
+    /* No MCP2515: this board routes no chip select for one - MCP2515_CS() is
+       the base class's GPIO_NUM_NC - and "available" here means the chip
+       select is routed, which is what lets a user fit the module. Declaring
+       it anyway was not cosmetic, and what it costs is NOT the "autodetected
+       crystal: 0MHz" failure the phantom second MCP2518FD above produced:
+       that one has its chip select ROUTED, at pins where no chip answers. An
+       UNROUTED one never reaches a chip at all. alloc_pins() rejects any pin
+       below zero before anything is driven, so a stored selection of this
+       interface passes the availability guard, raises EVENT_GPIO_NOT_DEFINED
+       and returns false out of init_CAN() - from a block that sits ABOVE the
+       MCP2518FD blocks, so it takes this board's FD interfaces down with it.
+       That is the failure the guard at the top of init_CAN() was rewritten to
+       stop, reappearing one block below where its erase-and-continue can
+       reach. The empty name below only hid it from the dropdown; a value
+       already in NVS never goes through the dropdown. */
+    return {comm_interface::Modbus, comm_interface::RS485, comm_interface::CanNative, comm_interface::CanFdNative,
+            comm_interface::CanFdAddonMcp2518};
   }
 
   virtual const char* name_for_comm_interface(comm_interface comm) {
@@ -120,12 +136,15 @@ class StarkHal : public Esp32Hal {
         return "CAN 1 (Native)";
       case comm_interface::CanFdNative:
         return "CAN FD 2 (Native)";
-      case comm_interface::CanAddonMcp2515:
-        return "";
+      /* Deliberately NOT overridden to "": the base name is correct, and a
+         board that does not declare an interface should still NAME it, so a
+         stale stored selection renders as itself with the page's "(not
+         available on this board)" suffix instead of vanishing. Hiding it is
+         how this one stayed wrong. */
       case comm_interface::CanFdAddonMcp2518:
-        return "";
+        return "CAN FD (MCP2518FD add-on)";
       case comm_interface::CanFdAddonMcp2518_2:
-        return "MCP2518FD (GPIO add-on)";
+        return "";
       case comm_interface::Modbus:
         return "Modbus";
       case comm_interface::RS485:

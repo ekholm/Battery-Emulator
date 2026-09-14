@@ -215,6 +215,12 @@ target_link_libraries(tests
 # Define the path for tests
 target_compile_definitions(tests PRIVATE 
     TEST_CAN_LOG_DIR="${CMAKE_SOURCE_DIR}/can_log_based/can_logs"
+    TEST_HAL_SOURCE_DIR="${CMAKE_SOURCE_DIR}/../Software/src/devboard/hal"
+    # comm_can.cpp is not in this binary (the suite links test/emul/can.cpp in
+    # its place), so the one property the fail-safe is about - that init_CAN cannot
+    # abandon the boot - is checked by reading the source. See
+    # can_init_fail_safe_tests.cpp for why that is the available oracle.
+    TEST_REPO_ROOT="${CMAKE_SOURCE_DIR}/.."
 )
 
 gtest_discover_tests(tests)
