@@ -87,8 +87,10 @@ TEST_F(Buffer16, AFailedAllocationFailsInitAndLeavesARingThatWritesNothing) {
   ACAN_ESP32_Buffer16 ring;
   emul_heap::fail_next = true;
 
-  EXPECT_FALSE(ring.initWithSize(CAN_DRIVER_RX_RING_DEPTH)) << "a failed allocation was reported as success";
-  EXPECT_EQ(ring.size(), 0u) << "the ring claims a size it has no storage for";
+  // ASSERT, not EXPECT: past a failure here the append below writes through
+  // NULL, and the case must fail by name rather than take the suite down.
+  ASSERT_FALSE(ring.initWithSize(CAN_DRIVER_RX_RING_DEPTH)) << "a failed allocation was reported as success";
+  ASSERT_EQ(ring.size(), 0u) << "the ring claims a size it has no storage for";
   EXPECT_FALSE(ring.append(frame(1))) << "a ring with no storage accepted a frame";
 }
 
