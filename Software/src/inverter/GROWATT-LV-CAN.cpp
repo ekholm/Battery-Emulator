@@ -15,11 +15,12 @@ void GrowattLvInverter::
   cell_delta_mV = abs(datalayer.battery.status.cell_max_voltage_mV - datalayer.battery.status.cell_min_voltage_mV);
 
   if (datalayer.battery.status.voltage_dV > 10) {  // Only update value when we have voltage available to avoid div0
-    ampere_hours_remaining =
-        ((datalayer.battery.status.reported_remaining_capacity_Wh / datalayer.battery.status.voltage_dV) *
-         100);  //(WH[10000] * V+1[3600])*100 = 270 (27.0Ah)
-    ampere_hours_full = ((datalayer.battery.info.reported_total_capacity_Wh / datalayer.battery.status.voltage_dV) *
-                         100);  //(WH[10000] * V+1[3600])*100 = 270 (27.0Ah)
+    // Wh * 100 / dV = 0.1 Ah. Multiply before dividing, otherwise the integer division
+    // truncates. The Wh * 100 product fits uint32_t for packs up to ~42 MWh.
+    remaining_capacity_dAh = ((datalayer.battery.status.reported_remaining_capacity_Wh * 100) /
+                              datalayer.battery.status.voltage_dV);  //(WH[10000]*100) / V_dV[3600] = 277 (27.7Ah)
+    total_capacity_dAh = ((datalayer.battery.info.reported_total_capacity_Wh * 100) /
+                          datalayer.battery.status.voltage_dV);  //(WH[10000]*100) / V_dV[3600] = 277 (27.7Ah)
   }
   //Map values to CAN messages
 
@@ -68,12 +69,20 @@ void GrowattLvInverter::
   //SOH (%) (Bit 0~ Bit6 SOH Counters) Bit7 SOH flag (Indicates that battery is in unsafe use)
   GROWATT_313.data.u8[7] = (datalayer.battery.status.soh_pptt / 100);
 
-  //Remaining capacity (10 mAh)
-  GROWATT_314.data.u8[0] = ((ampere_hours_remaining * 100) >> 8);
-  GROWATT_314.data.u8[1] = ((ampere_hours_remaining * 100) & 0x00FF);
+  //Remaining capacity (10 mAh). 0.1 Ah * 10 = 10 mAh; the 16-bit field saturates at 655.35 Ah
+  uint32_t remaining_capacity_10mAh = remaining_capacity_dAh * 10;
+  if (remaining_capacity_10mAh > UINT16_MAX) {
+    remaining_capacity_10mAh = UINT16_MAX;
+  }
+  GROWATT_314.data.u8[0] = (remaining_capacity_10mAh >> 8);
+  GROWATT_314.data.u8[1] = (remaining_capacity_10mAh & 0x00FF);
   //Fully charged capacity (10 mAh)
-  GROWATT_314.data.u8[2] = ((ampere_hours_full * 100) >> 8);
-  GROWATT_314.data.u8[3] = ((ampere_hours_full * 100) & 0x00FF);
+  uint32_t total_capacity_10mAh = total_capacity_dAh * 10;
+  if (total_capacity_10mAh > UINT16_MAX) {
+    total_capacity_10mAh = UINT16_MAX;
+  }
+  GROWATT_314.data.u8[2] = (total_capacity_10mAh >> 8);
+  GROWATT_314.data.u8[3] = (total_capacity_10mAh & 0x00FF);
   //Delta V (mV)
   GROWATT_314.data.u8[4] = (cell_delta_mV >> 8);
   GROWATT_314.data.u8[5] = (cell_delta_mV & 0x00FF);
