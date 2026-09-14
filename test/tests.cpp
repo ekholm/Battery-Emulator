@@ -40,6 +40,12 @@ class DataLayerResetListener : public ::testing::EmptyTestEventListener {
     user_selected_second_battery = false;
     user_selected_triple_battery = false;
 
+    // The CAN send permission is a global too, and it gates every driver's
+    // transmit: CommCanTest.NothingIsSentWhileSendingIsForbidden clears it, and
+    // any inverter or charger test that runs after it then sends nothing and
+    // finds no frame to check. It starts each test at its firmware default.
+    allowed_to_send_CAN = true;
+
     init_hal();
 
     // comm_can.cpp is part of this binary and keeps its receiver registry and
