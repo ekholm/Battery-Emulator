@@ -142,7 +142,8 @@ bool MCP2515_Lite::begin(const MCP2515_Lite_Speed& speed, bool loopback, bool sk
      * boot-time half of the audit, below: a handler that is not IRAM-resident
      * is not registered at all, and the task drains on its notify backstop -
      * degraded but safe. The deep call chain (drainRx, the register-level SPI,
-     * the ring) is audited per linked image by mcp2515_isr_iram_audit.py.
+     * the ring) is audited per linked image by the notes repo's ISR IRAM audit
+     * (its mcp2515 preset).
    */
   if (esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler))) {
     attachInterruptArg(digitalPinToInterrupt(_int_pin), mcp2515_isr_handler, this, FALLING);

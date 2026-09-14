@@ -412,7 +412,8 @@ TEST(Mcp2515IsrDrain, AFlashResidentHandlerIsRefusedAtBoot) {
   // fetch in exactly the window the flag keeps serviced - a crash where the
   // old arrangement merely lost frames. The boot-time check refuses to
   // register such a handler at all; the deep call chain is audited per linked
-  // image by mcp2515_isr_iram_audit.py, which a source test cannot see.
+  // image by the notes repo's ISR IRAM audit (its mcp2515 preset), which a source
+  // test cannot see.
   const size_t check = src.find("esp_ptr_in_iram(reinterpret_cast<const void*>(&MCP2515_Lite::mcp2515_isr_handler))");
   ASSERT_NE(check, std::string::npos) << "the boot-time IRAM check on the handler is gone";
   const size_t attach = src.find("attachInterruptArg(digitalPinToInterrupt(_int_pin)");
@@ -430,7 +431,8 @@ TEST(Mcp2515IsrDrain, NoProjectLevelInterruptRegistrationGrowsUnaudited) {
   // outside the vendored libs (mcp2515_lite checks itself; ACAN2517FD's
   // registration is gone - comm_can.cpp passes nullptr with INT at 255, and
   // the library skips attachInterrupt entirely). A new caller must join the
-  // per-image audit (mcp2515_isr_iram_audit.py) before this census grows.
+  // per-image audit (the notes repo's ISR IRAM audit, mcp2515 preset) before this
+  // census grows.
   const std::string self = __FILE__;
   const std::string root = self.substr(0, self.find_last_of('/')) + "/../Software/src";
   const std::string lib_dir = "/lib/";
@@ -458,7 +460,7 @@ TEST(Mcp2515IsrDrain, NoProjectLevelInterruptRegistrationGrowsUnaudited) {
   }
   EXPECT_TRUE(hits.empty()) << "a project-level GPIO interrupt registration site appeared - with "
                                "CONFIG_ARDUINO_ISR_IRAM=y its handler runs during flash windows and must be "
-                               "IRAM-resident and covered by mcp2515_isr_iram_audit.py:\n" +
+                               "IRAM-resident and covered by the notes repo's ISR IRAM audit (mcp2515 preset):\n" +
                                    [&hits] {
                                      std::string all;
                                      for (const auto& hit : hits) {
