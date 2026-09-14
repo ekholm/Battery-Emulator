@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -154,4 +155,10 @@ TEST(CanRxRingDepth, TheMcp2515InterruptIsNotAttachedToARingOutsideInternalDram)
   const size_t attach = driver.find("attachInterruptArg(digitalPinToInterrupt(_int_pin)");
   ASSERT_NE(attach, std::string::npos);
   EXPECT_LT(check, attach) << "the interrupt is attached before the ring's placement is checked";
+
+  // Present and in front is not enough: `||` would still read both calls and
+  // attach whenever the handler alone is resident. Both must hold.
+  EXPECT_TRUE(std::regex_search(
+      driver, std::regex(R"(esp_ptr_in_iram\([^;{]*\)\s*&&\s*esp_ptr_internal\(&_isr_ring\)\)\s*\{)")))
+      << "the interrupt is no longer attached only when the handler AND its ring are IRAM-safe";
 }
