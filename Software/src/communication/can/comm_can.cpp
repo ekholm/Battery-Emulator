@@ -733,8 +733,27 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
       }
     } break;
     default:
-      // Invalid interface sent with function call. TODO: Raise event that coders messed up
+      // Invalid interface sent with function call - the frame reached no wire.
+      // The replay path validates before sending, so reaching this branch
+      // means a code path handed over an interface that does not exist.
+      set_event(EVENT_CAN_INTERFACE_UNAVAILABLE, (uint8_t)interface);
       break;
+  }
+}
+
+bool can_interface_ready(int interface) {
+  switch (interface) {
+    case CAN_NATIVE:
+      return native_can_initialized;
+    case CAN_ADDON_MCP2515:
+      return can2515 != nullptr;
+    case CANFD_NATIVE:
+    case CANFD_ADDON_MCP2518:
+      return canfd != nullptr;
+    case CANFD_ADDON_MCP2518_2:
+      return canfd_2 != nullptr;
+    default:
+      return false;
   }
 }
 
@@ -1180,6 +1199,12 @@ bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
        * just failed. Same class as the defect fixed in init_CAN() one function up: the
        * failure is reported through a return value, while the state that
        * decides whether the interface is USED still says it is fine.
+       *
+       * The flag is also what can_interface_ready() answers with, so leaving it
+       * standing would let a CAN replay that was validated at start go back to
+       * sending into an interface that has since died. This is driver-stack
+       * code and no host test reaches the line - which is why the readiness
+       * seam the replay validation uses is injectable.
        */
       native_can_initialized = false;
       logging.print("Error Native Can: 0x");
