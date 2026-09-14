@@ -41,5 +41,20 @@ typedef enum {
   GPIO_NUM_37 = 37, /*!< GPIO37, input mode only */
   GPIO_NUM_38 = 38, /*!< GPIO38, input mode only */
   GPIO_NUM_39 = 39, /*!< GPIO39, input mode only */
+  /* 40-48 exist on the ESP32-S3, not on the classic ESP32 this emulation was
+     first written for. They are here so a host test can construct the S3 board
+     HALs - BECom, Waveshare, LilyGo2CAN in FD mode - and compare every board's
+     pin map against every other's. Without them a cross-board audit silently
+     shrinks to the boards that happen to fit, which is the wrong direction for
+     a check whose whole job is completeness. */
+  GPIO_NUM_40 = 40,
+  GPIO_NUM_41 = 41,
+  GPIO_NUM_42 = 42,
+  GPIO_NUM_43 = 43,
+  GPIO_NUM_44 = 44,
+  GPIO_NUM_45 = 45,
+  GPIO_NUM_46 = 46,
+  GPIO_NUM_47 = 47,
+  GPIO_NUM_48 = 48,
   GPIO_NUM_MAX,
 } gpio_num_t;
