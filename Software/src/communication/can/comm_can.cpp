@@ -3,6 +3,7 @@
 #include "../../lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
 #include "../../lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
 #include "CanReceiver.h"
+#include "can_init_plan.h"
 #include "comm_can.h"
 #include "src/datalayer/datalayer.h"
 #include "src/devboard/hal/hal.h"
@@ -341,7 +342,23 @@ void init_CAN() {
   // Add-on CAN interface (via MCP2515)
 
   auto addonIt = can_receivers.find(CAN_ADDON_MCP2515);
-  const bool addon_ok = addonIt == can_receivers.end() || [&]() -> bool {
+
+  /* An MCP2515 whose pads this board does not route is skipped and left inert,
+   * rather than attempted and reported as a pin fault. That is a different
+   * question from the availability refusal at the top of this function: there
+   * the BOARD does not declare the interface at all, here it declares it and
+   * some of the pins it needs are GPIO_NUM_NC. Both leave the rest of the
+   * bring-up alone.
+   *
+   * Absent is not the same as failed, so an absent add-on raises nothing and is
+   * not marked unavailable - the gate below is what distinguishes the two.
+   */
+  const bool addon_present =
+      addonIt != can_receivers.end() &&
+      esp32hal->pins_present("CAN", esp32hal->MCP2515_CS(), esp32hal->MCP2515_INT(), esp32hal->MCP2515_SCK(),
+                             esp32hal->MCP2515_MISO(), esp32hal->MCP2515_MOSI());
+
+  const bool addon_ok = !addon_present || [&]() -> bool {
     auto cs_pin = esp32hal->MCP2515_CS();
     auto int_pin = esp32hal->MCP2515_INT();
     auto sck_pin = esp32hal->MCP2515_SCK();
@@ -395,7 +412,7 @@ void init_CAN() {
     }
     return can2515 != nullptr;
   }();
-  if (addonIt != can_receivers.end() && !addon_ok) {
+  if (addon_present && !addon_ok) {
     interface_unavailable(CAN_ADDON_MCP2515);
   }
 
@@ -405,13 +422,24 @@ void init_CAN() {
   auto fdAddonIt = can_receivers.find(CANFD_ADDON_MCP2518);
   auto fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
 
+  /* Which of the three FD blocks may run at all. An FD add-on the board does
+   * not route is skipped and left inert, the same rule the MCP2515 block above
+   * follows - but it cannot be decided block by block, because the bus block
+   * creates the SPI object the two chip blocks dereference. plan_canfd_init()
+   * carries that dependency, and lives in its own header so the host suite can
+   * run it; comm_can.cpp itself does not link there.
+   */
+  const CanFdInitPlan fd_plan =
+      plan_canfd_init(esp32hal, fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end(),
+                      fdAddonIt_2 != can_receivers.end());
+
   // A failure bringing up the shared FD bus is the one pin failure that is not
   // confined to a single interface: nothing can talk over a bus that was never
   // opened. It still stops there - the native and MCP2515 interfaces above are
   // already up, and the second FD chip is only affected when it shares this bus.
   bool fd_bus_ok = true;
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end() || fdAddonIt_2 != can_receivers.end()) {
+  if (fd_plan.bus) {
     // Initialise SPI bus first
     auto sck_pin = esp32hal->MCP2517_SCK();
     auto sdo_pin = esp32hal->MCP2517_SDO();
@@ -441,7 +469,8 @@ void init_CAN() {
     fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
   }
 
-  const bool fd_ok = (fdNativeIt == can_receivers.end() && fdAddonIt == can_receivers.end()) || [&]() -> bool {
+  const bool fd_ok =
+      (fdNativeIt == can_receivers.end() && fdAddonIt == can_receivers.end()) || !fd_plan.first_chip || [&]() -> bool {
     auto speed = (fdNativeIt != can_receivers.end()) ? fdNativeIt->second.speed : fdAddonIt->second.speed;
 
     auto cs_pin = esp32hal->MCP2517_CS();
@@ -490,7 +519,7 @@ void init_CAN() {
     }
   }
 
-  const bool fd2_ok = fdAddonIt_2 == can_receivers.end() || [&]() -> bool {
+  const bool fd2_ok = fdAddonIt_2 == can_receivers.end() || !fd_plan.second_chip || [&]() -> bool {
     auto cs_pin = esp32hal->MCP2517_CS2();
     auto int_pin = esp32hal->MCP2517_INT2();
 
