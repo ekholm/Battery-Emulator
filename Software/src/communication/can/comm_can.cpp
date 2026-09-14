@@ -150,6 +150,46 @@ static bool mcp2515_bus_is_exclusive() {
   return true;
 }
 
+// CAN_Interface (the runtime channel) back to comm_interface (what a board DECLARES it has).
+// comm_nvm.cpp maps the other direction when it reads the settings; this is the inverse, kept
+// local because the only caller is the availability check below.
+static comm_interface comm_interface_for(CAN_Interface interface) {
+  switch (interface) {
+    case CAN_Interface::CAN_NATIVE:
+      return comm_interface::CanNative;
+    case CAN_Interface::CANFD_NATIVE:
+      return comm_interface::CanFdNative;
+    case CAN_Interface::CAN_ADDON_MCP2515:
+      return comm_interface::CanAddonMcp2515;
+    case CAN_Interface::CANFD_ADDON_MCP2518:
+      return comm_interface::CanFdAddonMcp2518;
+    case CAN_Interface::CANFD_ADDON_MCP2518_2:
+      return comm_interface::CanFdAddonMcp2518_2;
+    default:
+      return comm_interface::Highest;  // no declaration can match, so it is refused
+  }
+}
+
+/* An interface that failed to start is also removed from the receiver map.
+ *
+ * Leaving the pointer null (or the native flag false) is what keeps the rest of
+ * this file from talking to a chip that is not there, and that alone was the
+ * previous behaviour. It is not quite enough: a driver that registered on the
+ * interface stays registered on it, so nothing downstream can tell "no traffic
+ * yet" from "this channel was never brought up". Erasing the entry and raising
+ * EVENT_INTERFACE_MISSING says which of the two it is, on the channel the rest
+ * of the firmware already reads.
+ *
+ * It is deliberately NOT an abort. The caller discards init_CAN()'s outcome
+ * (Software.cpp), so ending the function here would only skip the interfaces
+ * declared after this one, silently.
+ */
+static void interface_unavailable(CAN_Interface interface) {
+  set_event(EVENT_INTERFACE_MISSING, (uint8_t)interface);
+  logging.printf("CAN interface %s did not initialize - continuing without it\n", getCANInterfaceName(interface));
+  can_receivers.erase(interface);
+}
+
 /* One chip's failure stops at that chip.
  *
  * This function used to `return false` on any failure, which read as "fail
@@ -194,13 +234,46 @@ static bool mcp2515_bus_is_exclusive() {
  * The return type is gone rather than made meaningful. Every failure now has an
  * event, which is the channel the rest of the firmware already reads; a bool
  * nobody examines was the thing that made "it fails loudly" look true.
+ *
+ * Ahead of all of it, an interface the BOARD does not declare is refused rather
+ * than initialised - see the comment on that loop. That refusal, like every
+ * failure below it, costs only the interface it names.
  */
 void init_CAN() {
+  /* Refuse an interface this board does not have, rather than initialising it and failing
+   * obscurely.
+   *
+   * Selecting an interface whose chip select IS routed but carries no chip used to report
+   * "autodetected crystal: 0MHz" followed by "CAN-FD 2 Configuration error 0x1" - a message
+   * about a crystal, for a chip that is not fitted. Selecting one whose chip select is NOT
+   * routed fails differently: alloc_pins() refuses the negative pin, and the interface is
+   * left out of service for a reason that reads as a pin fault rather than as a board that
+   * has no such chip. The board already declares what it has; consult it first and say so
+   * plainly.
+   */
+  const auto available = esp32hal->available_interfaces();
+  for (auto it = can_receivers.begin(); it != can_receivers.end();) {
+    if (std::find(available.begin(), available.end(), comm_interface_for(it->first)) == available.end()) {
+      // Drop THIS interface and carry on. Returning here would abandon the
+      // whole of init_CAN() before anything was initialised, so one stale
+      // selection would leave the board with NO CAN at all - including a
+      // perfectly good native channel - and Software.cpp discards the return
+      // value, so the only trace would be an event. Refusing the one thing that
+      // is missing is the behaviour the check is for.
+      logging.printf("CAN interface %s is not available on this board - refusing to initialize it\n",
+                     getCANInterfaceName(it->first));
+      set_event(EVENT_INTERFACE_MISSING, (uint8_t)it->first);
+      it = can_receivers.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
   // Native CAN (onboard the ESP32)
 
   auto nativeIt = can_receivers.find(CAN_NATIVE);
 
-  if (nativeIt != can_receivers.end()) {
+  const bool native_ok = nativeIt == can_receivers.end() || [&]() -> bool {
     auto se_pin = esp32hal->CAN_SE_PIN();
     auto tx_pin = esp32hal->CAN_TX_PIN();
     auto rx_pin = esp32hal->CAN_RX_PIN();
@@ -259,12 +332,16 @@ void init_CAN() {
         native_can_initialized = false;
       }
     }
+    return native_can_initialized;
+  }();
+  if (nativeIt != can_receivers.end() && !native_ok) {
+    interface_unavailable(CAN_NATIVE);
   }
 
   // Add-on CAN interface (via MCP2515)
 
   auto addonIt = can_receivers.find(CAN_ADDON_MCP2515);
-  if (addonIt != can_receivers.end()) {
+  const bool addon_ok = addonIt == can_receivers.end() || [&]() -> bool {
     auto cs_pin = esp32hal->MCP2515_CS();
     auto int_pin = esp32hal->MCP2515_INT();
     auto sck_pin = esp32hal->MCP2515_SCK();
@@ -316,6 +393,10 @@ void init_CAN() {
         can2515 = nullptr;
       }
     }
+    return can2515 != nullptr;
+  }();
+  if (addonIt != can_receivers.end() && !addon_ok) {
+    interface_unavailable(CAN_ADDON_MCP2515);
   }
 
   // FD interface(s) (via MCP2518FD)
@@ -347,8 +428,20 @@ void init_CAN() {
     }
   }
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end()) {
+  if (!fd_bus_ok) {
+    for (CAN_Interface fd : {CANFD_NATIVE, CANFD_ADDON_MCP2518, CANFD_ADDON_MCP2518_2}) {
+      if (can_receivers.find(fd) != can_receivers.end()) {
+        interface_unavailable(fd);
+      }
+    }
+    // Re-read: the erases above invalidate exactly the iterators for what was
+    // removed, and the blocks below test these against end().
+    fdNativeIt = can_receivers.find(CANFD_NATIVE);
+    fdAddonIt = can_receivers.find(CANFD_ADDON_MCP2518);
+    fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
+  }
 
+  const bool fd_ok = (fdNativeIt == can_receivers.end() && fdAddonIt == can_receivers.end()) || [&]() -> bool {
     auto speed = (fdNativeIt != can_receivers.end()) ? fdNativeIt->second.speed : fdAddonIt->second.speed;
 
     auto cs_pin = esp32hal->MCP2517_CS();
@@ -386,10 +479,18 @@ void init_CAN() {
         canfd = nullptr;
       }
     }
+    return canfd != nullptr;
+  }();
+  if (!fd_ok) {
+    if (fdNativeIt != can_receivers.end()) {
+      interface_unavailable(CANFD_NATIVE);
+    }
+    if (fdAddonIt != can_receivers.end()) {
+      interface_unavailable(CANFD_ADDON_MCP2518);
+    }
   }
 
-  if (fdAddonIt_2 != can_receivers.end()) {
-
+  const bool fd2_ok = fdAddonIt_2 == can_receivers.end() || [&]() -> bool {
     auto cs_pin = esp32hal->MCP2517_CS2();
     auto int_pin = esp32hal->MCP2517_INT2();
 
@@ -448,6 +549,10 @@ void init_CAN() {
         canfd_2 = nullptr;
       }
     }
+    return canfd_2 != nullptr;
+  }();
+  if (fdAddonIt_2 != can_receivers.end() && !fd2_ok) {
+    interface_unavailable(CANFD_ADDON_MCP2518_2);
   }
 }
 
