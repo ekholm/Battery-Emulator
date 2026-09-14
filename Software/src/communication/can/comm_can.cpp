@@ -36,6 +36,7 @@ static void receive_frame_can_native();
 static void receive_frame_can_addon();
 static void receive_frame_canfd_addon();
 static void receive_frame_canfd_addon_2();
+static void poll_can_addon_speed_change();
 static void map_can_frame_to_variable(CAN_frame* rx_frame, CAN_Interface interface);
 static void print_can_frame(CAN_frame frame, CAN_Interface interface, frameDirection msgDir);
 static uint32_t init_native_can(CAN_Speed speed, gpio_num_t tx_pin, gpio_num_t rx_pin);
@@ -53,6 +54,15 @@ static CAN_Speed native_can_speed;
 static uint32_t quartz_frequency;
 
 static MCP2515_Lite* can2515 = nullptr;
+/* Whether the 2515 is fit to use, the counterpart of native_can_initialized.
+ *
+ * A null can2515 already means "this interface is not there" - that is how a
+ * FAILED boot init reads. This is the other state the native path has and the
+ * 2515 did not: the chip is present and the object is alive, but its bitrate is
+ * unknown after a speed change that did not take, so it must not be polled or
+ * transmitted to until a later change succeeds.
+ */
+static bool can2515_initialized = false;
 static SPIClass* SPI2515;
 
 static SPIClass* SPI2517;
@@ -64,7 +74,34 @@ static ACAN2517FDSettings* settings2517_2;
 
 static bool native_can_initialized = false;
 
-bool init_CAN() {
+/* One chip's failure stops at that chip.
+ *
+ * This function used to `return false` on any failure, which read as "fail
+ * loudly" but could not: the return is discarded at the only call site
+ * (Software.cpp), so the abort neither stopped the boot nor told anyone - it
+ * silently skipped every interface declared after the one that failed. It did
+ * not prevent a half-initialised set either; it only changed WHICH interfaces
+ * survived, and that was decided by the order they happen to be initialised in.
+ * Declaration order is not a safety property.
+ *
+ * Chip init failures are now per-interface: raise that interface's event, leave
+ * its pointer null, carry on. Null is what the rest of this file already treats
+ * as "not there" - receive_can() and the transmit paths all guard on it - so a
+ * failed chip is inert rather than absent-and-unmentioned.
+ *
+ * PIN ALLOCATION failures still stop everything, and that is deliberate rather
+ * than inherited. alloc_pins() fails when the board declaration is incoherent -
+ * two functions claiming one pad, or a pad that does not exist - which is a
+ * configuration error about the whole board, not a fault in one chip. Carrying
+ * on would hand the same pad to whichever interface asks next. It is also
+ * already loud on its own: alloc_pins() raises EVENT_GPIO_CONFLICT or
+ * EVENT_GPIO_NOT_DEFINED before returning.
+ *
+ * The return type is gone rather than made meaningful. Every failure now has an
+ * event, which is the channel the rest of the firmware already reads; a bool
+ * nobody examines was the thing that made "it fails loudly" look true.
+ */
+void init_CAN() {
   // Native CAN (onboard the ESP32)
 
   auto nativeIt = can_receivers.find(CAN_NATIVE);
@@ -76,14 +113,14 @@ bool init_CAN() {
 
     if (se_pin != GPIO_NUM_NC) {
       if (!esp32hal->alloc_pins("CAN", se_pin)) {
-        return false;
+        return;  // incoherent pin map - see the note on this function
       }
       pinMode(se_pin, OUTPUT);
       digitalWrite(se_pin, LOW);
     }
 
     if (!esp32hal->alloc_pins("CAN", tx_pin, rx_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     const uint32_t errorCode = init_native_can(nativeIt->second.speed, tx_pin, rx_pin);
@@ -111,7 +148,11 @@ bool init_CAN() {
     } else {
       logging.print("Error Native Can: 0x");
       logging.println(errorCode, HEX);
-      return false;
+      // this path had no event, only a log - and these boards log
+      // nothing unless USBENABLED is set, so the failure that aborted every
+      // other interface was also the only one nobody could see.
+      set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
+      native_can_initialized = false;
     }
   }
 
@@ -127,7 +168,7 @@ bool init_CAN() {
     auto rst_pin = esp32hal->MCP2515_RST();
 
     if (!esp32hal->alloc_pins("CAN", cs_pin, int_pin, sck_pin, miso_pin, mosi_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     logging.println("Dual CAN Bus (ESP32+MCP2515) selected");
@@ -152,13 +193,15 @@ bool init_CAN() {
     }
 
     if (can2515->begin({(int)addonIt->second.speed * 1000UL, quartz_frequency})) {
+      can2515_initialized = true;
       logging.println("MCP2515 CAN ok");
     } else {
       logging.println("MCP2515 CAN init failed");
       set_event(EVENT_CANMCP2515_INIT_FAILURE, 1);
-      // This will leak, but we have failed and won't try to reinit.
+      can2515_initialized = false;
+      // This will leak, but we have failed and won't try to reinit. Null is how
+      // the send and receive paths already read "this interface is not there".
       can2515 = nullptr;
-      return false;
     }
   }
 
@@ -175,7 +218,7 @@ bool init_CAN() {
     auto sdi_pin = esp32hal->MCP2517_SDI();
 
     if (!esp32hal->alloc_pins("CANFD", sck_pin, sdo_pin, sdi_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     SPI2517 = new SPIClass(esp32hal->MCP2517_BUS());
@@ -190,7 +233,7 @@ bool init_CAN() {
     auto int_pin = esp32hal->MCP2517_INT();
 
     if (!esp32hal->alloc_pins("CANFD", cs_pin, int_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     canfd = new ACAN2517FD(cs_pin, *SPI2517, int_pin);
@@ -212,7 +255,8 @@ bool init_CAN() {
         ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
 
     if (!begin_canfd()) {
-      return false;
+      // begin_canfd() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+      canfd = nullptr;
     }
   }
 
@@ -222,7 +266,7 @@ bool init_CAN() {
     auto int_pin = esp32hal->MCP2517_INT2();
 
     if (!esp32hal->alloc_pins("CANFD2", cs_pin, int_pin)) {
-      return false;
+      return;  // incoherent pin map - see the note on this function
     }
 
     if (esp32hal->MCP2517_BUS() == esp32hal->MCP2517_BUS2()) {
@@ -236,7 +280,7 @@ bool init_CAN() {
       auto sdi_pin = esp32hal->MCP2517_SDI2();
 
       if (!esp32hal->alloc_pins("CANFD2", sck_pin, sdo_pin, sdi_pin)) {
-        return false;
+        return;  // incoherent pin map - see the note on this function
       }
 
       SPI2517_2->begin(sck_pin, sdo_pin, sdi_pin);
@@ -261,11 +305,10 @@ bool init_CAN() {
         ACAN2517FDSettings::NormalFD;  //Startup in NormalFD mode, both for Classic CAN and CAN-FD messages
 
     if (!begin_canfd_2()) {
-      return false;
+      // begin_canfd_2() has already raised EVENT_CANMCP2518FD_INIT_FAILURE.
+      canfd_2 = nullptr;
     }
   }
-
-  return true;
 }
 
 static bool begin_canfd() {
@@ -338,7 +381,10 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
       MCP2515_Lite_Frame mcp2515_frame;
       copy_can_frame_to_mcp2515_lite_frame(*tx_frame, mcp2515_frame);
 
-      if (can2515 == nullptr || !can2515->sendFrame(mcp2515_frame)) {
+      // Not merely "is the chip there" but "is it usable": after a speed change
+      // that did not take, the bitrate is unknown and transmitting onto a bus at
+      // the wrong speed is worse than not transmitting at all.
+      if (can2515 == nullptr || !can2515_initialized || !can2515->sendFrame(mcp2515_frame)) {
         datalayer.system.info.can_2515_send_fail = true;
       }
     } break;
@@ -388,7 +434,20 @@ void receive_can() {
   }
 
   if (can2515) {
-    receive_frame_can_addon();  // Receive CAN messages on add-on MCP2515 chip
+    /* The speed-change verdict is polled OUTSIDE the usability gate, and that
+     * ordering is load-bearing.
+     *
+     * The verdict arrives asynchronously on this path, so if it were read inside
+     * the gate the gate would be a one-way door: a failed change clears the
+     * flag, the poll stops running, and the success that would restore the
+     * interface is never seen. Polling first is also what makes recovery mean
+     * something - a later change that takes puts the interface straight back.
+     */
+    poll_can_addon_speed_change();
+
+    if (can2515_initialized) {
+      receive_frame_can_addon();  // Receive CAN messages on add-on MCP2515 chip
+    }
   }
 
   if (canfd) {
@@ -445,6 +504,31 @@ receive_frame_can_addon() {  // This section checks if we have a complete CAN me
 
   if (can2515->hasErrors()) {
     datalayer.system.info.can_2515_bus_error = true;
+  }
+}
+
+/* The 2515's speed-change verdict, asked for here because there is nowhere else
+ * to ask.
+ *
+ * change_can_speed() hands the request to the driver task and returns; the task
+ * enacts it milliseconds later, long after that caller is gone. So the status
+ * cannot go back the way the request came, and it is picked up on the receive
+ * path instead - which runs every cycle whether or not frames arrive.
+ *
+ * A failure is reported as the chip's init failure, the same event the boot path
+ * raises, and for the same reason the native path reuses its own: an interface at
+ * an unknown bitrate is not usable, however it got there. The readback change could only
+ * report it; the interface stayed in service because nothing gated its use.
+ * This change gives it that gate, so the report now also takes it OUT of service, and
+ * a later change that succeeds brings it back - the same way the native path
+ * recovers, where a good init sets native_can_initialized true again.
+ */
+static void poll_can_addon_speed_change() {
+  if (can2515->speedChangeFailed()) {
+    can2515_initialized = false;
+    set_event(EVENT_CANMCP2515_INIT_FAILURE, 0);
+  } else if (can2515->speedChangeSucceeded()) {
+    can2515_initialized = true;
   }
 }
 
@@ -704,12 +788,31 @@ bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
     // Reinitialize the native CAN interface with the new speed
     const uint32_t errorCode = init_native_can(speed, settingsespcan->mTxPin, settingsespcan->mRxPin);
     if (errorCode != 0) {
+      /* The interface is DOWN, so say so in the flag receive_can() reads.
+       *
+       * init_native_can() has already failed here, exactly as it can at boot -
+       * and the boot path clears this flag and raises the event. This one used
+       * to do neither, so after a failed runtime speed change the firmware kept
+       * calling receive_frame_can_native() on an interface whose begin() had
+       * just failed. Same class as the defect fixed in init_CAN() one function up: the
+       * failure is reported through a return value, while the state that
+       * decides whether the interface is USED still says it is fine.
+       */
+      native_can_initialized = false;
       logging.print("Error Native Can: 0x");
       logging.println(errorCode, HEX);
+      set_event(EVENT_CAN_NATIVE_INIT_FAILURE, (uint8_t)errorCode);
       return false;
     }
+    native_can_initialized = true;
     return true;
   } else if (interface == CAN_Interface::CAN_ADDON_MCP2515 && can2515) {
+    /* true here means the request was accepted, not that the speed changed:
+     * changeSpeed() hands it to the driver task and returns. That used to be
+     * indistinguishable from a change that worked, because no status existed
+     * anywhere in the chain. It does now - the task verifies the chip
+     * and poll_can_addon_speed_change() turns a failed verdict into an event.
+     */
     can2515->changeSpeed({(int)speed * 1000UL, quartz_frequency});
     return true;
   }
