@@ -1,7 +1,8 @@
 #include "comm_can.h"
-#include "../../lib/mcp2515_lite/mcp2515_lite.h"
-#include "../../lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
-#include "../../lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
+// The three CAN drivers are included through the src_dir root rather than by
+// relative path, so that the host test build can put emulated stand-ins in
+// front of them - a quoted relative include resolves against this file's own
+// directory and cannot be redirected. Everything else here already does this.
 #include "CanReceiver.h"
 #include "can_init_plan.h"
 #include "comm_can.h"
@@ -12,12 +13,37 @@
 #include "src/devboard/utils/events.h"
 #include "src/devboard/utils/logging.h"
 #include "src/devboard/webserver/webserver_can_streaming.h"
+#include "src/lib/mcp2515_lite/mcp2515_lite.h"
+#include "src/lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
+#include "src/lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
 #include "utils.h"
 
 #include <esp_private/periph_ctrl.h>
 
 #include <algorithm>
 #include <map>
+
+/* What this file assumes about the three drivers, checked by the compiler in
+ * both builds - against the vendored headers when the firmware is built, and
+ * against test/emul/src/lib/... when the host suite is.
+ *
+ * The two payload lengths are load-bearing twice over: the FD-length refusals
+ * on the classic paths below are written as `DLC > sizeof(...::data)`, so a
+ * wrong size here does not fail to compile, it silently changes which frames
+ * get refused - and the host suite would agree with itself while testing a
+ * different rule from the one that ships.
+ */
+static_assert(sizeof(CANMessage::data) == 8,
+              "classic CAN carries 8 bytes - the FD-length refusal is written against this");
+static_assert(sizeof(CANFDMessage::data) == 64, "CAN FD carries 64 bytes");
+static_assert(sizeof(MCP2515_Lite_Frame::data) == 8, "the MCP2515 is a classic controller");
+/* hal.h hands MCP2517_CLKODIV() to mCLKOPin as a raw integer (0b11 for the
+ * divide-by-10 default, 0b00 on BECom), so the enumerator ordinals are part of
+ * that contract and not an implementation detail of the driver header. */
+static_assert(static_cast<int>(ACAN2517FDSettings::CLKO_DIVIDED_BY_1) == 0b00,
+              "hal.h's MCP2517_CLKODIV() encodes this ordinal");
+static_assert(static_cast<int>(ACAN2517FDSettings::CLKO_DIVIDED_BY_10) == 0b11,
+              "hal.h's MCP2517_CLKODIV() default encodes this ordinal");
 
 volatile CAN_Configuration can_config = {.battery = CAN_NATIVE,
                                          .inverter = CAN_NATIVE,
@@ -190,6 +216,32 @@ static void interface_unavailable(CAN_Interface interface) {
   logging.printf("CAN interface %s did not initialize - continuing without it\n", getCANInterfaceName(interface));
   can_receivers.erase(interface);
 }
+
+#ifdef UNIT_TEST
+// Puts the CAN layer back to "nothing registered, no chip initialized". The
+// state below is file-static and the host suite runs every case in one process,
+// so without this a test that brings an interface up decides what the next one
+// sees.
+void comm_can_reset_for_test() {
+  can_receivers.clear();
+  settingsespcan = nullptr;
+  native_can_initialized = false;
+  // The 2515's counterpart to native_can_initialized, added on this lane after
+  // this hook was written: the transmit path reads it, so a suite that leaves
+  // it standing lets one case's successful bring-up decide the next case's
+  // "is this interface usable".
+  can2515_initialized = false;
+  can2515 = nullptr;
+  SPI2515 = nullptr;
+  canfd = nullptr;
+  settings2517 = nullptr;
+  canfd_2 = nullptr;
+  settings2517_2 = nullptr;
+  SPI2517 = nullptr;
+  SPI2517_2 = nullptr;
+  user_selected_CAN_ID_cutoff_filter = 0;
+}
+#endif  // UNIT_TEST
 
 /* One chip's failure stops at that chip.
  *

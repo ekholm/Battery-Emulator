@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../../devboard/utils/types.h"
-#include "../../lib/mcp2515_lite/mcp2515_lite.h"
+// Through the src_dir root, so the host test build can emulate it - see the
+// note on the same include in comm_can.cpp.
+#include "src/lib/mcp2515_lite/mcp2515_lite.h"
 
 #include <cstring>  // for memcpy
 

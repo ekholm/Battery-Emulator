@@ -8,6 +8,7 @@
 #include "../Software/src/devboard/safety/safety.h"
 #include "../Software/src/devboard/utils/events.h"
 #include "../Software/src/inverter/INVERTERS.h"
+#include "emul/can_drivers.h"
 
 void RegisterCanLogTests(void);
 void RegisterStillAliveTests(void);
@@ -40,6 +41,15 @@ class DataLayerResetListener : public ::testing::EmptyTestEventListener {
     user_selected_triple_battery = false;
 
     init_hal();
+
+    // comm_can.cpp is part of this binary and keeps its receiver registry and
+    // driver pointers in file statics, so the CAN layer needs the same per-test
+    // reset the datalayer gets. It is brought back UP rather than left down:
+    // that is the contract every driver test was written against - transmit a
+    // frame, find it in get_transmitted_frames(), without arranging an
+    // interface first.
+    emul_can::reset();
+    emul_can_bring_up_all_interfaces();
   }
 };
 

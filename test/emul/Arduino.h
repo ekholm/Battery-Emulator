@@ -27,6 +27,14 @@ constexpr int HEX = 16;
 // Arduino type aliases
 using byte = uint8_t;
 #define boolean bool
+// Section attributes. On the ESP32 these come in through esp_attr.h and place a
+// function in internal RAM so it can run with the flash cache off; on the host
+// there is no such distinction and nothing to place, so they expand to nothing.
+// They have to be DEFINED rather than absent: interrupt handlers carry them in
+// their signatures, and firmware that says where its code lives must still
+// compile here.
+#define IRAM_ATTR
+#define DRAM_ATTR
 // Arduino random functions
 inline long random(long max) {
   (void)max;
