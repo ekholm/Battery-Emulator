@@ -5,6 +5,8 @@
 //----------------------------------------------------------------------------------------
 
 #include "ACAN_ESP32_CANMessage.h"
+#include <esp_heap_caps.h>
+#include <new>
 
 //----------------------------------------------------------------------------------------
 
@@ -27,7 +29,7 @@ class ACAN_ESP32_Buffer16 {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
   public: ~ ACAN_ESP32_Buffer16 (void) {
-    delete [] mBuffer ;
+    release (mBuffer) ;
   }
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -54,9 +56,9 @@ class ACAN_ESP32_Buffer16 {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
   public: bool initWithSize (const uint16_t inSize) {
-    delete [] mBuffer ;
-    mBuffer = new CANMessage [inSize] ;
-    const bool ok = mBuffer != NULL ;
+    release (mBuffer) ;
+    mBuffer = allocate (inSize) ;
+    const bool ok = (mBuffer != NULL) || (inSize == 0) ;
     mSize = ok ? inSize : 0 ;
     mReadIndex = 0 ;
     mCount = 0 ;
@@ -112,11 +114,42 @@ class ACAN_ESP32_Buffer16 {
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
   public: void free (void) {
-    delete [] mBuffer ; mBuffer = nullptr ;
+    release (mBuffer) ; mBuffer = nullptr ;
     mSize = 0 ;
     mReadIndex = 0 ;
     mCount = 0 ;
     mPeakCount = 0 ;
+  }
+
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // Storage: internal DRAM, never PSRAM
+  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  // The TWAI interrupt appends and removes with the flash cache off, and PSRAM is
+  // unreachable then too. A plain new[] leaves the placement to the heap's policy,
+  // and on an ESP32-S3 with PSRAM that policy sends any block over
+  // CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL (4,096 B) to PSRAM. A ring deep enough to
+  // outlast a flash write is 3 KB, one step from that line, so the placement is
+  // asked for rather than left to the size. A failed allocation returns NULL and
+  // begin() reports it; new[] would have aborted.
+  private: static CANMessage * allocate (const uint16_t inSize) {
+    if (inSize == 0) {
+      return NULL ;
+    }
+    void * storage = heap_caps_malloc (sizeof (CANMessage) * inSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) ;
+    if (storage == NULL) {
+      return NULL ;
+    }
+    CANMessage * buffer = static_cast <CANMessage *> (storage) ;
+    for (uint16_t i = 0 ; i < inSize ; i++) {
+      new (&buffer [i]) CANMessage () ;
+    }
+    return buffer ;
+  }
+
+  // CANMessage has no destructor to run, so the storage goes straight back.
+  private: static void release (CANMessage * inBuffer) {
+    heap_caps_free (inBuffer) ;
   }
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

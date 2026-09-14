@@ -28,4 +28,7 @@ class ACAN_ESP32_Settings {
   uint8_t mTimeSegment2 = 4;
   uint8_t mRJW = 3;
   bool mTripleSampling = false;
+  // Read by begin() and answered back by driverReceiveBufferSize(), as the real
+  // driver sizes its ring from it. The default is the library's own.
+  uint16_t mDriverReceiveBufferSize = 32;
 };

@@ -37,6 +37,18 @@
 // IDE bit in RXBnSIDL: set means the frame carries a 29-bit identifier.
 #define MCP2515_RXB_SIDL_IDE 0x08
 
+/* Frames the interrupt drain can hold while no task is running to take them.
+ *
+ * A flash write parks every task for tens of milliseconds, and frames go on
+ * arriving through it, so the depth decides whether they survive. It is sized
+ * like the other drivers' rings (communication/can/can_rx_ring_depth.h): 2,000
+ * frames/s through a 94 ms stall needs 188. The ring indexes by mask, so the
+ * depth must be a power of two, and 256 is the first one past 188. That is 128
+ * ms of cover at 2,000 frames/s, for 256 x 16 B = 4,096 B of internal DRAM
+ * (the old depth of 64 cost 1,024 B).
+ */
+#define MCP2515_LITE_ISR_RING_DEPTH 256
+
 static MCP2515_ISR_INLINE uint32_t mcp2515_unpack_extended_id(const uint8_t* buffer) {
   return ((uint32_t)buffer[0] << 21) | ((uint32_t)(buffer[1] & 0xE0) << 13) | ((uint32_t)(buffer[1] & 0x03) << 16) |
          ((uint32_t)buffer[2] << 8) | buffer[3];

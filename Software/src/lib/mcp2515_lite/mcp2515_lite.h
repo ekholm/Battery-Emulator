@@ -49,11 +49,8 @@ Features:
  * enough not to reintroduce the contention that wake was removed for.
  */
 #define MCP2515_LITE_ISR_DRAIN_POLL_TIMEOUT_MS 100
-// Frames the interrupt drain can hold while no task is running to take them.
-// A flash erase parks every task for tens of milliseconds, so the depth is what
-// decides whether frames survive one; 64 covers 128 ms at 500 frames/s and
-// costs 1 KB of DRAM.
-#define MCP2515_LITE_ISR_RING_DEPTH 64
+// MCP2515_LITE_ISR_RING_DEPTH, the frames the interrupt drain can hold, lives in
+// mcp2515_rx_ring.h beside the ring it sizes, where the host tests can read it.
 // How many times one interrupt re-reads CANINTF before handing back. The chip
 // holds two receive buffers, so a healthy drain finishes in one pass; the bound
 // is what stops a stuck flag from turning the interrupt into a spin.
@@ -81,6 +78,18 @@ class MCP2515_Lite {
   // Requires an initialized SPIClass (e.g. SPI or SPI2) passed by reference
   MCP2515_Lite(SPIClass& spi, uint8_t cs, uint8_t int_pin);
   ~MCP2515_Lite();
+
+  /* The object lives in internal DRAM, never PSRAM.
+   *
+   * _isr_ring is a member, so the ring's 4 KB are part of this object, and the
+   * interrupt writes the ring with the flash cache off - when PSRAM is
+   * unreachable too. A plain new would leave the placement to the heap's size
+   * policy, which on an ESP32-S3 with PSRAM sends any block over 4,096 B to
+   * PSRAM, and this object is over that line. Allocation failure aborts, the
+   * same outcome a failed plain new has in this build.
+   */
+  static void* operator new(size_t size);
+  static void operator delete(void* ptr);
 
   uint32_t autodetectOscillatorFrequency();
 

@@ -44,4 +44,7 @@ class ACAN2517FDSettings {
   DataBitRateFactor mDataBitRateFactor;
   CLKOpin mCLKOPin = CLKO_DIVIDED_BY_10;
   OperationMode mRequestedMode = NormalFD;
+  // Recorded by begin(), as the real driver sizes its ring from it. The default
+  // is the library's own.
+  uint16_t mDriverReceiveFIFOSize = 32;
 };

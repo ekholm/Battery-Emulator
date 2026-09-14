@@ -21,9 +21,9 @@ class ACAN_ESP32 {
   bool available() const;
   // The size of the driver's receive ring. receive_frame_can_native() uses it
   // as the bound on one drain pass, so a stub answering 0 would drain nothing
-  // and every native receive test would pass on an empty loop. It answers the
-  // real default (ACAN_ESP32_Settings::mDriverReceiveBufferSize = 32), which
-  // is what the firmware runs with, rather than a number chosen here.
+  // and every native receive test would pass on an empty loop. It answers what
+  // the last begin() was configured with, as the real driver does, so the depth
+  // comm_can.cpp sets is the depth the drain runs with.
   uint16_t driverReceiveBufferSize() const;
   bool receive(CANMessage& outMessage);
   bool tryToSend(const CANMessage& inMessage);
