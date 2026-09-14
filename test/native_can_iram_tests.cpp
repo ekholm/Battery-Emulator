@@ -41,11 +41,14 @@ TEST(NativeCanIram, EverythingTheIsrReachesCarriesIramAttrAtTheSource) {
   const std::string driver = source("Software/src/lib/pierremolinaro-acan-esp32/ACAN_ESP32.cpp");
   const std::string buffer = source("Software/src/lib/pierremolinaro-acan-esp32/ACAN_ESP32_Buffer16.h");
 
-  // The ISR and the four functions it reaches in the driver.
+  // The ISR and the five functions it reaches in the driver. The overrun
+  // handler joined the chain with the RX data-overrun recovery, and the receive
+  // read then started returning whether it took a real frame.
   for (const char* fn :
        {"void IRAM_ATTR ACAN_ESP32::isr (void * inUserArgument)", "void IRAM_ATTR ACAN_ESP32::handleRXInterrupt (void)",
         "void IRAM_ATTR ACAN_ESP32::handleTXInterrupt (void)",
-        "void IRAM_ATTR ACAN_ESP32::getReceivedMessage (CANMessage & outFrame)",
+        "void IRAM_ATTR ACAN_ESP32::handleOverrunInterrupt (void)",
+        "bool IRAM_ATTR ACAN_ESP32::getReceivedMessage (CANMessage & outFrame)",
         "void IRAM_ATTR ACAN_ESP32::internalSendMessage (const CANMessage & inFrame)"}) {
     EXPECT_NE(driver.find(fn), std::string::npos) << fn << " lost its IRAM_ATTR";
   }
