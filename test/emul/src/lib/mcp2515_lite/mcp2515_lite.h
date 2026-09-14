@@ -40,6 +40,13 @@ class MCP2515_Lite {
   // frames arrive the way every other emulated chip delivers them.
   void useIsrDrain(uint8_t spi_bus);
   bool isrDrainActive() const;
+  // The drain's counters. With no drain on the host they stay zero, and
+  // can_drain_counters() reports the drain inactive before it reads them.
+  uint32_t isrFramesDrained() const { return 0; }
+  uint32_t isrFramesDropped() const { return 0; }
+  uint32_t isrBusDeferrals() const { return 0; }
+  uint32_t isrBusTimeouts() const { return 0; }
+  void resetIsrCounters() {}
 
   void changeSpeed(const MCP2515_Lite_Speed& new_speed);
   // Consumed on read, like hasErrors(): a speed change that did not take is
