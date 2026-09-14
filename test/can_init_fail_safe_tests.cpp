@@ -148,3 +148,48 @@ TEST(CanInitFailSafe, EachGateAnswersFromTheStateTheRestOfTheFileReads) {
            "interface_unavailable() call below it dead code";
   }
 }
+
+/* The presence gates have to be READ by init_CAN(), not merely to exist.
+ *
+ * pins_present() and plan_canfd_init() have thorough tests of their own, and
+ * every one of them would stay green if init_CAN() stopped consulting either:
+ * the suite does not link comm_can.cpp, so the call sites are only reachable by
+ * reading the source. That is not hypothetical here - the gates arrived as the
+ * `if (...)` heads of four blocks and had to be re-expressed as short-circuits
+ * when the blocks became per-interface lambdas, which is exactly the kind of
+ * rewrite that drops one of four and passes.
+ *
+ * The FD gates are asserted with their registration test still in front of
+ * them. plan_canfd_init() is computed once, before the shared bus is brought
+ * up, and a bus failure erases the FD entries afterwards - so the plan can
+ * still say "first chip" for an interface that is no longer registered, and the
+ * lambda would read ->second.speed off end(). The order of the two clauses is
+ * the guard, not decoration.
+ */
+TEST(CanInitFailSafe, EveryPresenceGateIsConsultedWhereItDecides) {
+  const std::string body = init_can_body();
+  ASSERT_FALSE(body.empty()) << "init_CAN() was not found in comm_can.cpp - the scan has drifted";
+
+  EXPECT_NE(body.find("esp32hal->pins_present(\"CAN\", esp32hal->MCP2515_CS()"), std::string::npos)
+      << "the MCP2515 block no longer asks whether this board routes its pads, so an add-on the board does "
+         "not have is attempted and reported as a pin fault";
+  /* The plan has to BE the call's answer. `find("plan_canfd_init(")` alone is
+   * satisfied by a call whose result is discarded next to a hand-built
+   * CanFdInitPlan{true, true, true}, which is a stub that skips nothing and
+   * leaves every case here green - so bind the two together.
+   */
+  const size_t decl = body.find("const CanFdInitPlan fd_plan =");
+  ASSERT_NE(decl, std::string::npos) << "init_CAN() no longer computes an FD plan at all";
+  const size_t call = body.find("plan_canfd_init(esp32hal,", decl);
+  EXPECT_NE(call, std::string::npos) << "init_CAN() never calls plan_canfd_init()";
+  EXPECT_LT(call - decl, size_t{40}) << "fd_plan is not what plan_canfd_init() returned - something else is "
+                                        "deciding which FD blocks may run";
+  EXPECT_NE(body.find("if (fd_plan.bus) {"), std::string::npos) << "the shared FD bus block ignores the plan";
+  EXPECT_NE(body.find("(fdNativeIt == can_receivers.end() && fdAddonIt == can_receivers.end()) || !fd_plan.first_chip"),
+            std::string::npos)
+      << "the first FD chip either ignores the plan, or consults it before checking that the interface is "
+         "still registered - and a shared-bus failure erases those entries after the plan is computed";
+  EXPECT_NE(body.find("fdAddonIt_2 == can_receivers.end() || !fd_plan.second_chip"), std::string::npos)
+      << "the second FD chip either ignores the plan, or consults it before checking that the interface is "
+         "still registered";
+}
