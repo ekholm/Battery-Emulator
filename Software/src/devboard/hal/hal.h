@@ -69,6 +69,36 @@ class Esp32Hal {
     return true;
   }
 
+  /* Is every one of these pins a real pad on THIS board?
+
+   * `alloc_pins()` fails for two different reasons and returns the same false
+   * for both: a pin that is GPIO_NUM_NC, meaning the interface does not exist
+   * on this board at all, and a pin another component already owns, meaning the
+   * pin map is incoherent. Those deserve opposite answers - the first is a
+   * configuration naming hardware that is not fitted, the second is a fact
+   * about the whole board - and init_CAN() cannot tell them apart from the
+   * return value, so it treats both as the second and abandons every interface
+   * declared after the failure - a Stark configured for an MCP2515 it does not
+   * have lost its CAN-FD interface this way, measured on the bench.
+   *
+   * Checking presence BEFORE allocating lets a caller skip an absent interface
+   * and still fail on a genuine conflict. (That failure abandons the
+   * interfaces below it rather than stopping the boot: init_CAN()'s return is
+   * discarded at its only call site.) It raises the same
+   * EVENT_GPIO_NOT_DEFINED alloc_pins() would, so the failure stays visible.
+   */
+  template <typename... Pins>
+  bool pins_present(const char* name, Pins... pins) {
+    for (gpio_num_t pin : std::vector<gpio_num_t>{static_cast<gpio_num_t>(pins)...}) {
+      if (pin < 0) {
+        allocator_name = name;
+        set_event(EVENT_GPIO_NOT_DEFINED, (int)pin);
+        return false;
+      }
+    }
+    return true;
+  }
+
   // Helper to forward vector to variadic template
   template <typename Vec, size_t... Is>
   bool alloc_pins_from_vector(const char* name, const Vec& pins, std::index_sequence<Is...>) {
