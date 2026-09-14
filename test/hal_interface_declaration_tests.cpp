@@ -802,3 +802,39 @@ TEST(HalInterfaceDeclaration, ThePageDropsBlankNamesBeforeItChecksTheDeclaration
          "cannot tell the two apart: "
       << body;
 }
+
+TEST(HalInterfaceDeclaration, ThePageRepresentsAStoredCommInterfaceItCannotOffer) {
+  /* The builders in select_options.h all guarantee that the stored value is
+     represented in the rendered options, and SelectOptionsTest exercises that
+     directly. options_for_comm_interface() cannot be exercised that way - it
+     needs esp32hal and the page's own name_for_comm_interface - so it is the
+     one builder where the guarantee can quietly not hold, and it is also the
+     one where breaking it costs the most: an unmatched select submits its first
+     option, which here is CAN 1 Native, and the next save writes it.
+
+     Two ways to reach that state and neither is hypothetical: a stored number
+     outside the enum (a bad write, or 0), and a valid member whose name is
+     blank on this build - the filter asserted above drops it BEFORE the
+     exemption that keeps a selected value can save it.
+
+     Scanned, not executed, like everything else in this file. Note this does
+     not weaken the naming rules above: a real name is still what a person can
+     act on, and the sentinel only stops the page from guessing. */
+  const std::string source = read(webserver_dir() + "/settings_html.cpp");
+  const std::string body = hal_scan::code_only(hal_scan::body_of(source, "String options_for_comm_interface("));
+  ASSERT_FALSE(body.empty()) << "options_for_comm_interface() not found - the page moved";
+
+  const std::string tight = squeeze(body);
+  EXPECT_NE(tight.find("represented=represented||(selected==type)"), std::string::npos)
+      << "the comm-interface builder never records that it rendered the stored value, so it cannot tell "
+         "whether the select has a selected option: "
+      << body;
+  EXPECT_NE(tight.find("if(!represented)"), std::string::npos)
+      << "nothing acts on the stored value being unrepresented; the select renders with nothing selected and "
+         "the browser submits the first option instead: "
+      << body;
+  EXPECT_NE(tight.find("unrepresented_option(static_cast<int>(selected))"), std::string::npos)
+      << "the unrepresented stored value is not carried into the options by its own number, so a save cannot "
+         "round-trip it: "
+      << body;
+}

@@ -11,6 +11,7 @@
 #include "../network/hostname.h"  // default_hostname()
 #include "html_escape.h"
 #include "index_html.h"
+#include "select_options.h"
 #include "src/battery/BATTERIES.h"
 #include "src/inverter/INVERTERS.h"
 #include "src/shunt/Shunt.h"
@@ -18,60 +19,6 @@
 #include <map>
 
 extern bool settingsUpdated;
-
-template <typename E>
-constexpr auto to_underlying(E e) noexcept {
-  return static_cast<std::underlying_type_t<E>>(e);
-}
-
-template <typename EnumType>
-std::vector<EnumType> enum_values() {
-  static_assert(std::is_enum_v<EnumType>, "Template argument must be an enum type.");
-
-  constexpr auto count = to_underlying(EnumType::Highest);
-  std::vector<EnumType> values;
-  for (int i = 1; i < count; ++i) {
-    values.push_back(static_cast<EnumType>(i));
-  }
-  return values;
-}
-
-template <typename EnumType, typename Func>
-std::vector<std::pair<String, EnumType>> enum_values_and_names(Func name_for_type,
-                                                               const EnumType* noneValue = nullptr) {
-  auto values = enum_values<EnumType>();
-
-  std::vector<std::pair<String, EnumType>> pairs;
-
-  for (auto& type : values) {
-    auto name = name_for_type(type);
-    if (name != nullptr) {
-      pairs.push_back(std::pair(String(name), type));
-    }
-  }
-
-  std::sort(pairs.begin(), pairs.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-
-  if (noneValue) {
-    pairs.insert(pairs.begin(), std::pair(name_for_type(*noneValue), *noneValue));
-  }
-
-  return pairs;
-}
-
-template <typename TEnum, typename Func>
-String options_for_enum_with_none(TEnum selected, Func name_for_type, TEnum noneValue) {
-  String options;
-  TEnum none = noneValue;
-  auto values = enum_values_and_names<TEnum>(name_for_type, &none);
-  for (const auto& [name, type] : values) {
-    options +=
-        ("<option value=\"" + String(static_cast<int>(type)) + "\"" + (selected == type ? " selected" : "") + ">");
-    options += name;
-    options += "</option>";
-  }
-  return options;
-}
 
 /* Comm-interface option lists are filtered by the RUNNING BOARD, not just by whether a name
  * happens to be non-empty.
@@ -86,9 +33,17 @@ String options_for_enum_with_none(TEnum selected, Func name_for_type, TEnum none
  * The CURRENTLY SELECTED value is always kept in the list even if the board does not declare
  * it, so an existing configuration is visible and correctable rather than silently rewritten
  * to whatever happens to be first.
+ *
+ * "Always" needs the same backstop the builders in select_options.h carry, because keeping the
+ * selected value is conditional on FINDING it: the blank-name filter above runs first and drops
+ * it unnamed, and a stored number outside the enum was never in the list to begin with. Either
+ * way the select renders with nothing selected, the browser submits the first option, and the
+ * next save rewrites the setting to it - CAN 1 Native, here. So an unmatched stored value gets
+ * the same labelled sentinel carrying its own number.
  */
 String options_for_comm_interface(comm_interface selected) {
   String options;
+  bool represented = false;
   const auto available = esp32hal->available_interfaces();
   auto values = enum_values_and_names<comm_interface>(name_for_comm_interface, nullptr);
   for (const auto& [name, type] : values) {
@@ -106,36 +61,10 @@ String options_for_comm_interface(comm_interface selected) {
       options += " (not available on this board)";
     }
     options += "</option>";
+    represented = represented || (selected == type);
   }
-  return options;
-}
-
-template <typename TEnum, typename Func>
-String options_for_enum(TEnum selected, Func name_for_type) {
-  String options;
-  auto values = enum_values_and_names<TEnum>(name_for_type, nullptr);
-  for (const auto& [name, type] : values) {
-    if (name[0] == '\0')
-      continue;  // Don't show blank options
-    options +=
-        ("<option value=\"" + String(static_cast<int>(type)) + "\"" + (selected == type ? " selected" : "") + ">");
-    options += name;
-    options += "</option>";
-  }
-  return options;
-}
-
-template <typename TMap>
-String options_from_map(int selected, const TMap& value_name_map) {
-  String options;
-  for (const auto& [value, name] : value_name_map) {
-    options += "<option value=\"" + String(value) + "\"";
-    if (selected == value) {
-      options += " selected";
-    }
-    options += ">";
-    options += name;
-    options += "</option>";
+  if (!represented) {
+    options = unrepresented_option(static_cast<int>(selected)) + options;
   }
   return options;
 }
