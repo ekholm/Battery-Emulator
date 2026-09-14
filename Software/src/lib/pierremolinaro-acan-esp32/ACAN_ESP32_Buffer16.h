@@ -68,7 +68,11 @@ class ACAN_ESP32_Buffer16 {
   // append
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  public: bool append (const CANMessage & inMessage) {
+  // IRAM_ATTR on append and remove: both run inside the TWAI interrupt, which
+  // the interrupt is kept alive through flash windows (ESP_INTR_FLAG_IRAM). If
+  // the compiler emits an out-of-line copy - which has been observed happening to
+  // another in-header ring at -Os - it must land in IRAM, not .flash.text.
+  public: bool IRAM_ATTR append (const CANMessage & inMessage) {
     const bool ok = mCount < mSize ;
     if (ok) {
       uint16_t writeIndex = mReadIndex + mCount ;
@@ -90,7 +94,7 @@ class ACAN_ESP32_Buffer16 {
   // Remove
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-  public: bool remove (CANMessage & outMessage) {
+  public: bool IRAM_ATTR remove (CANMessage & outMessage) {
     const bool ok = mCount > 0 ;
     if (ok) {
       outMessage = mBuffer [mReadIndex] ;

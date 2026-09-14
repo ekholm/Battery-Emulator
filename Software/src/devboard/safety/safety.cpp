@@ -140,6 +140,12 @@ void update_machineryprotection() {
   } else {
     clear_event(EVENT_CAN_NATIVE_BUFFER_FULL);
   }
+  if (datalayer.system.info.can_native_not_initialized) {
+    set_event(EVENT_CAN_NATIVE_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_native_not_initialized = false;
+  } else {
+    clear_event(EVENT_CAN_NATIVE_NOT_INITIALIZED);
+  }
   if (datalayer.system.info.can_native_bus_error) {
     set_event(EVENT_CAN_NATIVE_BUS_ERROR, 0);
     datalayer.system.info.can_native_bus_error = false;
@@ -158,6 +164,12 @@ void update_machineryprotection() {
   } else {
     clear_event(EVENT_CANMCP2515_BUS_ERROR);
   }
+  if (datalayer.system.info.can_2515_not_initialized) {
+    set_event(EVENT_CANMCP2515_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_2515_not_initialized = false;
+  } else {
+    clear_event(EVENT_CANMCP2515_NOT_INITIALIZED);
+  }
   if (datalayer.system.info.can_2518_send_fail) {
     set_event(EVENT_CANFD_BUFFER_FULL, 0);
     datalayer.system.info.can_2518_send_fail = false;
@@ -170,6 +182,12 @@ void update_machineryprotection() {
   } else {
     clear_event(EVENT_CANFD_BUS_ERROR);
   }
+  if (datalayer.system.info.can_2518_not_initialized) {
+    set_event(EVENT_CANFD_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_2518_not_initialized = false;
+  } else {
+    clear_event(EVENT_CANFD_NOT_INITIALIZED);
+  }
   if (datalayer.system.info.can_2518_2_send_fail) {
     set_event(EVENT_CANFD_2_BUFFER_FULL, 0);
     datalayer.system.info.can_2518_2_send_fail = false;
@@ -181,6 +199,12 @@ void update_machineryprotection() {
     datalayer.system.info.can_2518_2_bus_error = false;
   } else {
     clear_event(EVENT_CANFD_2_BUS_ERROR);
+  }
+  if (datalayer.system.info.can_2518_2_not_initialized) {
+    set_event(EVENT_CANFD_2_NOT_INITIALIZED, 0);
+    datalayer.system.info.can_2518_2_not_initialized = false;
+  } else {
+    clear_event(EVENT_CANFD_2_NOT_INITIALIZED);
   }
 
   // Start checking that the battery is within reason. Incase we see any funny business, raise an event!
@@ -728,6 +752,22 @@ void update_pause_state() {
 
   allowed_to_send_CAN = (!emulator_pause_CAN_send_ON || emulator_pause_status == NORMAL);
 
+  /* The order of the two statements below is load-bearing, and it was undocumented until
+   * now - which is the point, because it is the kind of thing a tidy-up reorders.
+   *
+   * PAUSE: allowed_to_send_CAN is already false by the time stop_can() disables the TWAI
+   * peripheral, so transmit_can_frame_to_interface() has been turning callers away since
+   * before the hardware went down. Setting the flag AFTER stop_can() would open a window in
+   * which sending is permitted onto a module that is clock-gated.
+   *
+   * RESUME: the flag necessarily goes true BEFORE restart_can() brings the peripheral back,
+   * so that window exists and cannot be closed here. It is not hypothetical - CAN replay
+   * transmits from its own FreeRTOS task ("CAN_Replay", webserver.cpp), concurrently with
+   * this one. It is closed on the other side instead: stop_can() clears
+   * native_can_initialized with the peripheral, and the native transmit path refuses on that
+   * flag. Do not rely on this ordering alone for safety, and do not remove the flag
+   * maintenance in stop_can()/restart_can() on the grounds that this ordering covers it.
+   */
   if (previous_allowed_to_send_CAN && !allowed_to_send_CAN) {
     DEBUG_PRINTF("Safety: Pausing CAN sending\n");
     //completely force stop the CAN communication
