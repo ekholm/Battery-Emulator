@@ -189,6 +189,132 @@ class Walk(unittest.TestCase):
         self.assertEqual(bad, [])
 
 
+class BoundaryDecode(unittest.TestCase):
+    """Which bytes count as instructions, and which are padding.
+
+    objdump -d sweeps a range linearly, and xtensa instructions are 2 and 3
+    bytes: the byte after a `ret` or a `j` is usually alignment padding, so the
+    sweep resumes out of phase and decodes nonsense until it resynchronises.
+    Nonsense disassembles into plausible calls - the lines below are REAL, taken
+    from stark_330 `firmware.elf` in /git/lilygo-backups/wq747-ringdepth-images-20260914,
+    and objdump's own `.byte 0x4e` at 0x4008b847 is it admitting the stream is
+    not code. Three bytes later the sweep invents a call into flash, and the
+    audit reported an interrupt path calling GeelySeaBattery::readDiagData().
+    """
+
+    # The tail of xPortEnterCriticalTimeout, verbatim.
+    PADDING_SWEEP = [
+        "4008b81a:\t190c      \tmovi.n\ta9, 1",
+        "4008b81c:\tffd746        \tj\t4008b77d <xPortEnterCriticalTimeout+0x25>",
+        "4008b81f:\t908100        \taddx2\ta8, a1, a0",
+        "4008b822:\t3198d5        \tcall4\t400bd1b0 <_sram1_iram_start+0x1d1b0>",
+        "4008b825:\t88aa      \tadd.n\ta8, a8, a10",
+        "4008b82b:\tffdcc6        \tj\t4008b7a2 <xPortEnterCriticalTimeout+0x4a>",
+        "4008b836:\td10000        \tmul16s\ta0, a0, a0",
+        "4008b847:\t4e          \t.byte\t0x4e",
+        "4008b848:\t7ed105        \tcall0\t4010a55c <KiaEGmpBattery::get_uds_info_html()+0x124>",
+        "4008b84b:\t7cc1d5        \tcall4\t40108468 <GeelySeaBattery::readDiagData()>",
+    ]
+
+    def sweeper(self, start, lines):
+        """A disassembler that only knows the linear sweep from `start`."""
+        def disassemble(addr, size):
+            if addr != start:
+                return ""
+            return "\n".join(lines)
+        return disassemble
+
+    def flash_targets(self, lines):
+        found = []
+        for line in lines:
+            flash, _ = audit.line_targets(line, in_flash, in_iram, {0x40108468, 0x4010A55C})
+            found.extend(flash)
+        return found
+
+    def test_the_sweep_past_a_jump_invents_a_call_into_flash(self):
+        """The control: without boundary decoding these bytes ARE a finding."""
+        self.assertIn(0x40108468, self.flash_targets(self.PADDING_SWEEP))
+
+    def test_padding_after_an_unconditional_jump_is_not_decoded(self):
+        dis = self.sweeper(0x4008B81A, self.PADDING_SWEEP)
+        kept = audit.trusted_lines(dis, 0x4008B81A, 0x40)
+        self.assertEqual(self.flash_targets(kept), [],
+                         "bytes after a `j` that nothing branches to are padding, not code")
+        self.assertEqual([l.split(":")[0] for l in kept], ["4008b81a", "4008b81c"],
+                         "the decode stops at the jump and resumes only where something branches")
+
+    def test_a_narrow_branch_target_is_still_decoded(self):
+        """gcc writes most short branches here in the narrow form (`bnez.n`).
+
+        Reading `.n` as part of the mnemonic and not matching it records no
+        target, so the descent stops at the first `j` and walks a fraction of
+        the function - the audit then reports clean because it looked at almost
+        nothing. That is the failure this case exists to catch.
+        """
+        lines_at_entry = [
+            "40081000:\t006136        \tentry\ta1, 48",
+            "40081003:\td2cc      \tbnez.n\ta2, 40081010 <root()+0x10>",
+            "40081006:\tfff6c6        \tj\t40081020 <root()+0x20>",
+        ]
+        at_target = ["40081010:\t0087e5        \tcall8\t400d1000 <victim()>"]
+        def disassemble(addr, size):
+            return {0x40081000: "\n".join(lines_at_entry), 0x40081010: "\n".join(at_target)}.get(addr, "")
+        kept = audit.trusted_lines(disassemble, 0x40081000, 0x40)
+        self.assertIn("400d1000", " ".join(kept),
+                      "the branch target was never decoded, so a real call went unseen")
+
+    def test_a_literal_pool_word_is_not_decoded_as_code(self):
+        """binutils annotates l32r with the word it loads, and that word is DATA.
+
+        A literal that happens to hold an address inside this same function is
+        still data. Treating every hex word on every line as a branch target
+        would decode the pool as instructions - which is the same class of
+        invention this whole change exists to stop, just arrived at from the
+        other end.
+        """
+        entry_lines = [
+            "40081000:\t006136        \tentry\ta1, 48",
+            "40081003:\td76ad1        \tl32r\ta13, 40081020 <root()+0x20>",
+            "40081006:\tf01d      \tretw.n",
+        ]
+        pool = ["40081020:\t0087e5        \tcall8\t400d1000 <victim()>"]
+        def disassemble(addr, size):
+            return {0x40081000: "\n".join(entry_lines), 0x40081020: "\n".join(pool)}.get(addr, "")
+        kept = audit.trusted_lines(disassemble, 0x40081000, 0x40)
+        self.assertNotIn("400d1000", " ".join(kept),
+                         "the literal pool was decoded as code, which invents calls")
+
+    def test_walk_itself_decodes_from_boundaries(self):
+        """The wiring, not just the helper.
+
+        The helper can be right and unused: walk() called objdump and read every
+        line it printed. So drive walk() with the real padding sweep and require
+        the verdict, not the line list, to come out clean.
+        """
+        audit.PRESETS["_test"] = {"taken": ["root()"], "may_inline": []}
+        self.addCleanup(audit.PRESETS.pop, "_test")
+        syms = {0x4008B81A: (0x40, "root()"), 0x40108468: (0x20, "GeelySeaBattery::readDiagData()")}
+        by_name = {"root()": (0x4008B81A, 0x40),
+                   "GeelySeaBattery::readDiagData()": (0x40108468, 0x20)}
+        dis = self.sweeper(0x4008B81A, self.PADDING_SWEEP)
+        seen, bad, _ = audit.walk(dis, "_test", syms, by_name, in_flash, in_iram)
+        self.assertEqual(bad, [], "walk() read past a jump into padding and reported the garbage")
+
+    def test_a_real_call_into_flash_is_still_caught(self):
+        lines = [
+            "40081000:\t006136        \tentry\ta1, 48",
+            "40081003:\t0087e5        \tcall8\t400d1000 <victim()>",
+            "40081006:\tf01d      \tretw.n",
+        ]
+        dis = self.sweeper(0x40081000, lines)
+        kept = audit.trusted_lines(dis, 0x40081000, 0x40)
+        flash = []
+        for line in kept:
+            f, _ = audit.line_targets(line, in_flash, in_iram, {0x400D1000})
+            flash.extend(f)
+        self.assertEqual(flash, [0x400D1000])
+
+
 class PresetClassification(unittest.TestCase):
     """A change-detector, deliberately, over a table that is entirely judgement.
 
