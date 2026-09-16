@@ -419,6 +419,79 @@ CALL_RE = re.compile(r"\b(call\d+|callx\d+|j|jx)\b")
 HEXWORD_RE = re.compile(r"\b([0-9a-f]{8})\b")
 
 
+# A disassembly line, whatever the bytes column holds: objdump prints the
+# address, the encoded bytes and the mnemonic, and the tests hand in the same
+# shape with a stand-in bytes column.
+LINE_RE = re.compile(r"^\s*([0-9a-f]{4,16}):\s*\S+\s+(\S+)\s*(.*)$")
+# Control transfers whose target is a real instruction boundary INSIDE the
+# function. The `.n` suffix is not optional cosmetics: xtensa's narrow forms
+# (`bnez.n`, `beqz.n`) are how gcc writes most short branches here, and a
+# pattern that misses them records no target, so the descent stops at the first
+# `j` and walks a fraction of the function - which is a hole in the direction
+# that makes this gate say "clean". Deliberately not l32r: binutils annotates l32r with the literal it
+# loads, and a literal that happens to point into this function is data, not an
+# instruction - decoding from it would invent code exactly the way the linear
+# sweep does.
+BRANCH_MNEM_RE = re.compile(r"^(j|jx|b[a-z]+[0-9]*|call\d+|callx\d+|loop[a-z]*)(\.n)?$")
+# After one of these, the next byte is only an instruction if something jumps
+# there. gcc pads to alignment after them, and padding decodes as nonsense.
+TERMINATORS = frozenset(("ret", "ret.n", "retw", "retw.n", "j", "jx"))
+
+
+def trusted_lines(disassemble, addr, size, entry_addrs=()):
+    """One function's disassembly, decoded from instruction boundaries only.
+
+    THE DEFECT THIS CLOSES. objdump -d decodes a range as one linear sweep, and
+    xtensa instructions are 2 and 3 bytes: the first byte after a `ret` or a `j`
+    is usually alignment padding, so the sweep resumes half an instruction out
+    and every byte after it decodes as garbage until the stream happens to
+    resynchronise. Garbage disassembles into plausible instructions - on
+    `stark_330` it produced a `call4` into a flash address that no code reaches,
+    and the audit reported an IRAM function calling GeelySeaBattery::readDiagData().
+    The verdict then depended on unrelated flash layout, so a lane's CI went red
+    at random.
+
+    So decode the way the processor reaches the bytes: start at the entry, stop
+    at each unconditional terminator, and resume only where something branches -
+    a recursive descent. A target discovered mid-sweep is re-decoded FROM that
+    address, because the missed instructions are not in the linear text at all;
+    on stark the real boundary 0x4008b838 has no line in the sweep that begins
+    at 0x4008b836.
+
+    Symbol entries inside the range are boundaries too: a function whose symbol
+    covers several entry points still has code at each.
+    """
+    end = addr + size
+    decoded = {}
+    queued = {addr} | {a for a in entry_addrs if addr < a < end}
+    work = sorted(queued)
+    while work:
+        start = work.pop(0)
+        if start in decoded:
+            continue
+        for line in disassemble(start, end - start).splitlines():
+            m = LINE_RE.match(line)
+            if not m:
+                continue
+            at = int(m.group(1), 16)
+            if at < start or at >= end:
+                continue
+            if at in decoded:
+                break  # this path has run into one already decoded
+            decoded[at] = line
+            mnemonic = m.group(2)
+            if BRANCH_MNEM_RE.match(mnemonic):
+                for tok in HEXWORD_RE.findall(m.group(3)):
+                    target = int(tok, 16)
+                    if addr <= target < end and target not in queued:
+                        queued.add(target)
+                        work.append(target)
+            if mnemonic in TERMINATORS:
+                break
+        work.sort()
+    return [decoded[a] for a in sorted(decoded)]
+
+
 def line_targets(line, in_flash, in_iram, entry):
     """(flash targets, iram targets) one disassembly line reaches.
 
@@ -493,7 +566,7 @@ def walk(disassemble, preset, syms, by_name, in_flash, in_iram):
         if in_flash(addr):
             bad.append((name, name, addr))
             continue
-        for line in disassemble(addr, size).splitlines():
+        for line in trusted_lines(disassemble, addr, size, entry):
             flash_targets, iram_targets = line_targets(line, in_flash, in_iram, entry)
             for t in flash_targets:
                 bad.append((name, name_of(t), t))
