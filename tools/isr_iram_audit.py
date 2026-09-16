@@ -435,7 +435,13 @@ LINE_RE = re.compile(r"^\s*([0-9a-f]{4,16}):\s*\S+\s+(\S+)\s*(.*)$")
 BRANCH_MNEM_RE = re.compile(r"^(j|jx|b[a-z]+[0-9]*|call\d+|callx\d+|loop[a-z]*)(\.n)?$")
 # After one of these, the next byte is only an instruction if something jumps
 # there. gcc pads to alignment after them, and padding decodes as nonsense.
-TERMINATORS = frozenset(("ret", "ret.n", "retw", "retw.n", "j", "jx"))
+# `ill` is the trap gcc plants after a noreturn call or an unreachable branch,
+# and the rf* forms return from an exception or interrupt: nothing falls
+# through any of them either. Measured over the twelve archived lane images
+# the only `ill` on a walked path (panic_abort) is followed by a branch target,
+# so this closes a gap the corpus has not yet exercised, not a live finding.
+TERMINATORS = frozenset(("ret", "ret.n", "retw", "retw.n", "j", "jx",
+                         "ill", "ill.n", "rfe", "rfde", "rfi", "rfwo", "rfwu", "rfue"))
 
 
 def trusted_lines(disassemble, addr, size, entry_addrs=()):

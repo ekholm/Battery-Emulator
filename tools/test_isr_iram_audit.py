@@ -300,6 +300,56 @@ class BoundaryDecode(unittest.TestCase):
         seen, bad, _ = audit.walk(dis, "_test", syms, by_name, in_flash, in_iram)
         self.assertEqual(bad, [], "walk() read past a jump into padding and reported the garbage")
 
+    def test_padding_after_a_trap_is_not_decoded(self):
+        """`ill` ends a path the way `ret` does: gcc plants it after a noreturn
+        call, and what follows is alignment padding or the next block. Decoding
+        past it is the linear sweep's defect again, entered through a different
+        door. Same for the rf* returns from exception and interrupt."""
+        for trap in ("ill", "ill.n", "rfi", "rfe"):
+            lines = [
+                "40081000:\t006136        \tentry\ta1, 48",
+                "40081003:\t000000        \t%s" % trap,
+                "40081006:\t7cc1d5        \tcall4\t400d1000 <victim()>",
+            ]
+            dis = self.sweeper(0x40081000, lines)
+            kept = audit.trusted_lines(dis, 0x40081000, 0x40)
+            self.assertNotIn("400d1000", " ".join(kept),
+                             "the bytes after `%s` were decoded, and nothing branches there" % trap)
+
+    def test_a_second_symbol_entry_inside_the_range_is_decoded(self):
+        """A symbol whose size covers another entry point (an alias, a cold
+        split, a thunk laid out inside it) has real code there that nothing in
+        the first entry's paths may reach. The walk seeds every entry address
+        inside the range, so a call made from the second entry is still seen."""
+        first = [
+            "40081000:\t006136        \tentry\ta1, 48",
+            "40081003:\tf01d      \tretw.n",
+        ]
+        second = ["40081010:\t0087e5        \tcall8\t400d1000 <victim()>"]
+        def disassemble(addr, size):
+            return {0x40081000: "\n".join(first), 0x40081010: "\n".join(second)}.get(addr, "")
+        kept = audit.trusted_lines(disassemble, 0x40081000, 0x40, entry_addrs={0x40081010})
+        self.assertIn("400d1000", " ".join(kept), "the second entry point was never decoded")
+        kept = audit.trusted_lines(disassemble, 0x40081000, 0x40)
+        self.assertNotIn("400d1000", " ".join(kept),
+                         "without the entry there is no reason to decode past the return")
+
+    def test_a_branch_out_of_the_function_seeds_no_decode(self):
+        """A tail-jump to another function is that function's business - walk()
+        follows it as a call target. Seeding a decode there would read the callee
+        under this function's name and size, with the wrong end."""
+        lines = [
+            "40081000:\t006136        \tentry\ta1, 48",
+            "40081003:\tfff6c6        \tj\t40082000 <elsewhere()>",
+        ]
+        asked = []
+        def disassemble(addr, size):
+            asked.append(addr)
+            return "\n".join(lines) if addr == 0x40081000 else "40082000:\t7cc1d5        \tcall4\t400d1000 <victim()>"
+        kept = audit.trusted_lines(disassemble, 0x40081000, 0x40)
+        self.assertEqual(asked, [0x40081000], "a target outside the range was disassembled")
+        self.assertNotIn("400d1000", " ".join(kept))
+
     def test_a_real_call_into_flash_is_still_caught(self):
         lines = [
             "40081000:\t006136        \tentry\ta1, 48",
