@@ -65,7 +65,8 @@ class CanCharger : public Charger, Transmitter, CanReceiver {
   CanCharger(ChargerType type) : Charger(type) {
     can_interface = can_config.charger;
     register_transmitter(this);
-    register_can_receiver(this, can_interface);
+    // Named through the type: name() is pure virtual and this is the base constructor.
+    register_can_receiver(this, can_interface, name_for_charger_type(type));
   }
 
   void transmit_can_frame(CAN_frame* frame) { transmit_can_frame_to_interface(frame, can_interface); }

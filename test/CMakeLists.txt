@@ -91,6 +91,7 @@ add_executable(tests
     ../Software/src/communication/contactorcontrol/comm_contactorcontrol.cpp
     ../Software/src/communication/precharge_control/precharge_control.cpp
     ../Software/src/communication/rs485/comm_rs485.cpp
+    ../Software/src/communication/can/can_speed_policy.cpp
     ../Software/src/devboard/safety/safety.cpp
     ../Software/src/devboard/hal/hal.cpp
     ../Software/src/devboard/utils/types.cpp

@@ -42,8 +42,10 @@ enum class CAN_Speed {
 
 // Register a receiver object for a given CAN interface.
 // By default receivers expect the CAN interface to be operated at "fast" speed.
-// If halfSpeed is true, half speed is used.
-void register_can_receiver(CanReceiver* receiver, CAN_Interface interface,
+// `name` is the driver's name, kept so that two receivers on one interface that
+// ask for different speeds can both be named in the resulting event. It must be
+// a static-lifetime string, as the alloc_pins() component names are.
+void register_can_receiver(CanReceiver* receiver, CAN_Interface interface, const char* name,
                            CAN_Speed speed = CAN_Speed::CAN_SPEED_500KBPS);
 
 /**
@@ -71,6 +73,11 @@ void stop_can();
 void restart_can();
 
 // Change the speed of the CAN interface. Returns true if successful.
-bool change_can_speed(CAN_Interface interface, CAN_Speed speed);
+// Refused, with EVENT_CAN_SPEED_CONFLICT, when another driver registered for the
+// same interface asked for a different speed - changing it would deafen that one.
+// `requester` and `requester_name` identify the caller; a caller that is not a
+// registered receiver passes nullptr and a literal.
+bool change_can_speed(CAN_Interface interface, CAN_Speed speed, const CanReceiver* requester = nullptr,
+                      const char* requester_name = "CAN");
 
 #endif

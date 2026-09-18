@@ -22,9 +22,10 @@ void transmit_can_frame_to_interface(const CAN_frame* tx_frame, CAN_Interface in
   }
 }
 
-void register_can_receiver(CanReceiver* receiver, CAN_Interface interface, CAN_Speed speed) {}
+void register_can_receiver(CanReceiver* receiver, CAN_Interface interface, const char* name, CAN_Speed speed) {}
 
-bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
+bool change_can_speed(CAN_Interface interface, CAN_Speed speed, const CanReceiver* requester,
+                      const char* requester_name) {
   return true;
 }
 

@@ -3,6 +3,7 @@
 #include "../../lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
 #include "../../lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
 #include "CanReceiver.h"
+#include "can_speed_policy.h"
 #include "comm_can.h"
 #include "src/datalayer/datalayer.h"
 #include "src/devboard/hal/hal.h"
@@ -25,12 +26,7 @@ volatile CAN_Configuration can_config = {.battery = CAN_NATIVE,
                                          .charger = CAN_NATIVE,
                                          .shunt = CAN_NATIVE};
 
-struct CanReceiverRegistration {
-  CanReceiver* receiver;
-  CAN_Speed speed;
-};
-
-static std::multimap<CAN_Interface, CanReceiverRegistration> can_receivers;
+static CanReceiverRegistry can_receivers;
 
 static void receive_frame_can_native();
 static void receive_frame_can_addon();
@@ -42,8 +38,8 @@ static uint32_t init_native_can(CAN_Speed speed, gpio_num_t tx_pin, gpio_num_t r
 static bool begin_canfd();
 static bool begin_canfd_2();
 
-void register_can_receiver(CanReceiver* receiver, CAN_Interface interface, CAN_Speed speed) {
-  can_receivers.insert({interface, {receiver, speed}});
+void register_can_receiver(CanReceiver* receiver, CAN_Interface interface, const char* name, CAN_Speed speed) {
+  can_receivers.insert({interface, {receiver, speed, name}});
   DEBUG_PRINTF("CAN receiver registered, total: %d\n", can_receivers.size());
 }
 
@@ -69,9 +65,11 @@ uint16_t user_selected_CAN_ID_cutoff_filter = 0;  //Messages below this ID will 
 bool init_CAN() {
   // Native CAN (onboard the ESP32)
 
-  auto nativeIt = can_receivers.find(CAN_NATIVE);
-
-  if (nativeIt != can_receivers.end()) {
+  /* The interface owns its bitrate. An interface whose registrations disagree is
+     not started and says so; the others still come up, so one misconfigured
+     interface does not take the board with it. */
+  CAN_Speed native_speed;
+  if (resolve_interface_speed(can_receivers, CAN_NATIVE, native_speed)) {
     auto se_pin = esp32hal->CAN_SE_PIN();
     auto tx_pin = esp32hal->CAN_TX_PIN();
     auto rx_pin = esp32hal->CAN_RX_PIN();
@@ -88,7 +86,7 @@ bool init_CAN() {
       return false;
     }
 
-    const uint32_t errorCode = init_native_can(nativeIt->second.speed, tx_pin, rx_pin);
+    const uint32_t errorCode = init_native_can(native_speed, tx_pin, rx_pin);
     if (errorCode == 0) {
       native_can_initialized = true;
       logging.println("Native Can ok");
@@ -119,8 +117,8 @@ bool init_CAN() {
 
   // Add-on CAN interface (via MCP2515)
 
-  auto addonIt = can_receivers.find(CAN_ADDON_MCP2515);
-  if (addonIt != can_receivers.end()) {
+  CAN_Speed addon_speed;
+  if (resolve_interface_speed(can_receivers, CAN_ADDON_MCP2515, addon_speed)) {
     auto cs_pin = esp32hal->MCP2515_CS();
     auto int_pin = esp32hal->MCP2515_INT();
     auto sck_pin = esp32hal->MCP2515_SCK();
@@ -153,7 +151,7 @@ bool init_CAN() {
       quartz_frequency = can2515->autodetectOscillatorFrequency();
     }
 
-    if (can2515->begin({(int)addonIt->second.speed * 1000UL, quartz_frequency})) {
+    if (can2515->begin({(int)addon_speed * 1000UL, quartz_frequency})) {
       logging.println("MCP2515 CAN ok");
     } else {
       logging.println("MCP2515 CAN init failed");
@@ -166,11 +164,14 @@ bool init_CAN() {
 
   // FD interface(s) (via MCP2518FD)
 
-  auto fdNativeIt = can_receivers.find(CANFD_NATIVE);
-  auto fdAddonIt = can_receivers.find(CANFD_ADDON_MCP2518);
-  auto fdAddonIt_2 = can_receivers.find(CANFD_ADDON_MCP2518_2);
+  /* CANFD_NATIVE and CANFD_ADDON_MCP2518 are two keys for ONE controller, so
+     they have to agree with each other as well as among themselves. */
+  CAN_Speed fd_speed;
+  CAN_Speed fd2_speed;
+  const bool fd_ok = resolve_shared_interface_speed(can_receivers, CANFD_NATIVE, CANFD_ADDON_MCP2518, fd_speed);
+  const bool fd2_ok = resolve_interface_speed(can_receivers, CANFD_ADDON_MCP2518_2, fd2_speed);
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end() || fdAddonIt_2 != can_receivers.end()) {
+  if (fd_ok || fd2_ok) {
     // Initialise SPI bus first
     auto sck_pin = esp32hal->MCP2517_SCK();
     auto sdo_pin = esp32hal->MCP2517_SDO();
@@ -184,9 +185,7 @@ bool init_CAN() {
     SPI2517->begin(sck_pin, sdo_pin, sdi_pin);
   }
 
-  if (fdNativeIt != can_receivers.end() || fdAddonIt != can_receivers.end()) {
-
-    auto speed = (fdNativeIt != can_receivers.end()) ? fdNativeIt->second.speed : fdAddonIt->second.speed;
+  if (fd_ok) {
 
     auto cs_pin = esp32hal->MCP2517_CS();
     auto int_pin = esp32hal->MCP2517_INT();
@@ -203,7 +202,7 @@ bool init_CAN() {
     ACAN2517FDSettings::Oscillator osc_freq =
         (freq == 0 ? ACAN2517FDSettings::OSC_AUTODETECT
                    : (freq == 20000000 ? ACAN2517FDSettings::OSC_20MHz : ACAN2517FDSettings::OSC_40MHz));
-    auto bitRate = (int)speed * 1000UL;
+    auto bitRate = (int)fd_speed * 1000UL;
     settings2517 = new ACAN2517FDSettings(osc_freq, bitRate, DataBitRateFactor::x4);
 
     // Set up clock output divider (some hardware uses this for the second CAN FD add-on)
@@ -218,7 +217,7 @@ bool init_CAN() {
     }
   }
 
-  if (fdAddonIt_2 != can_receivers.end()) {
+  if (fd2_ok) {
 
     auto cs_pin = esp32hal->MCP2517_CS2();
     auto int_pin = esp32hal->MCP2517_INT2();
@@ -253,8 +252,7 @@ bool init_CAN() {
         (freq == 0 ? ACAN2517FDSettings::OSC_AUTODETECT
                    : (freq == 20000000 ? ACAN2517FDSettings::OSC_20MHz : ACAN2517FDSettings::OSC_40MHz));
 
-    auto speed = fdAddonIt_2->second.speed;
-    auto bitRate = (int)speed * 1000UL;
+    auto bitRate = (int)fd2_speed * 1000UL;
     // Crystal setting is ignored (library now autodetects)
     settings2517_2 = new ACAN2517FDSettings(osc_freq, bitRate, DataBitRateFactor::x4);
     // Arbitration bit rate: 250/500 kbit/s, data bit rate: 1/2 Mbit/s
@@ -425,8 +423,23 @@ receive_frame_can_native() {  // This section checks if we have a complete CAN m
 
   auto flags = ACAN_ESP32::can.statusRegister();
   if ((flags & TWAI_BUS_OFF_ST) != 0) {
-    // Bus off, reset the CAN controller
-    change_can_speed(CAN_Interface::CAN_NATIVE, native_can_speed);
+    /* Bus off, reset the CAN controller at the speed it is ALREADY running.
+       That is a recovery, not a speed change - no driver's bitrate moves - so it
+       must NOT go through change_can_speed(), which asks the conflict policy.
+       The policy is asked whether a CHANGE may go ahead, and this caller names
+       no requester, so every registration counts as a peer: after a runtime
+       switch (BMW PHEV drops the bus to 100 kbit/s to wake the SME, and a
+       sleeping bus ACKs nothing, so bus-off inside that window is the ordinary
+       outcome) native_can_speed is no longer the registered speed, the peer
+       disagrees, and the recovery is refused with EVENT_CAN_SPEED_CONFLICT - an
+       ERROR, so FAULT - on a board that has no conflict at all. */
+    if (settingsespcan != nullptr) {
+      const uint32_t errorCode = init_native_can(native_can_speed, settingsespcan->mTxPin, settingsespcan->mRxPin);
+      if (errorCode != 0) {
+        logging.print("Error Native Can: 0x");
+        logging.println(errorCode, HEX);
+      }
+    }
     datalayer.system.info.can_native_bus_error = true;
   }
   if ((flags & TWAI_ERR_ST) != 0) {
@@ -723,7 +736,15 @@ static uint32_t init_native_can(CAN_Speed speed, gpio_num_t tx_pin, gpio_num_t r
 }
 
 // Change the speed of the given CAN interface. Returns true if successful.
-bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
+bool change_can_speed(CAN_Interface interface, CAN_Speed speed, const CanReceiver* requester,
+                      const char* requester_name) {
+  // Sharing the interface means sharing the bitrate: a driver that switches the
+  // bus under a peer that asked for a different speed is refused and named,
+  // rather than deafening it silently. A sole registrant is unaffected.
+  if (!can_speed_change_allowed(can_receivers, interface, speed, requester, requester_name)) {
+    return false;
+  }
+
   if (interface == CAN_Interface::CAN_NATIVE && settingsespcan != nullptr) {
     // Reinitialize the native CAN interface with the new speed
     const uint32_t errorCode = init_native_can(speed, settingsespcan->mTxPin, settingsespcan->mRxPin);

@@ -12,6 +12,11 @@
 
 enum class ShuntType { None = 0, BmwSbox = 1, Inverter = 2, CustomClamp = 3, Highest };
 
+// Declared here rather than below the class: CanShunt's constructor names itself
+// with them when it registers for its CAN interface.
+extern const char* name_for_shunt_type(ShuntType type);
+extern ShuntType user_selected_shunt_type;
+
 class CanShunt : public Transmitter, CanReceiver {
  public:
   virtual void setup() = 0;
@@ -35,7 +40,7 @@ class CanShunt : public Transmitter, CanReceiver {
   CanShunt() {
     can_interface = can_config.shunt;
     register_transmitter(this);
-    register_can_receiver(this, can_interface);
+    register_can_receiver(this, can_interface, name_for_shunt_type(user_selected_shunt_type));
   }
 
   void transmit_can_frame(CAN_frame* frame) { transmit_can_frame_to_interface(frame, can_interface); }
@@ -43,8 +48,6 @@ class CanShunt : public Transmitter, CanReceiver {
 
 extern CanShunt* shunt;
 extern std::vector<ShuntType> supported_shunt_types();
-extern const char* name_for_shunt_type(ShuntType type);
-extern ShuntType user_selected_shunt_type;
 
 // Updateable parameters for the Chademo CT Clamp shunt type. Stored in NVM and modifiable via the webserver.
 extern float ct_clamp_offset_mV;
