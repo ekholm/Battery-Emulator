@@ -1,6 +1,7 @@
 #include "events.h"
 #include <Arduino.h>
 #include <string.h>  // memchr, for the notice_events lookup
+#include "../../communication/can/can_speed_policy.h"
 #include "../../datalayer/datalayer.h"
 #include "../../devboard/hal/hal.h"
 #include "../../devboard/utils/logging.h"
@@ -292,6 +293,7 @@ void init_events(void) {
   events.entries[EVENT_GPIO_CONFLICT].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_GPIO_NOT_DEFINED].level = EVENT_LEVEL_ERROR;
   events.entries[EVENT_INVERTER_REBOOT_DECLINED].level = EVENT_LEVEL_WARNING;
+  events.entries[EVENT_CAN_SPEED_CONFLICT].level = EVENT_LEVEL_ERROR;
 }
 
 void set_event(EVENTS_ENUM_TYPE event, int16_t data) {
@@ -683,6 +685,13 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_GPIO_NOT_DEFINED:
       return "Missing GPIO Assignment: The component '" + esp32hal->failed_allocator() +
              "' requires a GPIO pin that isn't configured. Please define a valid pin number in your settings.";
+    case EVENT_CAN_SPEED_CONFLICT:
+      return "CAN speed conflict on " + String(getCANInterfaceName(can_speed_conflict_interface())) + ": '" +
+             String(can_speed_conflict_first_name()) + "' needs " + String((int)can_speed_conflict_first_speed()) +
+             " kbit/s, '" + String(can_speed_conflict_second_name()) + "' needs " +
+             String((int)can_speed_conflict_second_speed()) +
+             " kbit/s. They share one bus, and a bus has one bitrate - check which interface each is assigned to "
+             "(battery, inverter, charger, shunt settings).";
     default:
       return "";
   }

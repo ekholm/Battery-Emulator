@@ -32,6 +32,9 @@ class CanBattery : public Battery, Transmitter, CanReceiver {
   bool change_can_speed(CAN_Speed speed);
   void reset_can_speed();
 
+  // The name this battery registers and is named by in interface events.
+  static const char* driver_name();
+
   void transmit_can_frame(const CAN_frame* frame) { transmit_can_frame_to_interface(frame, can_interface); }
 
   // Overload these in subclasses that also inherit IsoTp to receive ISO-TP events.

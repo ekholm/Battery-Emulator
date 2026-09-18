@@ -31,7 +31,9 @@ class CanInverterProtocol : public InverterProtocol, Transmitter, CanReceiver {
   explicit CanInverterProtocol(CAN_Speed speed = CAN_Speed::CAN_SPEED_500KBPS) {
     can_interface = can_config.inverter;
     register_transmitter(this);
-    register_can_receiver(this, can_interface, speed);
+    /* name() is pure virtual and this is the base constructor, so the driver's
+       own override is not reachable yet; the selected type names it instead. */
+    register_can_receiver(this, can_interface, name_for_inverter_type(user_selected_inverter_protocol), speed);
     logging.print("Requesting ");
     logging.print((uint32_t)speed);
     logging.print(" kbps for inverter CAN interface (");
