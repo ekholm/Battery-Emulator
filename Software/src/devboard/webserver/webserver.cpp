@@ -45,7 +45,6 @@ AsyncAuthenticationMiddleware web_auth_middleware;
 static MyTimer ota_progress_timer = MyTimer(1000);
 
 #include "advanced_battery_html.h"
-#include "can_logging_html.h"
 #include "can_replay_html.h"
 #include "cellmonitor_html.h"
 #include "debug_logging_html.h"
@@ -250,9 +249,8 @@ void init_webserver() {
   });
 
   // Route for going to advanced battery info web page
-  def_route_with_auth("/advanced", server, HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "text/html", index_html, advanced_battery_processor);
-  });
+  def_route_with_auth("/advanced", server, HTTP_GET,
+                      [](AsyncWebServerRequest* request) { send_advanced_battery_page(request); });
 
   // Served pre-compressed from flash rather than the template processor, so it never competes
   // for heap and costs a third of the space the plain HTML would.
@@ -287,12 +285,7 @@ void init_webserver() {
     request->send(response);
   });
 
-  // Route for going to CAN logging web page
-  def_route_with_auth("/canlog", server, HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(request->beginResponse(200, "text/html", can_logger_processor()));
-  });
-
-  // Route for going to CAN replay web page
+  // Route for going to CAN tools web page
   def_route_with_auth("/canreplay", server, HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(request->beginResponse(200, "text/html", can_replay_processor()));
   });
@@ -349,12 +342,6 @@ void init_webserver() {
     });
   }
 
-  // Define the handler to stop can logging
-  server.on("/stop_can_logging", HTTP_GET, [](AsyncWebServerRequest* request) {
-    datalayer.system.info.can_logging_active = false;
-    request->send(200, "text/plain", "Logging stopped");
-  });
-
   // Define the handler to import can log
   server.on(
       "/import_can_log", HTTP_POST,
@@ -377,24 +364,8 @@ void init_webserver() {
       delete_can_log();
       request->send(200, "text/plain", "Log file deleted");
     });
-  } else
-#endif  // SDCARD
-  {
-    // Define the handler to export can log
-    server.on("/export_can_log", HTTP_GET, [](AsyncWebServerRequest* request) {
-      String logs = String(datalayer.system.info.logged_can_messages);
-      if (logs.length() == 0) {
-        logs = "No logs available.";
-      }
-
-      String filename = "canlog_" + format_ms_stamp(millis64()) + ".txt";
-
-      // Use request->send with dynamic headers
-      AsyncWebServerResponse* response = request->beginResponse(200, "text/plain", logs);
-      response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
-      request->send(response);
-    });
   }
+#endif  // SDCARD
 
 #ifdef SDCARD
   if (datalayer.system.info.SD_logging_active) {
@@ -430,9 +401,8 @@ void init_webserver() {
   }
 
   // Route for going to cellmonitor web page
-  def_route_with_auth("/cellmonitor", server, HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "text/html", index_html, cellmonitor_processor);
-  });
+  def_route_with_auth("/cellmonitor", server, HTTP_GET,
+                      [](AsyncWebServerRequest* request) { send_cellmonitor_page(request); });
 
   // Route for going to event log web page
   def_route_with_auth("/events", server, HTTP_GET, [](AsyncWebServerRequest* request) {
@@ -718,9 +688,6 @@ void init_webserver() {
   update_string_setting("/updateSocMax", [](String value) {
     datalayer.battery.settings.max_percentage = static_cast<uint16_t>(value.toFloat() * 100);
   });
-
-  // Route for editing CAN ID cutoff filter
-  update_int_setting("/set_can_id_cutoff", [](int value) { user_selected_CAN_ID_cutoff_filter = value; });
 
   // Route for pause/resume Battery emulator
   update_string("/pause", [](String value) { setBatteryPause(value == "true" || value == "1", false); });
@@ -1091,7 +1058,7 @@ String processor(const String& var) {
     // Start content block
     content += "<div style='background-color: #303E47; padding: 10px; margin-bottom: 10px; border-radius: 50px'>";
     content += "<div id='bxUpd' style='text-align:center'></div>";
-    content += "<h4>Software: ";
+    content += "<h4>";
 #if defined(GIT_TAG) && defined(GITHUB_ORG) && defined(GITHUB_REPO)
     content += "<a href='https://github.com/" GITHUB_ORG "/" GITHUB_REPO "/releases/tag/" GIT_TAG
                "' target='_blank' style='color:#fff'>" +
@@ -1106,26 +1073,24 @@ String processor(const String& var) {
 
 // Show hardware used:
 #ifdef HW_LILYGO
-    content += " Hardware: LilyGo T-CAN485";
+    content += " running on LilyGo T-CAN485";
 #endif  // HW_LILYGO
 #ifdef HW_LILYGO2CAN
-    content += " Hardware: LilyGo T_2CAN";
+    content += " running on LilyGo T_2CAN";
 #endif  // HW_LILYGO2CAN
 #ifdef HW_BECOM
-    content += " Hardware: BECom";
+    content += " running on BECom";
 #endif  // HW_BECOM
 #ifdef HW_STARK
-    content += " Hardware: Stark CMR Module";
+    content += " running on Stark CMR Module";
 #endif  // HW_STARK
 #ifdef HW_WAVESHARE
-    content += " Hardware: Waveshare ESP32-S3-RS485-CAN";
+    content += " running on Waveshare ESP32-S3-RS485-CAN";
 #endif  // HW_WAVESHARE
     if (datalayer.system.info.CPU_measurement_enabled) {
-      content += " @ " + String(datalayer.system.info.CPU_temperature, 1) + " &deg;C</h4>";
-    } else {
-      content += "</h4>";
+      content += " @ " + String(datalayer.system.info.CPU_temperature, 1) + " &deg;C";
     }
-    content += "<h4>Uptime: " + format_ms_string(millis64()) + "</h4>";
+    content += "</h4><h4>for " + format_ms_string(millis64()) + "</h4>";
     if (datalayer.system.info.performance_measurement_active) {
       content +=
           "<h4>Free heap: " + String(ESP.getFreeHeap()) + ", max alloc: " + String(ESP.getMaxAllocHeap()) + "</h4>";
@@ -1159,18 +1124,22 @@ String processor(const String& var) {
       content += "<h4>SSID: " + html_escape(ssid.c_str());
       if (wifi_connected()) {
         // Get and display the signal strength (RSSI) and channel
-        content += " RSSI:" + String(WiFi.RSSI()) + " dBm Ch: " + String(WiFi.channel());
+        content += " RSSI: " + String(WiFi.RSSI()) + " dBm Ch: " + String(WiFi.channel());
       }
       content += "</h4>";
     }
     // Reachability/hostname/IP reflect the active interface
     if (network_connected()) {
-      content += "<h4>Hostname: " + html_escape(active_hostname()) + "</h4>";
-      // MAC is the station address, which is also the source address of the ESPNow
-      // frames - handy when filling in the ESPNow receiver MAC list on another node.
-      String mac = WiFi.macAddress();
-      mac.toLowerCase();
-      content += "<h4>IP (WiFi): " + WiFi.localIP().toString() + " MAC: " + mac + "</h4>";
+      content += "<h4>" + html_escape(active_hostname()) + " [" + WiFi.localIP().toString();
+      if (espnow_enabled) {
+        // MAC is the station address, which is also the source address of the ESPNow
+        // frames - handy when filling in the ESPNow receiver MAC list on another node.
+        String mac = WiFi.macAddress();
+        mac.toLowerCase();
+        content += ' ';
+        content += mac;
+      }
+      content += "]</h4>";
     } else {
       // Reached only when no interface is up; keep this interface-agnostic
       content += "<h4>Network state: Disconnected</h4>";
@@ -1200,9 +1169,9 @@ String processor(const String& var) {
         content += "<h4 style='color: white;'>Battery protocol: ";
         content += datalayer.system.info.battery_protocol;
         if (battery3) {
-          content += " (Triple battery)";
+          content += " ③";
         } else if (battery2) {
-          content += " (Double battery)";
+          content += " ②";
         }
         if (datalayer.battery.info.chemistry == battery_chemistry_enum::LFP) {
           content += " (LFP)";
@@ -1366,30 +1335,6 @@ String processor(const String& var) {
                                                  datalayer.battery.settings.user_settings_limit_charge,
                                                  datalayer.battery.settings.user_settings_limit_discharge)) +
                  "</h4>";
-
-      content += "<h4>System status: ";
-      switch (datalayer.system.status.system_status) {
-        case ACTIVE:
-          content += String("OK");
-          break;
-        case UPDATING:
-          content += String("UPDATING");
-          break;
-        case FAULT:
-          content += String("FAULT ");
-          content += "<button onclick='Events()'>Inspect reason</button> ";
-          break;
-        case INACTIVE:
-          content += String("INACTIVE");
-          break;
-        case STANDBY:
-          content += String("STANDBY");
-          break;
-        default:
-          content += String("??");
-          break;
-      }
-      content += "</h4>";
 
       // Close the block
       content += "</div>";
@@ -1580,6 +1525,30 @@ String processor(const String& var) {
     // Start a new block with gray background color
     content += "<div style='background-color: #333; padding: 10px; margin-bottom: 10px;border-radius: 50px'>";
 
+    content += "<h4>System status: ";
+    switch (datalayer.system.status.system_status) {
+      case ACTIVE:
+        content += String("OK");
+        break;
+      case UPDATING:
+        content += String("UPDATING");
+        break;
+      case FAULT:
+        content += String("FAULT ");
+        content += "<button onclick='Events()'>Inspect reason</button> ";
+        break;
+      case INACTIVE:
+        content += String("INACTIVE");
+        break;
+      case STANDBY:
+        content += String("STANDBY");
+        break;
+      default:
+        content += String("Unknown");
+        break;
+    }
+    content += "</h4>";
+
     if (emulator_pause_status == NORMAL) {
       content += "<h4>Power status: " + String(get_emulator_pause_status().c_str()) + " </h4>";
     } else {
@@ -1588,31 +1557,33 @@ String processor(const String& var) {
 
     content += "<h4>Emulator allows contactor closing: ";
     if (datalayer.system.status.system_status == FAULT) {
-      content += "<span style='color: red;'>&#10005;</span>";
+      content += "<span style='color: red;'>✗</span>";
     } else {
-      content += "<span>&#10003;</span>";
+      content += "<span>✓</span>";
     }
-    content += " Inverter allows contactor closing: ";
+    content += "<br>Inverter allows contactor closing: ";
     if (datalayer.system.status.inverter_allows_contactor_closing == true) {
-      content += "<span>&#10003;</span></h4>";
+      content += "<span>✓</span></h4>";
     } else {
-      content += "<span style='color: red;'>&#10005;</span></h4>";
+      content += "<span style='color: red;'>✗</span></h4>";
     }
     if (battery2) {
-      content += "<h4>Secondary battery allowed to join ";
+      content += "<h4>2ⁿᵈ battery allowed to join: ";
       if (datalayer.system.status.battery2_allowed_contactor_closing == true) {
-        content += "<span>&#10003;</span>";
+        content += "<span>✓</span>";
       } else {
-        content += "<span style='color: red;'>&#10005; (voltage mismatch)</span>";
+        content += "<span style='color: red;'>✗<br>(voltage mismatch)</span>";
       }
+      content += "</h4>";
     }
     if (battery3) {
-      content += "<h4>Third battery allowed to join ";
+      content += "<h4>3ʳᵈ battery allowed to join: ";
       if (datalayer.system.status.battery3_allowed_contactor_closing == true) {
-        content += "<span>&#10003;</span>";
+        content += "<span>✓</span>";
       } else {
-        content += "<span style='color: red;'>&#10005; (voltage mismatch)</span>";
+        content += "<span style='color: red;'>✗<br>(voltage mismatch)</span>";
       }
+      content += "</h4>";
     }
 
     if (!contactor_control_enabled) {
@@ -1623,13 +1594,17 @@ String processor(const String& var) {
           "powering the contactors. Battery-Emulator will have limited amount of control over the contactors!</span>";
       content += "</div>";
     } else {  //contactor_control_enabled TRUE
-      content += "<div class=\"tooltip\"><h4>Contactors controlled by emulator, state: ";
+      content += "<div class=\"tooltip\"><h4>Contactors control — state: ";
       if (datalayer.system.status.contactors_engaged == 0) {
-        content += "<span style='color: red;'>OFF (DISCONNECTED)</span>";
+        content += "<span style='color: red;'>OFF<br>(DISCONNECTED)</span>";
       } else if (datalayer.system.status.contactors_engaged == 1) {
-        content += "<span style='color: green;'>ON</span>";
+        if (pwm_contactor_control) {
+          content += "<span style='color: green;'>Economized</span>";
+        } else {
+          content += "<span style='color: green;'>ON</span>";
+        }
       } else if (datalayer.system.status.contactors_engaged == 2) {
-        content += "<span style='color: red;'>OFF (FAULT)</span>";
+        content += "<span style='color: red;'>OFF<br>(FAULT)</span>";
         content += "<span class=\"tooltip-icon\"> [!]</span>";
         content +=
             "<span class=\"tooltiptext\">Emulator spent too much time in critical FAULT event. Investigate event "
@@ -1639,7 +1614,7 @@ String processor(const String& var) {
       }
       content += "</h4></div>";
       if (contactor_control_enabled_double_battery && battery2) {
-        content += "<h4>Secondary battery contactor, state: ";
+        content += "<h4>Contactor for 2ⁿᵈ — state: ";
         if (pwm_contactor_control) {
           if (datalayer.system.status.contactors_battery2_engaged) {
             content += "<span style='color: green;'>Economized</span>";
@@ -1658,7 +1633,7 @@ String processor(const String& var) {
         content += "</h4>";
       }
       if (contactor_control_enabled_triple_battery && battery3) {
-        content += "<h4>Third battery contactor, state: ";
+        content += "<h4>Contactor for 3ʳᵈ — state: ";
         if (pwm_contactor_control) {
           if (datalayer.system.status.contactors_battery3_engaged) {
             content += "<span style='color: green;'>Economized</span>";
@@ -1687,17 +1662,17 @@ String processor(const String& var) {
 
       content += "<h4>Charger HV Enabled: ";
       if (datalayer.charger.charger_HV_enabled) {
-        content += "<span>&#10003;</span>";
+        content += "<span>✓</span>";
       } else {
-        content += "<span style='color: red;'>&#10005;</span>";
+        content += "<span style='color: red;'>✗</span>";
       }
       content += "</h4>";
 
       content += "<h4>Charger Aux12v Enabled: ";
       if (datalayer.charger.charger_aux12V_enabled) {
-        content += "<span>&#10003;</span>";
+        content += "<span>✓</span>";
       } else {
-        content += "<span style='color: red;'>&#10005;</span>";
+        content += "<span style='color: red;'>✗</span>";
       }
       content += "</h4>";
 
@@ -1738,9 +1713,8 @@ String processor(const String& var) {
 
     content += "<button onclick='OTA()'>Perform OTA update</button> ";
     content += "<button onclick='Settings()'>Change Settings</button> ";
-    content += "<button onclick='Advanced()'>More Battery Info</button> ";
-    content += "<button onclick='CANlog()'>CAN logger</button> ";
-    content += "<button onclick='CANreplay()'>CAN replay</button> ";
+    content += "<button onclick='Advanced()'>More Battery/Cell Info</button> ";
+    content += "<button onclick='CANtools()'>CAN tools</button> ";
     if (datalayer.system.info.web_logging_active
 #ifdef SDCARD
         || datalayer.system.info.SD_logging_active
@@ -1748,7 +1722,6 @@ String processor(const String& var) {
     ) {
       content += "<button onclick='Log()'>Log</button> ";
     }
-    content += "<button onclick='Cellmon()'>Cellmonitor</button> ";
     content += "<button onclick='Events()'>Events</button> ";
     content += "<button onclick='askReboot()'>Reboot Emulator</button> ";
     if (webserver_auth)
@@ -1770,11 +1743,9 @@ String processor(const String& var) {
           ">Close Contactors</button><br/>";
     content += "<script>";
     content += "function OTA() { window.location.href = '/update'; }";
-    content += "function Cellmon() { window.location.href = '/cellmonitor'; }";
     content += "function Settings() { window.location.href = '/settings'; }";
     content += "function Advanced() { window.location.href = '/advanced'; }";
-    content += "function CANlog() { window.location.href = '/canlog'; }";
-    content += "function CANreplay() { window.location.href = '/canreplay'; }";
+    content += "function CANtools() { window.location.href = '/canreplay'; }";
     content += "function Log() { window.location.href = '/log'; }";
     content += "function Events() { window.location.href = '/events'; }";
     if (webserver_auth) {
