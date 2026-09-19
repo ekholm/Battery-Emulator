@@ -66,6 +66,28 @@ Stacked on `can-replay-dlc-bound`: this branch contains that fix, and the two to
 
 ---
 
+**CAN: two drivers that disagree on an interface's bitrate fail closed at boot, and say so**
+Branch [`can-speed-conflict`](https://github.com/ekholm/Battery-Emulator/tree/can-speed-conflict) @ `a0b582d0` · on upstream `main` @ `72516786` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:can-speed-conflict)
+An interface's bitrate is owned by whichever driver registered first, and setup runs charger, inverter, battery, shunt - so a 250 kbit/s battery sharing an interface with a charger or a 500 kbit/s inverter comes up on a 500 kbit/s bus, deaf, with nothing logged and no event. It presents as "battery not detected", and it is reachable from the settings page alone. The registrations for an interface are now compared before it starts: a disagreement leaves that interface stopped and raises `EVENT_CAN_SPEED_CONFLICT` naming both drivers and both speeds, while the other interfaces still come up. Raised in [discussion #2871](https://github.com/dalathegreat/Battery-Emulator/discussions/2871).
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The bitrate a CAN interface comes up at is decided by whichever driver registered first. Setup runs charger, inverter, battery, shunt, so a charger or a 500 kbit/s inverter sharing an interface with a 250 kbit/s battery brings the bus up at 500 kbit/s. The battery never hears a frame, nothing is logged, and no event fires. It presents as "battery not detected".
+
+Six upstream drivers need 250 kbit/s (Akasol, CellPower, Relion LV, RJXZS, Pylon at its 250 setting, Sungrow inverter), and the charger and shunt can only ask for 500.
+
+This change makes the interface own its bitrate. Each registration carries the driver's name; before an interface is started, its registrations are compared. If they agree, the interface starts at that speed. If they disagree, that interface is not started and `EVENT_CAN_SPEED_CONFLICT` names both drivers and both speeds, in the same shape `EVENT_GPIO_CONFLICT` already uses for pins. Other interfaces still start. A runtime speed change on a shared interface is refused the same way when the peer disagrees; a driver alone on its interface is unaffected.
+
+No driver file changes: the name is supplied by the four base classes that register.
+
+The two CAN-FD interface keys share one controller, so they are also compared with each other. Bus-off recovery re-initialises at the speed already in force and is not treated as a speed change.
+
+Tests: eighteen host cases in `test/can_speed_conflict_tests.cpp` - agreement, disagreement in second and third position, the charger-first shape, per-interface isolation, the runtime refusal and its sole-registrant exemption, the CAN-FD key pair, and recovery after a runtime speed switch. Four of them scan `comm_can.cpp` source, because that file cannot be linked into the host binary: three check that `init_CAN()` and `change_can_speed()` actually consult the policy, and one that bus-off recovery does not. Builds on lilygo_330, stark_330 and lilygo_2CAN_330. Not run on hardware: the decision is a comparison of registered bitrates.
+</details>
+
+---
+
 **Builds depend on which machine made them: 24 Arduino-core `__FILE__` strings carry the builder's PlatformIO path**
 Branch [`file-prefix-map`](https://github.com/ekholm/Battery-Emulator/tree/file-prefix-map) @ `a25cbf34` · on upstream `main` @ `c011e976` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:file-prefix-map) · on upstream `main` at `c011e9767` (2026-09-11)
 The Arduino core's `log_e()`/assert sites put `__FILE__` in flash with the absolute package path it was compiled from, so the same commit built by two people gives different binaries. Two `-ffile-prefix-map` lines in the shared `[env]` flags remove all 24 strings, −1,312 B of `.flash.rodata` on both measured envs (the exact figure is 24 × the builder's core-path length minus 8, so about 1.3 kB on a default install), with `.text`/`.iram0`/`.dram0` byte-identical. The map is narrowed to the Arduino package on purpose: a wider one also matches the IDF tree, outranks IDF's own `/IDF` macro map, and grows the image by 1,648 B. Build flags only, so the host test suite does not see it; built and measured on `lilygo_330` and `esp32devkit_330`.
