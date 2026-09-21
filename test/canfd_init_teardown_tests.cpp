@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 
 #include "source_scan.h"
 
@@ -78,9 +79,9 @@ TEST_P(CanFdInitTeardown, TheFailurePathTearsTheDriverDownBeforeClearingIt) {
   ASSERT_NE(at_teardown, std::string::npos)
       << "`" << clear << "` with no `" << teardown << "` before it: begin() can return non-zero "
       << "with the nINT handler still attached, and the handler reads this global";
-  EXPECT_LT(at_teardown, at_clear)
-      << "`" << teardown << "` must come BEFORE `" << clear << "` - after it, the teardown is "
-      << "itself a null dereference";
+  EXPECT_LT(at_teardown, at_clear) << "`" << teardown << "` must come BEFORE `" << clear
+                                   << "` - after it, the teardown is "
+                                   << "itself a null dereference";
 }
 
 // begin_canfd_2() is a copy of begin_canfd(). The copy that tears down its
@@ -169,6 +170,105 @@ TEST_F(Acan2517FdInstallBlock, ThePollingTaskIsStartedWithoutRegardToTheErrorCod
   EXPECT_EQ(block.rfind("errorCode"), err)
       << "errorCode is mentioned again after the requested-mode timeout - re-derive whether the "
       << "task start is now guarded before trusting this reason for calling end()";
+}
+
+/* The interrupt bracket the teardown runs inside, and what keeps it empty.
+ *
+ * `end()` runs its WHOLE body between the library's `turnOffInterrupts()` and
+ * `turnOnInterrupts()`, and that body contains
+ * `vTaskDelete(mESP32TaskHandle)`. On ESP32 those two wrappers expand to
+ * `taskDISABLE_INTERRUPTS()` / `taskENABLE_INTERRUPTS()` UNLESS
+ * `DISABLEMCP2517FDCOMPAT` is defined - the library's own MCP2517FD
+ * compatibility switch, offered in its comment as a performance option and
+ * defined unconditionally by `ACAN2517FD.h` today. So the failure path above
+ * deletes a FreeRTOS task with interrupts on, one `#define` away from deleting
+ * it with interrupts masked.
+ *
+ * comm_can.cpp refuses to compile without that define, and every firmware
+ * build evaluates that refusal - a stronger instrument than any case here,
+ * and the reason none of these re-asserts that the define is present. What a
+ * `#error` cannot see is the two things below: itself being deleted, and a
+ * library bump that keeps the define while dropping the `#ifndef` from the
+ * wrappers, which re-arms the bracket with the guard still green.
+ */
+class CompatSwitchBracket : public ::testing::Test {
+ protected:
+  // Both wrappers are read, so a bump that guards only one is not a pass:
+  // an unguarded turnOffInterrupts() masks and its partner never restores.
+  std::string wrapper(const std::string& name) {
+    const std::string src = read_source(kAcan2517);
+    const std::string signature = "static inline void " + name;
+    EXPECT_EQ(src.find(signature), src.rfind(signature))
+        << "`" << signature << "` is no longer unique - this test would read the wrong one";
+    return function_body(src, signature);
+  }
+};
+
+// The consumer's guard, which nothing in a build can assert: a `#error` is
+// invisible the moment somebody deletes it, and deleting it is tempting - four
+// lines that read like scaffolding, and they fire on any tree where the
+// vendored header is not what this include resolves to (a host build putting
+// an emulated ACAN2517FD in front of the real one, say).
+TEST_F(CompatSwitchBracket, TheConsumerRefusesToBuildWithoutTheCompatibilitySwitch) {
+  const std::string src = read_source(kCommCan);
+
+  const size_t guard = src.find("#ifndef DISABLEMCP2517FDCOMPAT");
+  ASSERT_NE(guard, std::string::npos)
+      << "comm_can.cpp no longer refuses to build without DISABLEMCP2517FDCOMPAT. It calls "
+      << "ACAN2517FD::end() from the CAN-FD init-failure path, and without that define end() "
+      << "runs vTaskDelete() with interrupts masked";
+
+  const size_t error = src.find("#error", guard);
+  const size_t endif = src.find("#endif", guard);
+  ASSERT_NE(error, std::string::npos) << "the guard no longer stops the build";
+  ASSERT_NE(endif, std::string::npos) << "the guard is unterminated";
+  EXPECT_LT(error, endif) << "the #error moved out of the #ifndef it belongs to - the guard now "
+                          << "either always fires or never does";
+}
+
+// The blind spot the guard cannot cover. It watches the MACRO; the hazard is
+// the BRACKET. A bump that keeps the define and drops the #ifndef from these
+// two wrappers re-arms the masked window with every build staying green,
+// because the define the #error looks for is still there.
+TEST_F(CompatSwitchBracket, TheLibraryWrappersStillHonourTheCompatibilitySwitch) {
+  const std::pair<const char*, const char*> kWrappers[] = {
+      {"turnOffInterrupts", "taskDISABLE_INTERRUPTS"},
+      {"turnOnInterrupts", "taskENABLE_INTERRUPTS"},
+  };
+
+  for (const auto& w : kWrappers) {
+    const std::string body = wrapper(w.first);
+    const size_t gate = body.find("#ifndef DISABLEMCP2517FDCOMPAT");
+    const size_t mask = body.find(w.second);
+
+    ASSERT_NE(mask, std::string::npos) << w.first << " no longer calls " << w.second << " at all - re-derive whether "
+                                       << "comm_can.cpp still needs its guard before keeping it";
+    ASSERT_NE(gate, std::string::npos) << w.first
+                                       << " no longer consults DISABLEMCP2517FDCOMPAT. comm_can.cpp's #error only "
+                                       << "watches the define, so this bump re-arms the masked window silently";
+    EXPECT_LT(gate, mask) << w.first << " masks before it consults the switch";
+  }
+}
+
+// And the hazard itself, which is what makes the guard worth having. If a bump
+// moves the task delete out of the bracket, the guard becomes noise and its
+// #error message becomes false - a good outcome, and a silent one.
+TEST_F(CompatSwitchBracket, TheTeardownStillDeletesTheTaskInsideThatBracket) {
+  const std::string body = function_body(read_source(kAcan2517), "bool ACAN2517FD::end (void) {");
+
+  const size_t off = body.find("turnOffInterrupts ()");
+  const size_t del = body.find("vTaskDelete (mESP32TaskHandle)");
+  const size_t on = body.find("turnOnInterrupts ()");
+
+  ASSERT_NE(off, std::string::npos) << "end() no longer opens with turnOffInterrupts()";
+  ASSERT_NE(on, std::string::npos) << "end() no longer closes with turnOnInterrupts()";
+  ASSERT_NE(del, std::string::npos)
+      << "end() no longer deletes the driver task - comm_can.cpp's guard and the message it "
+      << "carries both describe a hazard that has moved";
+  EXPECT_LT(off, del);
+  EXPECT_LT(del, on) << "the task delete left the interrupt bracket - re-derive whether the "
+                     << "compatibility switch still matters to comm_can.cpp before keeping "
+                     << "its #error";
 }
 
 }  // namespace
