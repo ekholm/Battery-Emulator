@@ -1,6 +1,10 @@
 #include "comm_can.h"
 #include "../../lib/mcp2515_lite/mcp2515_lite.h"
 #include "../../lib/pierremolinaro-ACAN2517FD/ACAN2517FD.h"
+#ifndef DISABLEMCP2517FDCOMPAT
+#error \
+    "MCP2517FD compatibility mode turns the library's turnOffInterrupts()/turnOnInterrupts() into a real interrupt mask, and this file calls ACAN2517FD::end(), whose body deletes the driver task between them. end() is not the only site: the same pair brackets the library's transmit, receive, register-access and reset paths."
+#endif
 #include "../../lib/pierremolinaro-acan-esp32/ACAN_ESP32.h"
 #include "CanReceiver.h"
 #include "comm_can.h"
