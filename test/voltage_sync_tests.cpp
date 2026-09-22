@@ -14,6 +14,13 @@ class VoltageSyncTest : public ::testing::Test {
     datalayer.battery.status.voltage_dV = 3700;   // 370.0V
     datalayer.battery2.status.voltage_dV = 3700;  // 370.0V
     datalayer.battery3.status.voltage_dV = 3700;  // 370.0V
+    // The startup grace corroborates the 3700 dV sentinel against these, which
+    // carry their own 3700 mV init default. They are set explicitly because the
+    // datalayer is global: leaving them to whatever the previous case wrote
+    // would let cross-test leakage decide whether the grace holds.
+    datalayer.battery.status.cell_max_voltage_mV = 3700;
+    datalayer.battery2.status.cell_max_voltage_mV = 3700;
+    datalayer.battery3.status.cell_max_voltage_mV = 3700;
     datalayer.system.status.system_status = ACTIVE;
     datalayer.system.status.battery2_allowed_contactor_closing = false;
     datalayer.system.status.battery3_allowed_contactor_closing = false;
@@ -143,4 +150,45 @@ TEST_F(VoltageSyncTest, Battery2DisengagesWhenMainSitsAtTheSentinelVoltage) {
   check_parallel_battery_safety(2);
   EXPECT_FALSE(datalayer.system.status.battery2_allowed_contactor_closing)
       << "A pack sitting at exactly 370.0 V must not suspend the drift check";
+}
+
+/* The latch lifts on the first pass where neither pack reads the sentinel - but
+ * a pack that BOOTS at exactly 370.0 V never has such a pass, so the grace would
+ * hold forever and the check would never start. The dV sentinel is corroborated
+ * against the cell voltages to tell the two apart: still at their own 3700 mV
+ * default means nothing has been decoded, off it means this is a real pack.
+ * These two cases are the corroboration's own contract; without them the branch
+ * above is reachable but unpinned, and collapsing it back to a bare dV test
+ * fails neither the latch cases nor the drift cases. */
+TEST_F(VoltageSyncTest, APackBootedAtExactlySentinelVoltageStillGetsChecked) {
+  // Never off the sentinel in dV, but the cells have been decoded: a real pack
+  // sitting at 370.0 V, not an undecoded one.
+  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.battery2.status.voltage_dV = 3500;  // 20 V apart, way over 1.5 V
+  datalayer.battery.status.cell_max_voltage_mV = 4050;
+  datalayer.battery2.status.cell_max_voltage_mV = 3890;
+  // Start from ALLOWED: the fixture's default is false, so a check that never
+  // runs would satisfy the expectation below without doing anything. This is
+  // the difference between pinning the behaviour and pinning the fixture.
+  datalayer.system.status.battery2_allowed_contactor_closing = true;
+
+  for (int i = 0; i < 11; i++) {
+    check_parallel_battery_safety(2);
+  }
+  EXPECT_FALSE(datalayer.system.status.battery2_allowed_contactor_closing)
+      << "A pack that boots at exactly 370.0 V must not sit in the startup grace forever";
+}
+
+TEST_F(VoltageSyncTest, TheGraceStillHoldsWhileTheCellVoltagesAreUndecoded) {
+  // Both sentinels still at their init defaults: nothing has been decoded, so
+  // the drift between these two numbers is not yet evidence of anything.
+  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.battery2.status.voltage_dV = 3500;
+  datalayer.system.status.battery2_allowed_contactor_closing = true;
+
+  for (int i = 0; i < 11; i++) {
+    check_parallel_battery_safety(2);
+  }
+  EXPECT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing)
+      << "An undecoded pack must stay in the startup grace, not be judged on init defaults";
 }

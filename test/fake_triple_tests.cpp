@@ -26,7 +26,8 @@
 
 namespace {
 
-constexpr uint16_t SENTINEL_DV = 3700;  // Datalayer init default, and 370.0 V
+constexpr uint16_t SENTINEL_DV = 3700;       // Datalayer init default, and 370.0 V
+constexpr uint16_t SENTINEL_CELL_MV = 3700;  // The cell-voltage init default the grace corroborates against
 
 bool voltage_difference_active(EVENTS_ENUM_TYPE event) {
   const EVENTS_STRUCT_TYPE* e = get_event_pointer(event);
@@ -43,6 +44,13 @@ class FakeTripleTest : public ::testing::Test {
     datalayer.battery.status.voltage_dV = SENTINEL_DV;
     datalayer.battery2.status.voltage_dV = SENTINEL_DV;
     datalayer.battery3.status.voltage_dV = SENTINEL_DV;
+    // The startup grace corroborates the dV sentinel against the cell voltages,
+    // which have their own 3700 mV init default. Set explicitly: the datalayer
+    // is global, so leaving these to the previous case would let cross-test
+    // leakage decide whether the grace holds.
+    datalayer.battery.status.cell_max_voltage_mV = SENTINEL_CELL_MV;
+    datalayer.battery2.status.cell_max_voltage_mV = SENTINEL_CELL_MV;
+    datalayer.battery3.status.cell_max_voltage_mV = SENTINEL_CELL_MV;
     datalayer.system.status.system_status = ACTIVE;
     datalayer.system.status.battery2_allowed_contactor_closing = false;
     datalayer.system.status.battery3_allowed_contactor_closing = false;

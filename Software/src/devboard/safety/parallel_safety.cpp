@@ -54,7 +54,15 @@ static void check_parallel_join(const DATALAYER_BATTERY_TYPE& joiner_datalayer, 
      sentinel, the check runs from then on. */
   if (!voltages_seen) {
     if (datalayer.battery.status.voltage_dV == 3700 || joiner_datalayer.status.voltage_dV == 3700) {
-      return;  // Startup grace: either pack may still hold the init default
+      /* A pack reading exactly 3700 dV is ambiguous on its own, so corroborate
+         with the cell voltages, which carry their own 3700 mV init default:
+         still at it means nothing has been decoded and the grace stands; off it
+         means this is a real 370.0 V pack and the check may start now rather
+         than waiting for the pack to move. Upstream reaches the same
+         conclusion the same way in a5bd6eb37. */
+      if (datalayer.battery.status.cell_max_voltage_mV == 3700 || joiner_datalayer.status.cell_max_voltage_mV == 3700) {
+        return;  // Startup grace: either pack may still hold the init default
+      }
     }
     voltages_seen = true;
   }
