@@ -45,6 +45,7 @@ class GrowattLvBattery : public CanBattery {
   void transmit_can(unsigned long currentMillis) override;
 
   static constexpr const char* Name = "Growatt LV (GBLI-series) battery via CAN, 500kbit/s";
+  static constexpr BatteryType TYPE = BatteryType::GrowattLv;
 
  private:
   // GBLI6532 datasheet: 5kW / 104.2A max charge/discharge per pack. A real

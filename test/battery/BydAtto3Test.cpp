@@ -86,8 +86,12 @@ CAN_frame contactor_feedback_frame(uint8_t mode) {
 
 TEST(BydAtto3BalanceApiTests, RejectsUnconfiguredBatteryIndices) {
   user_selected_battery_type = BatteryType::BydAtto3;
-  battery = new BydAttoBattery();
-  battery2 = new BydAttoBattery();
+  // Kept as the concrete type: the Battery base's destructor is protected, so the
+  // instances are deleted through what they are rather than through the globals.
+  BydAttoBattery* first = new BydAttoBattery();
+  BydAttoBattery* second = new BydAttoBattery();
+  battery = first;
+  battery2 = second;
 
   EXPECT_TRUE(byd_cell_balance_times_available(0));
   EXPECT_FALSE(byd_cell_balance_times_available(1));
@@ -96,10 +100,10 @@ TEST(BydAtto3BalanceApiTests, RejectsUnconfiguredBatteryIndices) {
   user_selected_second_battery = true;
   EXPECT_TRUE(byd_cell_balance_times_available(1));
 
-  delete battery;
   battery = nullptr;
-  delete battery2;
   battery2 = nullptr;
+  delete first;
+  delete second;
   // These are process-wide globals; leaving them set would leak into every later test.
   user_selected_second_battery = false;
   user_selected_battery_type = BatteryType::None;
