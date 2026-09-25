@@ -394,6 +394,8 @@ class BydAttoBattery : public CanBattery {
   unsigned long lastCurrentSampleMillis = 0;
   unsigned long lastContactorFeedbackMillis = 0;  // 0 = no 0x344 received yet
   bool closeConfirmPending = false;               // Close awaiting 0x344 confirmation
+  bool closeRetryArmed = false;                   // Close gave up on a silent BMS; retry when it speaks
+  unsigned long closeRetryArmedMillis = 0;        // Only feedback NEWER than the give-up may retry
   bool openTimeoutEventSent = false;              // Open-delay warning fired once per attempt
   bool requestContactorOpen = false;
   bool requestContactorClose = false;

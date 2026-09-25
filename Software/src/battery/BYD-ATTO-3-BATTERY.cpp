@@ -1335,6 +1335,19 @@ void BydAttoBattery::handle_contactor_control(unsigned long currentMillis) {
     }
   }
 
+  // The close request is edge-triggered on permission, so a close that timed out against a
+  // still-silent BMS (emulator powered before the battery) used to consume the only edge:
+  // the FSM fell back to standby and nothing ever asked again until a reboot. Retry when the
+  // BMS has SPOKEN since the give-up - only feedback strictly newer than the fallback counts
+  // (a frame in the give-up's own millisecond was handled before it), so a dead bus cannot
+  // loop this, and each failed retry re-arms against strictly newer feedback. Any close that
+  // starts consumes the arm, so a stale one can never re-close contactors opened on purpose.
+  if (closeRetryArmed && contactorState == CONTACTORS_STANDBY && contactorsAllowedClosed &&
+      (int32_t)(lastContactorFeedbackMillis - closeRetryArmedMillis) > 0 && lastContactorFeedbackMillis != 0) {
+    closeRetryArmed = false;
+    requestContactorClose = true;
+  }
+
   if (requestContactorOpen) {
     requestContactorOpen = false;
     closeConfirmPending = false;
@@ -1377,6 +1390,8 @@ void BydAttoBattery::handle_contactor_control(unsigned long currentMillis) {
                contactorState == CONTACTORS_OPEN_SETTLE || contactorState == CONTACTORS_BOOT_ESTOP) {
       // Car re-closes straight from the active-ack frame, so allow close from any open state
       set_event(EVENT_BYD_CONTACTOR_CLOSE_REQ, 0, battery_index);
+      // This IS the close a pending retry was waiting to make, so it consumes the arm
+      closeRetryArmed = false;
       set_12D_payload(0xA0, 0x28, 0x02, 0xA0, 0x0C, 0x71);  // Close/active pattern
       counter_50ms = 0;                                     // Re-run the drive-ready transition
       contactorState = CONTACTORS_CLOSING;
@@ -1488,6 +1503,10 @@ void BydAttoBattery::handle_contactor_control(unsigned long currentMillis) {
       set_12D_payload(0x50, 0x14, 0x02, 0x10, 0x04, 0x31);  // Standby pattern
       contactorState = CONTACTORS_STANDBY;
       closeConfirmPending = false;
+      // A BMS that was simply not powered yet gets another close when it appears (see the
+      // retry above); permission is still granted or we would be on the open path instead.
+      closeRetryArmed = true;
+      closeRetryArmedMillis = currentMillis;
     }
   }
 }

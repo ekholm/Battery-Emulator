@@ -631,3 +631,226 @@ TEST(BydAtto3PrechargeTests, WaitsForALateBmsResponseBeforeRamping) {
 
   delete battery;
 }
+
+// The close request is edge-triggered on permission. Before the fix, a close that timed out
+// against a still-silent BMS (Battery-Emulator powered before the battery - the wiki's
+// documented startup-order restriction) consumed the only edge: the FSM fell back to standby
+// and no code path ever requested close again until the emulator was rebooted. The retry
+// fires only on 0x344 feedback NEWER than the give-up, so a dead bus cannot loop it.
+TEST(BydAtto3Tests, LateBmsGetsAnotherCloseAfterTheConfirmTimeoutGaveUp) {
+  reset_byd_state();
+  set_millis64(1000);
+  auto battery = new BydAttoBattery();
+  battery->setup();
+
+  // Boot with the inverter not yet granting permission: held open.
+  datalayer.system.info.equipment_stop_active = false;
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+  datalayer.system.status.system_status = ACTIVE;
+  battery->transmit_can(millis());
+  battery->update_values();
+  ASSERT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 7 /*CONTACTORS_BOOT_ESTOP*/);
+
+  // Permission arrives (the one edge); the battery is still powered off - no 0x344 ever.
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  set_millis64(2000);
+  battery->transmit_can(millis());
+  battery->update_values();
+  ASSERT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 0 /*CONTACTORS_CLOSING*/);
+
+  // The confirm window expires against the silent BMS: fall back to standby.
+  set_millis64(2000 + 15001);
+  battery->transmit_can(millis());
+  battery->update_values();
+  ASSERT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 4 /*CONTACTORS_STANDBY*/);
+
+  // The battery finally powers on and speaks: 0x344, contactors open (bit7 clear).
+  set_millis64(2000 + 20000);
+  battery->handle_incoming_can_frame(byd_frame(0x344, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}));
+  battery->transmit_can(millis());
+  // The retry consumes the request on the NEXT tick (requests are processed at entry).
+  set_millis64(2000 + 20050);
+  battery->transmit_can(millis());
+  battery->update_values();
+  EXPECT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 0 /*CONTACTORS_CLOSING*/)
+      << "a late BMS must get another close attempt without an emulator reboot";
+
+  set_millis64(0);
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+}
+
+// The retry's sharp refusal, pinned. Stale feedback (0x344 only BEFORE the
+// give-up) must not fire the retry - "strictly newer" is what keeps a
+// dead-since bus from looping the close forever. That any other close consumes
+// the arm is pinned by the two "...opened on purpose" tests below.
+TEST(BydAtto3Tests, StaleFeedbackFromBeforeTheGiveUpDoesNotRetry) {
+  reset_byd_state();
+  set_millis64(1000);
+  auto battery = new BydAttoBattery();
+  battery->setup();
+
+  datalayer.system.info.equipment_stop_active = false;
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+  datalayer.system.status.system_status = ACTIVE;
+  battery->transmit_can(millis());
+  battery->update_values();
+
+  // The BMS speaks BEFORE the close attempt (stale feedback exists)...
+  battery->handle_incoming_can_frame(byd_frame(0x344, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}));
+
+  // ...then permission arrives and the confirm window expires with no NEW frame.
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  set_millis64(2000);
+  battery->transmit_can(millis());
+  battery->update_values();
+  set_millis64(2000 + 15001);
+  battery->transmit_can(millis());
+  battery->update_values();
+  ASSERT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 4 /*CONTACTORS_STANDBY*/);
+
+  // Dead bus from here on: ticks pass, the stale pre-give-up frame must not fire the retry.
+  set_millis64(2000 + 30000);
+  battery->transmit_can(millis());
+  battery->update_values();
+  set_millis64(2000 + 30050);
+  battery->transmit_can(millis());
+  battery->update_values();
+  EXPECT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 4 /*CONTACTORS_STANDBY*/)
+      << "feedback OLDER than the give-up fired the retry - a dead bus can now loop the close";
+
+  set_millis64(0);
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+}
+
+namespace {
+
+// Drives the 50 ms contactor tick from `now` to `until`, feeding 0x344 as a live
+// pack would: MAIN_CLOSED while the FSM is closing or holding closed, open once it
+// has been asked to open. Returns the final state.
+uint8_t tick_pack(BydAttoBattery* battery, unsigned long& now, unsigned long until, bool bms_alive) {
+  while (now < until) {
+    now += 50;
+    set_millis64(now);
+    if (bms_alive) {
+      const uint8_t s = datalayer_extended.bydAtto3.contactor_control_state;
+      const bool closed =
+          s == 0 /*CLOSING*/ || s == 1 /*ACTIVE*/ || s == 2 /*AWAIT_ZERO_CURRENT*/ || s == 3 /*OPENING*/;
+      battery->handle_incoming_can_frame(contactor_feedback_frame(closed ? 0x80 : 0x00));
+    }
+    battery->transmit_can(millis());
+    battery->update_values();
+  }
+  return datalayer_extended.bydAtto3.contactor_control_state;
+}
+
+// Boot held open, one permission edge, and a confirm window that expires against a
+// silent BMS: the retry is armed and the FSM sits in standby.
+BydAttoBattery* give_up_on_a_silent_bms(unsigned long& now) {
+  reset_byd_state();
+  now = 1000;
+  set_millis64(now);
+  auto battery = new BydAttoBattery();
+  battery->setup();
+  datalayer.system.info.equipment_stop_active = false;
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+  datalayer.system.status.system_status = ACTIVE;
+  battery->transmit_can(millis());
+  battery->update_values();
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  tick_pack(battery, now, 2000, false);
+  EXPECT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 0 /*CONTACTORS_CLOSING*/);
+  EXPECT_EQ(tick_pack(battery, now, 2000 + 15100, false), 4 /*CONTACTORS_STANDBY*/);
+  return battery;
+}
+
+// Opens the pack on purpose from ACTIVE and runs the open sequence to standby.
+void open_on_purpose(BydAttoBattery* battery, unsigned long& now) {
+  battery->request_open_contactors();
+  const unsigned long until = now + 20000;
+  while (now < until && tick_pack(battery, now, now + 50, true) != 4 /*CONTACTORS_STANDBY*/) {}
+  ASSERT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 4 /*CONTACTORS_STANDBY*/);
+}
+
+}  // namespace
+
+// The retry is ONE pending close for the give-up. A permission withdraw/re-grant is
+// a fresh close of its own, so the old arm must not outlive it: otherwise contactors
+// that are later opened ON PURPOSE (permission still granted) re-close on the next
+// 0x344, which is the one thing an operator's open must never do.
+TEST(BydAtto3Tests, AWithdrawnPermissionDisarmsTheRetryForGood) {
+  unsigned long now;
+  auto battery = give_up_on_a_silent_bms(now);
+
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+  tick_pack(battery, now, now + 100, false);
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  // The BMS stays silent until the new close is under way, so it is THAT close its
+  // first frames confirm - in standby they would fire the retry and spend the arm.
+  ASSERT_EQ(tick_pack(battery, now, now + 100, false), 0 /*CONTACTORS_CLOSING*/);
+  ASSERT_EQ(tick_pack(battery, now, now + 3000, true), 1 /*CONTACTORS_ACTIVE*/);
+
+  open_on_purpose(battery, now);
+  EXPECT_EQ(tick_pack(battery, now, now + 2000, true), 4 /*CONTACTORS_STANDBY*/)
+      << "a retry armed before the permission cycle re-closed contactors opened on purpose";
+
+  delete battery;
+  set_millis64(0);
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+}
+
+// Same hazard without any permission change: a manual close while the retry is
+// armed is the close the retry was waiting to make, so it consumes the arm.
+TEST(BydAtto3Tests, AManualCloseConsumesThePendingRetry) {
+  unsigned long now;
+  auto battery = give_up_on_a_silent_bms(now);
+
+  battery->request_close_contactors();
+  ASSERT_EQ(tick_pack(battery, now, now + 100, false), 0 /*CONTACTORS_CLOSING*/);
+  ASSERT_EQ(tick_pack(battery, now, now + 3000, true), 1 /*CONTACTORS_ACTIVE*/);
+
+  open_on_purpose(battery, now);
+  EXPECT_EQ(tick_pack(battery, now, now + 2000, true), 4 /*CONTACTORS_STANDBY*/)
+      << "the retry survived a manual close and re-closed contactors opened on purpose";
+
+  delete battery;
+  set_millis64(0);
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+}
+
+// "Only feedback NEWER than the give-up counts" is strict: a frame stamped in the
+// very millisecond of the give-up arrived before it (frames are handled before the
+// tick) and must not fire the retry. A live BMS repeats 0x344, so strictness costs
+// at most one frame period.
+TEST(BydAtto3Tests, FeedbackFromTheGiveUpMillisecondDoesNotRetry) {
+  reset_byd_state();
+  unsigned long now = 1000;
+  set_millis64(now);
+  auto battery = new BydAttoBattery();
+  battery->setup();
+  datalayer.system.info.equipment_stop_active = false;
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+  datalayer.system.status.system_status = ACTIVE;
+  battery->transmit_can(millis());
+  battery->update_values();
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  ASSERT_EQ(tick_pack(battery, now, now + 50, false), 0 /*CONTACTORS_CLOSING*/);
+  const unsigned long close_started = now;
+  ASSERT_EQ(tick_pack(battery, now, close_started + 14950, false), 0 /*CONTACTORS_CLOSING*/);
+
+  // The give-up tick (the confirm window's last millisecond): one open-reporting frame
+  // lands in that same millisecond, first.
+  now += 50;
+  ASSERT_EQ(now, close_started + 15000);
+  set_millis64(now);
+  battery->handle_incoming_can_frame(contactor_feedback_frame(0x00));
+  battery->transmit_can(millis());
+  battery->update_values();
+  ASSERT_EQ(datalayer_extended.bydAtto3.contactor_control_state, 4 /*CONTACTORS_STANDBY*/);
+
+  EXPECT_EQ(tick_pack(battery, now, now + 1000, false), 4 /*CONTACTORS_STANDBY*/)
+      << "feedback from the give-up's own millisecond counted as newer than the give-up";
+
+  delete battery;
+  set_millis64(0);
+  datalayer.system.status.inverter_allows_contactor_closing = false;
+}
