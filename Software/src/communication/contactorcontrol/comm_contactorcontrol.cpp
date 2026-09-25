@@ -248,7 +248,13 @@ void handle_contactors() {
       set_indicator_led(IndicatorLed::CONTACTOR_POS, false);
       datalayer.system.status.contactors_engaged = 0;
 
-      if (datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active) {
+      // The battery's veto is part of this gate. Every driver with a handshake
+      // or a pack-side permission (MEB/MQB, BMW iX, Atto 3, LEAF, the Volvos,
+      // Growatt LV, CHAdeMO, ...) holds the flag false until its side grants.
+      // The gate lost it in 1645c5b3, after which contactors closed on inverter
+      // say-so alone and every one of those vetoes was ignored.
+      if (datalayer.system.status.battery_allows_contactor_closing &&
+          datalayer.system.status.inverter_allows_contactor_closing && !datalayer.system.info.equipment_stop_active) {
         contactorStatus = START_PRECHARGE;
       }
     }
