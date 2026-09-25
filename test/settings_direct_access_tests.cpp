@@ -78,7 +78,11 @@ size_t direct_accesses(const fs::path& file) {
   const std::string stripped = strip_comments(source);
 
   size_t count = 0;
-  for (const char* verb : {"settings.get", "settings.save", "prefs.get", "prefs.put"}) {
+  // Deleting or probing a key by name is as key-addressed as reading one - the
+  // remove/exists verbs are in the list so the first future call site is caught,
+  // not grandfathered (zero uses outside the store when they were added).
+  for (const char* verb : {"settings.get", "settings.save", "settings.remove", "settings.settingExists", "prefs.get",
+                           "prefs.put", "prefs.remove", "prefs.isKey"}) {
     count += count_of(stripped, verb);
   }
   count += count_of(stripped, "Preferences ");  // a raw handle of one's own
