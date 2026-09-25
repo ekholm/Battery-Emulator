@@ -97,7 +97,7 @@ Tests: eighteen host cases in `test/can_speed_conflict_tests.cpp` - agreement, d
 
 **Native CAN: a transmit to an interface that never started is a silent success**
 Branch [`native-can-transmit-guard`](https://github.com/ekholm/Battery-Emulator/tree/native-can-transmit-guard) @ `f59f3050` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:native-can-transmit-guard)
-The native TWAI interface is the only one whose init failure raises no event - the MCP2515 and CAN-FD paths both do - and a transmit to it after a failed or absent init simply disappears. On boards that log nothing unless USB logging is enabled, that is a dead peripheral presenting as a working one. This refuses the transmit and raises a new `EVENT_CAN_NATIVE_NOT_INITIALIZED`, APPENDED at the end of the event enum: event ordinals go out on the wire (ESP-NOW publishes the enum value as a u16), so a mid-enum insertion would renumber every event after it for any peer on a different build. A review commit closes the second path to the dead peripheral, and a test pins the enum layout so the next event cannot un-append it.
+The native TWAI interface is the only one whose init failure raises no event - the MCP2515 and CAN-FD paths both do - and a transmit to it after a failed or absent init simply disappears. On boards that log nothing unless USB logging is enabled, that is a dead peripheral presenting as a working one. This refuses the transmit and raises a new `EVENT_CAN_NATIVE_NOT_INITIALIZED`, APPENDED at the end of the event enum: event ordinals go out on the wire (ESP-NOW publishes the enum value as a u16), so a mid-enum insertion would renumber every event after it for any peer on a different build. Review closed the second path to the dead peripheral, and a test pins the enum layout so the next event cannot un-append it.
 
 <details>
 <summary>PR body it would ship with</summary>
@@ -108,7 +108,7 @@ Every other interface in the same switch already refuses this way - they hold a 
 
 The fix reads the flag before reaching `tryToSend()`, drops the frame, sets a datalayer flag, and the safety pass raises `EVENT_CAN_NATIVE_NOT_INITIALIZED` (WARNING). Trading a boot loop for an unexplained dead interface would not be an improvement on boards that log nothing unless `USBENABLED` is set.
 
-A review commit found the same hole in two further entry points: `stop_can()` and `restart_can()` wrote TWAI registers with no init check. `restart_can()` additionally dereferences `settingsespcan`, which is only assigned when native init succeeds - on a pin-conflicted or unconfigured native interface that dereference is null.
+Review found the same hole in two further entry points: `stop_can()` and `restart_can()` wrote TWAI registers with no init check. `restart_can()` additionally dereferences `settingsespcan`, which is only assigned when native init succeeds - on a pin-conflicted or unconfigured native interface that dereference is null.
 
 The event is appended to the enum rather than inserted beside related events. ESP-NOW publishes the enum value as a `uint16_t`, so a mid-enum insertion renumbers every event after it for any peer on a different build.
 
@@ -123,20 +123,20 @@ Note: drafted with AI assistance, reviewed by me.
 
 **CAN: a missing add-on chip is reported as a full buffer**
 Branch [`uninitialized-interface-diagnosis`](https://github.com/ekholm/Battery-Emulator/tree/uninitialized-interface-diagnosis) @ `9ac81590` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:uninitialized-interface-diagnosis) · pairs with the entry above
-When an SPI add-on CAN chip is absent or failed to init, transmits to it surface as `CAN_BUFFER_FULL` - a message that sends the reader towards traffic load when the truth is "this chip never existed". Diagnosed on the bench, where a board with no 2515 populated produced exactly that. Three per-interface not-initialized events replace the misdiagnosis, appended to the enum for the same wire-ordinal reason as the entry above; a review commit tightens the replacement message so it does not promise an error state that need not exist.
+When an SPI add-on CAN chip is absent or failed to init, transmits to it surface as `CAN_BUFFER_FULL` - a message that sends the reader towards traffic load when the truth is "this chip never existed". Seen on the bench: a board with nothing registered on its MCP2515 interface, so no driver object, raised it from the first replayed frame. Three per-interface not-initialized events replace the misdiagnosis, appended to the enum for the same wire-ordinal reason as the entry above; review tightened the replacement message so it does not promise an error state that need not exist.
 
 <details>
 <summary>PR body it would ship with</summary>
 
 When an SPI add-on CAN chip is absent or failed to initialize, `init_CAN()` leaves its driver pointer null. `transmit_can_frame_to_interface()` already short-circuited on null and never dereferenced it - that was not the defect. The defect was what happened next: the short-circuit set the same flag a genuine failed send sets, so what reached the user was `EVENT_CANMCP2515_BUFFER_FULL`, `EVENT_CANFD_BUFFER_FULL` or `EVENT_CANFD_2_BUFFER_FULL`: "CAN failed to send. Buffer full or no one on the bus to ACK the message!"
 
-A chip that is not there is neither of those. The message sends someone to check bus wiring and ACK counts for a peripheral that was never running. Diagnosed on the bench: a board with no MCP2515 chip populated produced exactly that event on every frame the driver sent.
+A chip that is not there is neither of those. The message sends someone to check bus wiring and ACK counts for a peripheral that was never running. Seen on the bench: a board with nothing registered on its MCP2515 interface, so no driver object, raised `EVENT_CANMCP2515_BUFFER_FULL` from the first replayed frame (179 within seconds) with nothing on the wire.
 
 Each add-on case now tests its driver pointer before building the frame, sets a per-chip flag in `datalayer.system.info`, and the safety pass raises `EVENT_CANMCP2515_NOT_INITIALIZED`, `EVENT_CANFD_NOT_INITIALIZED` or `EVENT_CANFD_2_NOT_INITIALIZED` (all WARNING). The old null short-circuit in the send check is removed rather than left alongside the new guard - leaving it in place would keep the old buffer-full path reachable for the same condition.
 
 All three events share one message string the way the buffer-full family does, since the event name itself says which interface. The message deliberately does not promise that a boot-time initialization error was raised: three early-exit paths in `init_CAN()`'s native branch run before `can2515` is ever created, so a pin conflict on the native pins leaves the MCP2515 null with no prior error event.
 
-A review commit tightens the replacement text so it names where to look next rather than implying an error state that may not exist.
+Review tightened the replacement text so it names where to look next rather than implying an error state that may not exist.
 
 All three events are appended to the enum for the same wire-ordinal reason as the native entry this pairs with.
 
@@ -446,14 +446,14 @@ Note: drafted with AI assistance, reviewed by me.
 
 **Tesla: a second battery stops corrupting the first battery's page**
 Branch [`tesla-instance-parity`](https://github.com/ekholm/Battery-Emulator/tree/tesla-instance-parity) @ `7241dc10` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-instance-parity)
-`TESLA-BATTERY.cpp` wrote the shared `datalayer_extended.tesla` struct from every instance - 483 sites, both constructors - so a double-Tesla setup interleaved two packs into one advanced page. Each instance now carries its own extended-struct pointer, set at construction and null for the second battery: the pattern ECMP and Renault Zoe Gen2 already use. The hoisted UDS part-number trigger is covered, and both ends of the guarded extended block are pinned by test.
+`TESLA-BATTERY.cpp` wrote the shared `datalayer_extended.tesla` struct from every instance - 478 sites, both constructors - so a double-Tesla setup interleaved two packs into one advanced page. Each instance now carries its own extended-struct pointer, set at construction and null for the second battery: the pattern ECMP and Renault Zoe Gen2 already use. The hoisted UDS part-number trigger is covered, and both ends of the guarded extended block are pinned by test.
 
 <details>
 <summary>PR body it would ship with</summary>
 
 There is exactly one `datalayer_extended.tesla`, and both `TeslaBattery` constructors published into it from every instance. On a double-Tesla setup that means two packs interleaving their values into the first pack's advanced page - with nothing on the page to indicate whose numbers they are.
 
-`TeslaBattery` now carries a `DATALAYER_INFO_TESLA*` set at construction: the struct's address for the main instance, null for any additional instance. This is the pattern ECMP and Renault Zoe Gen2 already use. The 479 extended writes in `update_values()` occupy one contiguous region; a single `if (datalayer_tesla)` guards them all. Two things that live inside that region are hoisted above the guard so they keep running for every instance: the UDS part-number query trigger, which drives a request on the wire, and the pack's own energy counters, which are addressed through the per-instance `datalayer_battery` pointer rather than through the extended struct.
+`TeslaBattery` now carries a `DATALAYER_INFO_TESLA*` set at construction: the struct's address for the main instance, null for any additional instance. This is the pattern ECMP and Renault Zoe Gen2 already use. The 478 extended writes in `update_values()` occupy one contiguous region; a single `if (datalayer_tesla)` guards them all. Two things that live inside that region are hoisted above the guard so they keep running for every instance: the UDS part-number query trigger, which drives a request on the wire, and the pack's own energy counters, which are addressed through the per-instance `datalayer_battery` pointer rather than through the extended struct.
 
 `TeslaHtmlRenderer` takes the same pointer. An instance with no extended struct renders a brief "no extended data" section rather than the other pack's numbers. `renders_own_battery_data()` stays false for pack 2, keeping its existing "limited to the Main Battery" notice; the null path makes that a deliberate choice rather than the only safe option.
 
@@ -596,7 +596,7 @@ Bytes 5 and 6 collided in one lane, leaving the value as a 16-bit number. Fixed 
 
 **Pinned as correct-as-is** (characterisation tests with the evidence named): VOLVO-SPA-HYBRID `0x369` low-byte source is self-referential, and the sibling driver has the identical expression - no sibling settles the layout, and the field is display-only; RELION-LV `0x264` discharge current reads the regen bytes - its only consumer is commented out, and no trace names the discharge bytes.
 
-Seven tests in `test/battery/DecodeArithmeticTests.cpp`. Each fix test is confirmed to fail against its defect before the fix; each pin test reflects the evidence stated at the site.
+Nine tests in `test/battery/DecodeArithmeticTests.cpp`. Each fix test is confirmed to fail against its defect before the fix; each pin test reflects the evidence stated at the site.
 
 Note: drafted with AI assistance, reviewed by me.
 </details>
@@ -605,12 +605,12 @@ Note: drafted with AI assistance, reviewed by me.
 
 **Family consistency: four fixes where siblings already agree**
 Branch [`driver-family-consistency`](https://github.com/ekholm/Battery-Emulator/tree/driver-family-consistency) @ `6c59fefc` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-family-consistency)
-FERROAMP now honours user voltage limits like PYLON and SOLXPOW already do (the siblings' 2.0 V offset deliberately not imported); GROWATT-WIT's capacity guard goes `> 0` to `> 10`, ending a 50,000 dAh fiction from a 0.5 V startup reading; MG-5's `MG5_USE_FULL_CAPACITY` branch - defined nowhere - is deleted; swapped charge/discharge byte labels corrected, values unchanged.
+FERROAMP now honours user voltage limits like PYLON and SOLXPOW already do (the siblings' 2.0 V offset deliberately not imported); GROWATT-WIT's capacity guard goes `> 0` to `> 10`, ending a 50,000 dAh fiction from a 0.5 V startup reading; MG-5's `MG5_USE_FULL_CAPACITY` branch - defined nowhere - is deleted; SOFAR's consent reads `reported_soc` instead of `spoofed_soc`; FERROAMP's swapped charge/discharge byte labels corrected, values unchanged.
 
 <details>
 <summary>PR body it would ship with</summary>
 
-Five drivers brought back to what their family or their own comments promise. Each was verified at the source before changing anything.
+Four drivers brought back to what their family or their own comments promise. Each was verified at the source before changing anything.
 
 **FERROAMP-CAN - user voltage limits not honoured** (`inverter/FERROAMP-CAN.cpp`): the `0x4221` frame always sent the raw design limits for charge and discharge cutoff voltages. The `0x4200` siblings PYLON and SOLXPOW already check `user_set_voltage_limits_active` and substitute the user-tightened window when it is active; FERROAMP did not, so a user-configured narrow window reached the emulator's own logic but not the inverter. Now follows the same pattern. The siblings carry a +/-2.0 V offset that this driver never had; that offset is deliberately not imported - only the voltage selection is aligned, not the offset convention.
 
@@ -622,7 +622,7 @@ The same file had swapped byte comments on `0x4221`: charge and discharge labels
 
 **SOFAR-CAN - charge consent follows the display spoof** (`inverter/SOFAR-CAN.cpp`): the charge/discharge consent gate used `spoofed_soc`, whose 99 % display cap made the discharge-only branch unreachable and its claimed hysteresis fiction. A truly full pack now revokes charge consent while the display still reads 99 %. Changed to `datalayer.battery.status.reported_soc`.
 
-Seven tests in `test/family_consistency_tests.cpp` pin the four behaviours. Each fix-reverted mutation fails its named test.
+Eight tests in `test/family_consistency_tests.cpp` pin the four behaviours. Each fix-reverted mutation fails its named test.
 
 Note: drafted with AI assistance, reviewed by me.
 </details>
@@ -663,7 +663,7 @@ Note: drafted with AI assistance, reviewed by me.
 
 **Shunt: three values that corrupt instead of going missing**
 Branch [`driver-signedness-clamps`](https://github.com/ekholm/Battery-Emulator/tree/driver-signedness-clamps) @ `7a1a945d` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-signedness-clamps) · stacked under `sbox-average-divisor`
-Three driver defects with the same shape: a signedness or width error that turns a real measurement into a plausible wrong number. The main one: `datalayer.shunt.measured_amperage_dA` was `uint16_t`, so every discharge current wrapped - a -50 A discharge read as ~65,486 dA. Now `int16_t`, matching `battery.status.current_dA`, the same quantity and unit already signed in-tree. The audit behind it found the field has two writers and zero in-tree readers, which is what makes the root fix safe to take first. Also: BMW-SBOX's rolling-average members go signed (`avg_mA_array`, `avg_sum` - the division then signs itself), and a review commit zero-initialises them and pins that.
+Three driver defects with the same shape: a signedness or width error that turns a real measurement into a plausible wrong number. The main one: `datalayer.shunt.measured_amperage_dA` was `uint16_t`, so every discharge current wrapped - a -50 A discharge read as ~65,036 dA. Now `int16_t`, matching `battery.status.current_dA`, the same quantity and unit already signed in-tree. The audit behind it found the field has two writers and zero in-tree readers, which is what makes the root fix safe to take first. Also: BMW-SBOX's rolling-average members go signed (`avg_mA_array`, `avg_sum` - the division then signs itself), and the same change zero-initialises them and pins that.
 
 <details>
 <summary>PR body it would ship with</summary>
@@ -786,7 +786,7 @@ When the inverter commanded the contactor open, the state machine reset but `inv
 
 The `CONTACTOR_CLOSED` case sets the flag near its top, then tests the payload for the inverter's open command. That branch raises `EVENT_INVERTER_OPEN_CONTACTOR` and resets `STATE = BATTERY_ANNOUNCE` - but does not touch the flag. The `BATTERY_ANNOUNCE` case is what clears it, and that runs on the next received frame.
 
-So between the open request and the next frame, the permission stays true. If the inverter goes quiet after asking to disconnect, the clearing frame never comes, and the permission stands until `update_values()`'s RX-timeout backstop fires. That backstop bounds it: `INTERVAL_2_S` measured from `LastFrameTime`, which the open frame itself refreshed, checked on the 1 s core-loop cadence - so roughly 2-3 s of stale permission. The flag is read by `precharge_control.cpp`, `comm_contactorcontrol.cpp`, and about fourteen battery drivers.
+So between the open request and the next frame, the permission stays true. If the inverter goes quiet after asking to disconnect, the clearing frame never comes, and the permission stands until `update_values()`'s RX-timeout backstop fires. That backstop bounds it: `INTERVAL_2_S` measured from `LastFrameTime`, which the open frame itself refreshed, checked on the 1 s core-loop cadence - so roughly 2-3 s of stale permission. The flag is read by `precharge_control.cpp`, `comm_contactorcontrol.cpp`, and eleven battery drivers.
 
 The fix is one line in the block that already handles the open request: revoke the permission there, so the frame carrying the request also carries the revocation.
 
@@ -870,7 +870,7 @@ The two battery 2/3 check blocks were verbatim copy-paste. They collapse into on
 
 Upstream applied the 370.0 V corroboration to battery 2 in #2958 and then to battery 3 in a separate commit a day later - one rule, written twice, because it lived in two copy-pasted blocks. This branch carries one instance, in the shared helper both joiners call. That is the argument for the refactor, made from the fix's own history rather than from a standalone defect.
 
-15 host tests: five fake-triple cases (normal mirror operation raises no event, single-tick lag absorbed by the 3 s grace), six symmetry cases (block on large diff, allow within window, disengaged pack does not block, existing battery-2 gating as regression guard, unknown-fallback path, gate blocks START_PRECHARGE), and three voltage-sync cases (existing disengage while main reads sentinel, boot-at-sentinel, cell-voltage grace). Builds on lilygo_330 and stark_330. Not run on hardware.
+15 host tests: five fake-triple cases (normal mirror operation raises no event, single-tick lag absorbed by the 3 s grace), seven symmetry cases (block on large diff, allow within window, disengaged pack does not block, existing battery-2 gating as regression guard, unknown-fallback path, gate blocks START_PRECHARGE, a pack at the sentinel voltage still engages the gate), and three voltage-sync cases (existing disengage while main reads sentinel, boot-at-sentinel, cell-voltage grace). Builds on lilygo_330 and stark_330. Not run on hardware.
 
 Note: drafted with AI assistance, reviewed by me.
 </details>
