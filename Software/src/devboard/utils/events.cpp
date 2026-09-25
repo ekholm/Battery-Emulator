@@ -553,11 +553,13 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
     case EVENT_INVERTER_OPEN_CONTACTOR:
       return "Inverter side opened contactors. Normal operation.";
     // Raised for two causes: an interface the board does not declare is refused before it is
-    // started, and a declared one whose chip fails to start is taken out of service. The text
-    // has to fit both, and the second also raises that chip's own init-failure event.
+    // started, and a declared one that fails to start is taken out of service. The text has to
+    // fit both. The second always raises a companion event too, but not always the same one: a
+    // chip that fails its init raises that chip's init-failure event, while an interface whose
+    // pins could not be allocated fails before the chip is touched and raises the GPIO event.
     case EVENT_INTERFACE_MISSING:
-      return "Selected CAN interface was not started: this board does not have it, or its chip "
-             "failed to start (see the init failure event beside this one). Check the interface "
+      return "Selected CAN interface was not started: this board does not have it, or it failed "
+             "to start (see the init failure or GPIO event beside this one). Check the interface "
              "setting against the hardware you have fitted.";
     case EVENT_ERROR_OPEN_CONTACTOR:
       return "Too much time spent in error state. Opening contactors, not safe to continue. "
