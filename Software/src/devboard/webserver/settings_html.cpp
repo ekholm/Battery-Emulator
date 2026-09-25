@@ -7,6 +7,7 @@
 #include "../../communication/nvm/comm_nvm.h"
 #include "../../datalayer/datalayer.h"
 #include "../network/hostname.h"  // default_hostname()
+#include "../settings/settings_accessors.h"
 #include "html_escape.h"
 #include "index_html.h"
 #include "src/battery/BATTERIES.h"
@@ -355,7 +356,7 @@ String settings_processor(const String& var, BatteryEmulatorSettingsStore& setti
   }
 
   if (var == "CHGSTARQ") {
-    return options_from_map(settings.getUInt("CHGSTARQ", user_selected_LEAF_chg_sta_rq), leaf_chg_sta_rq);
+    return options_from_map(setting_get<Sid::CHGSTARQ>(settings), leaf_chg_sta_rq);
   }
 
   if (var == "CHGSTARQCANRESET") {
@@ -1033,7 +1034,7 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
   }
 
   if (var == "INVACCREB") {
-    return settings.getBool("INVACCREB") ? "checked" : "";
+    return setting_get<Sid::INVACCREB>(settings) ? "checked" : "";
   }
 
   if (var == "INVWDT") {
