@@ -196,9 +196,8 @@ class BoundaryDecode(unittest.TestCase):
     bytes: the byte after a `ret` or a `j` is usually alignment padding, so the
     sweep resumes out of phase and decodes nonsense until it resynchronises.
     Nonsense disassembles into plausible calls - the lines below are REAL, taken
-    from stark_330 `firmware.elf` in /git/lilygo-backups/wq747-ringdepth-images-20260914,
-    and objdump's own `.byte 0x4e` at 0x4008b847 is it admitting the stream is
-    not code. Three bytes later the sweep invents a call into flash, and the
+    from a stark_330 `firmware.elf` built from this branch, and objdump's own
+    `.byte 0x4e` at 0x4008b847 is it admitting the stream is not code. Three bytes later the sweep invents a call into flash, and the
     audit reported an interrupt path calling GeelySeaBattery::readDiagData().
     """
 
