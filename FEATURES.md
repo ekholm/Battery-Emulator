@@ -283,3 +283,136 @@ Measured on a LilyGo T-CAN485 (classic ESP32, 4 MB), longest gap between two CAN
 Note: drafted with AI assistance, reviewed by me.
 
 </details>
+
+---
+
+**CAN: the whole lane, measured - one branch, three offers, twelve PR candidates inside it**
+Branch [`can-lane`](https://github.com/ekholm/Battery-Emulator/tree/can-lane) @ `96a4042f` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:can-lane) · [diff vs `v12.6.0`](https://github.com/dalathegreat/Battery-Emulator/compare/v12.6.0...ekholm:Battery-Emulator:can-lane) · 10 merges over 124 commits
+
+One branch carries the complete CAN offering, built from twelve reviewed branches in
+dependency order; each of those is a PR candidate on its own and is linked below, so a maintainer
+can take the whole, one offer, or one fix. The story is one sentence in three parts: a board's CAN
+declaration matches its wiring, every failure is per-interface and visible, and the receive path
+drains at zero measured loss with the flash cache off. The last part is a table, not a sentence -
+each row driven to the ceiling of its link, which is the wire or the sending board (the FD row) -
+or, on the S3 native row, something on the receiving board's side of the bus; never the drain:
+
+| interface | chip | offered at the link's ceiling | loss |
+|---|---|---|---|
+| native TWAI | classic ESP32 | ~3507 f/s | 0.000 % |
+| native TWAI | ESP32-S3 | ~3855 f/s (see below) | 0.000 % |
+| MCP2515 (baseline drain) | S3 | ~4108 f/s | 0.000 % |
+| MCP2517FD, classic mode | S3 | ~4107 f/s | 0.000 % |
+| MCP2518FD, FD mode (500 kbit arbitration, 2 Mbit data, BRS) | S3 | ~6373 f/s | 0.000 % |
+
+Loss is derived from the flood's own sequence on the receiving board and cross-checked against the
+sender's accepted-send count; receive rings (192 deep) never passed 6 on the classic rows and 12 on
+the FD row. The FD row's ceiling is the sender, not the wire: the peer is a classic ESP32 driving an
+MCP2518FD over SPI, and the bus arithmetic puts the wire above 8 500 f/s, so the drain was never
+offered the wire's full rate - what it was offered, over eleven rates from 200 to 20 000 f/s asked,
+it took with no gap, no reorder and no hardware overflow. Before this lane the native path lost
+three quarters of the same flood (74.4 % measured, ring overflowing), so the zeros are not a
+property of the bench.
+
+**One row moved when the lane was lifted onto `v12.6.0`, and we do not yet know why.** Before the
+lift the S3 native row reached the wire's ~4107 f/s; after it, ~3855. Swapping images between the
+two boards shows the change follows the RECEIVING board's firmware, not the sender's: the sender
+asks for the same number of frames and gets more of them refused. The receiving board also runs a
+battery on that same bus, so it transmits there too; whether the lifted firmware sends more, or
+causes error frames, is still being measured. Nothing is lost either way - every frame the sender
+got onto the wire arrived.
+
+**Through a flash write the table is not the whole story, and the entry says where it stops.**
+Measured on this lane before its lift onto `v12.6.0`: with three boards flooded at once while each takes a 20-save settings storm and then an OTA upload
+(4 KB sector erase): native TWAI on the classic ESP32 loses NOTHING at any rate to 2 000 f/s, its
+ring peaking at 175 of 192; the MCP2518FD path is lossless through the storm at every rate and
+through the OTA to 500 f/s, and at 2 000 f/s its ring overflows during the upload; the MCP2515 on
+the S3 is the baseline drain and loses frames during an OTA from 100 f/s up. The lane also carries
+an IRAM interrupt drain for the MCP2515, meant to close that last gap; it builds for the classic
+ESP32 only and has not yet been measured on silicon.
+
+**Built from, in merge order** (each is a PR candidate on its own; indentation is what it sits on):
+
+- [`can-init-per-interface`](https://github.com/ekholm/Battery-Emulator/tree/can-init-per-interface) - the trunk: a failed chip stops at that chip
+  - [`mcp2515-mode-and-bitrate`](https://github.com/ekholm/Battery-Emulator/tree/mcp2515-mode-and-bitrate) - verify the mode, refuse an underivable bitrate
+  - [`native-can-lifecycle`](https://github.com/ekholm/Battery-Emulator/tree/native-can-lifecycle) - the native flag tracks the peripheral both ways
+    - [`can-zero-loss-drain`](https://github.com/ekholm/Battery-Emulator/tree/can-zero-loss-drain) - IRAM-resident drains, FD interrupt back, pin policy
+- [`native-can-drain-batch`](https://github.com/ekholm/Battery-Emulator/tree/native-can-drain-batch) - the native path drains a batch, like every other interface
+- [`can-absent-interface`](https://github.com/ekholm/Battery-Emulator/tree/can-absent-interface) - boards declare what they route; an absent controller fails safe
+- [`absent-can-addon-inert`](https://github.com/ekholm/Battery-Emulator/tree/absent-can-addon-inert) - an add-on the board does not have is not an incoherent map
+- [`select-unrepresented-value`](https://github.com/ekholm/Battery-Emulator/tree/select-unrepresented-value) - a settings select shows the stored value it has no option for
+- [`replay-unreachable-interface`](https://github.com/ekholm/Battery-Emulator/tree/replay-unreachable-interface) - a replay that cannot reach a wire is refused with the reason
+- [`inverter-driver-defects`](https://github.com/ekholm/Battery-Emulator/tree/inverter-driver-defects) - 21-driver protocol suite and the three defects it found
+- [`ota-erase-granularity`](https://github.com/ekholm/Battery-Emulator/tree/ota-erase-granularity) - a firmware upload erases in 4 KB sectors, so no single erase parks the cores past a keepalive
+- [`can-host-testability`](https://github.com/ekholm/Battery-Emulator/tree/can-host-testability) - `comm_can.cpp` compiled into the host suite. It comes last and sits on the lane rather than on the release, because its tests pin the fixed behaviour of the branches above and do not build without them.
+
+The lane merges ten of these; `can-init-per-interface` and `native-can-lifecycle` arrive underneath
+the branches stacked on them.
+
+**1. A board offers the interfaces it routes, and one absent controller does not cost the boot**
+(`can-absent-interface`, `absent-can-addon-inert`)
+Declaration and wiring disagreed in BOTH directions on six of the eight boards: physically wired
+controllers were unselectable, and phantom chips were offered and then failed collaterally. On
+`main` a failure returns out of `init_CAN()` where it stands, so every interface ordered after the
+failing one is never brought up: one stale MCP2515 selection took a board's FD interfaces down with
+it. The declaration is corrected everywhere, can express runtime-probed variants, and an interface
+whose controller does not answer fails safe: MEASURED, the board boots in 6.1 s, stays reachable,
+and prints exactly what failed - a misconfiguration is repairable from the very page that caused it.
+An interface the board does not declare is refused before anything is initialised, with an event
+that says so and asks the user to check the setting against the fitted hardware; on `main` that
+same event tells the user to recompile the firmware. The same event also accompanies a declared
+interface that failed to start, beside the event that says why - the chip's init failure, or the GPIO
+event when its pins could not be allocated - and its text names both causes. (Where the failing controller is the last one selected,
+nothing is ordered behind it and nothing is lost; the fix's value is the interfaces ordered after
+it, and the diagnosis, and that is enough.) The second branch
+closes the case the first one reaches from the other side: a configuration naming an add-on the
+board does not have cost it every interface declared after that add-on, because the pin allocator
+returned the same false for "not fitted" and "already owned" and init treated both as an incoherent
+map. Absent is now told apart from conflict and left inert, and the FD group's three blocks are
+decided as one plan in a header the host suite runs. MEASURED on a Stark with a stored MCP2515 it
+does not have: the CAN-FD interface below it comes up, and the absence is still reported. The
+settings-page half, a select that renders the stored value it cannot otherwise show, is already on
+the shelf as a standalone fix and is included here.
+
+**2. Every start-up and every replay reports what actually happened, per interface**
+(`can-init-per-interface`, `mcp2515-mode-and-bitrate`, `native-can-lifecycle`,
+`replay-unreachable-interface`)
+Four branches, one defect class - success was reported for things that had not happened, and the
+layers above believed it. `init_CAN()` aborted every later interface on any failure while its
+return was discarded, so which interfaces survived was decided by initialisation order; failures
+become per-interface: event, null pointer, continue - and the native path gains the init-failure
+event it never had. A chip that never left configuration mode still reported successful init, and
+a bitrate the crystal cannot derive was accepted silently and produced a dead bus; the mode we
+asked for is now verified, and an underivable bitrate is refused. A frame handed to CAN_NATIVE
+while the peripheral was never brought up crashed the board; the initialization flag now tracks
+reality in both directions, and the user is told what actually failed instead of the driver's
+internal shorthand. A replay aimed at an interface that cannot transmit was indistinguishable, on
+every page, from one that was working: frames counted, activity shown, not one byte off the board;
+it is now refused with the reason. Two of these fixes (the transmit guard and the missing-add-on
+diagnosis) are already on the shelf as standalone entries and are included here.
+
+**3. Keep the controllers draining while the flash cache is off**
+(`can-zero-loss-drain`, `native-can-drain-batch`, `ota-erase-granularity`)
+Flash writes disable the instruction cache; for that window, non-IRAM code cannot run, including
+interrupt handlers not allocated to survive it - and this firmware writes flash while running. The
+receive paths become IRAM-resident: the MCP2515 is drained inside an IRAM interrupt through a
+register-level SPI service, the FD drain's interrupt is IRAM-resident (a polled variant was tried
+and measured to self-deadlock the vendored library under ordinary load - reboot-looping a board at
+200 f/s, task watchdog and `rst:0xc`, reproduced on 2026-09-05 - so the interrupt stays), and the
+TWAI interrupt is allocated to survive the flash window instead of being masked through it. On the
+lane, drain counters land on the performance page so any board on any wire shows its own loss; they are part of the lane only, not of the member branches. The
+second branch removes the ceiling that made the native rows unmeasurable at all: the native path
+took one frame per 1 kHz tick while every sibling drained a batch, so an idle board lost 74.4 % of
+a saturated 500 kbit bus; it now drains a batch bounded by the driver ring's own depth, and the
+same flood measures 0.000 % either side of that one commit. The header table is this branch's
+acceptance run. The TWAI interrupt fix is already on the shelf as a standalone entry and is
+included here. The third branch closes the one flash window a resident drain cannot bridge: an
+erase command parks both cores with the cache off, no interrupt runs, and Arduino's update class
+erases the OTA partition in 64 KB blocks that each take about 88 ms on this part, 29 of them per
+1.9 MB upload. On stock `main` the receiving end of a paced stream saw 15 intervals over 100 ms
+per upload at a 10 ms cadence and 6 at 1 ms, enough to miss a pack keepalive, with nothing lost,
+only late. Pacing the upload cannot help, because nothing inserts idle time inside one command.
+One build option switches the erase to 4 KB sectors: 0 intervals over 100 ms at either cadence,
+worst 32.2 ms, and the upload takes about 64 percent longer, once per update.
+
+*Note: maintained with AI assistance, reviewed before publishing.*
