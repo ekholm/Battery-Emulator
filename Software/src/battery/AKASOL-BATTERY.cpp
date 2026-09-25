@@ -102,6 +102,12 @@ void AkasolBattery::set_kl30_safe(bool state) {
 }
 
 void AkasolBattery::setup() {
+  // Vacuous allow, declared: this driver does not derive a contactor veto from
+  // pack state, so it grants permission unconditionally at setup like the other
+  // setup-granting drivers. Without the write the flag stays at its false default
+  // and the contactor gate never opens for this battery.
+  datalayer.system.status.battery_allows_contactor_closing = true;
+
   // Reuse the HAL's contactor pins for the battery's three discrete control
   // signals (see the mapping in AKASOL-BATTERY.h). Claim them up front so a
   // clash with GPIO contactor control is reported rather than silently
