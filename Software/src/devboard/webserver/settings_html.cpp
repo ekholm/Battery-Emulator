@@ -958,7 +958,7 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
   if (var == "BMS_RESET_CLASS") {
     // The off time and the reset button apply to both reset methods, so they show when either
     // "Periodic BMS reset" or "Allow remote BMS reset via MQTT" is enabled, as saved.
-    return (settings.getBool("PERBMSRESET") || settings.getBool("REMBMSRESET")) ? "" : "hidden";
+    return (setting_get<Sid::PERBMSRESET>(settings) || setting_get<Sid::REMBMSRESET>(settings)) ? "" : "hidden";
   }
 
   if (var == "CHARGER_CLASS") {
@@ -1105,7 +1105,7 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
   }
 
   if (var == "LEAFAUTOOFS") {
-    return settings.getBool("LEAFAUTOOFS", true) ? "checked" : "";
+    return setting_get<Sid::LEAFAUTOOFS>(settings) ? "checked" : "";
   }
 
   if (var == "DIGITALHVIL") {
