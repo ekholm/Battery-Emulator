@@ -13,6 +13,7 @@
 #include "../../devboard/network/network_status.h"
 #include "../../devboard/safety/safety.h"
 #include "../../lib/bblanchon-ArduinoJson/ArduinoJson.h"
+#include "../settings/settings_accessors.h"
 #include "../utils/events.h"
 #include "../utils/timer.h"
 #include "../webserver/webserver.h"
@@ -151,8 +152,8 @@ static bool autodiscovery_complete(void) {
 static void store_autodiscovery_done(void) {
   ha_autodiscovery_enabled = false;  // switches the publish paths to state-only for this session
   BatteryEmulatorSettingsStore settings;
-  settings.saveBool("HADISC", false);
-  settings.saveUInt("HADISCFW", mqtt_firmware_signature());
+  setting_save<Sid::HADISC>(settings, false);
+  setting_save<Sid::HADISCFW>(settings, mqtt_firmware_signature());
   LOG_SET_NEXT_SEVERITY(5);  // notice
   logging.println("Home Assistant autodiscovery published");
 }
