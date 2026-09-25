@@ -93,4 +93,29 @@ a cosmetic one.
 
 ---
 
+## Is Mach-E DTC reading really "still under development"?
+
+The wiki's Ford Mach-E page says so (`docs/battery/ford_mach_e.md:185` in the wiki repo: "DTC Reading
+is still under development"). The source says otherwise. At release `v12.6.0`,
+`FORD-MACH-E-BATTERY-HTML.h:155` puts a DTC section on the battery's advanced page, and
+`render_dtc_section()` (`:166`) draws it with separate not-read, failed and none-present states, a
+code table, and **Read DTC** / **Erase DTC** buttons. `:241` loads the descriptions: the browser
+fetches `ford_machE_dtc.json` from `web_data/dtc/` on GitHub, and offers a file picker to load a
+local copy when it is offline.
+
+We ran it on a board configured as a Mach-E on native CAN, at upstream `0186f10a8`, with a bench UDS
+responder answering the `19 02` request with one stored code. The page listed **U0100, Active**. The
+decode map has that code as "Lost Communication With ECM/PCM A", and the page keys the table cell
+on the same code string.
+
+What that run does not show: anything about a real pack (the reply came from a bench responder),
+the description filling in a real browser (our capture was a plain HTTP GET, which runs no script),
+and **Erase DTC**, which is in the source but was not pressed.
+
+**What would settle it:** a Mach-E owner pressing **Read DTC** on a real pack and saying whether the
+codes list and their descriptions fill in. If they do, the wiki line can simply go. We have not
+touched the wiki; it is not ours to edit.
+
+---
+
 *Note: this page is maintained with AI assistance and reviewed before publishing.*
