@@ -572,9 +572,13 @@ static String get_event_base_message(EVENTS_ENUM_TYPE event) {
       return "High voltage cable removed while battery running. Opening contactors!";
     case EVENT_INVERTER_OPEN_CONTACTOR:
       return "Inverter side opened contactors. Normal operation.";
+    // Raised for two causes: an interface the board does not declare is refused before it is
+    // started, and a declared one whose chip fails to start is taken out of service. The text
+    // has to fit both, and the second also raises that chip's own init-failure event.
     case EVENT_INTERFACE_MISSING:
-      return "Selected CAN interface is not available on this board - that interface was not "
-             "started. Check the interface setting against the hardware you have fitted.";
+      return "Selected CAN interface was not started: this board does not have it, or its chip "
+             "failed to start (see the init failure event beside this one). Check the interface "
+             "setting against the hardware you have fitted.";
     case EVENT_ERROR_OPEN_CONTACTOR:
       return "Too much time spent in error state. Opening contactors, not safe to continue. "
              "Check other active ERROR code for reason. Reboot emulator after problem is solved!";
