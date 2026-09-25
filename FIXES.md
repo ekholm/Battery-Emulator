@@ -171,28 +171,109 @@ The voltage-difference gate that keeps a battery from closing onto a live parall
 
 **On the 370 V startup case, this branch now adopts your own fix rather than competing with it.** You solved the same ambiguity in `a5bd6eb37` ("Make it possible to startup with 370V") by corroborating the 3700 dV reading against `cell_max_voltage_mV`, which carries its own 3700 mV default; this branch had solved it by latching once both packs are seen off the sentinel. The two cover different failures - the latch catches a joined pair drifting apart while one pack happens to read exactly 3700, and the corroboration catches a pack that BOOTS at 370.0 V and would otherwise sit in the startup grace forever - so the branch now carries both, using your corroboration verbatim. **And the shape of how you fixed it is itself the argument for this refactor.** `a5bd6eb37` corroborated battery 2 only; the battery-3 copy kept returning on a bare `== 3700` until `6355c7bec` ("Let the third battery join the DC link at 370.0 V") applied the same check there a day later - one fix, written twice, because the rule lives in two copy-pasted blocks. `main` now carries four corroboration sites for one rule. This branch carries one, in a shared helper both joiners call, so a change to the rule cannot reach one pack and miss the other. Offered as an argument for the refactor, not as a criticism of the fix: the duplication is what made the second fix necessary.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+The 1.5 V parallel-join rule in `check_parallel_battery_safety()` was enforced only for battery 2/3 closing toward battery 1. Battery 1's own close was never checked. After a main-pack dropout (BMS reset, wakeup glitch, fault recovery) while battery 2 remains engaged, battery 1 re-closes through its normal contactor path with no voltage check against the live link. The GPIO precharge only equalizes dead-link capacitance - against a link held stiff by another closed pack it still closes after the timer with whatever difference remains. Pack-internal windows (MEB ~20 V) are far looser than 1.5 V.
+
+`check_parallel_battery_safety()` now computes `battery1_allowed_contactor_closing`: false while another engaged pack differs by more than 1.5 V. Close-gating only - opening the main battery under load is its own hazard and stays out of scope. `handle_contactors()` consumes it in the `START_PRECHARGE` transition. The main-instance constructors of the three drivers that already took the gating pointer for their battery-2 instances (BMW i3, Kia/Hyundai 64, Pylon) now wire it too. Tesla reports its contactor state through the new API but the main instance's `contactor_closing_allowed` pointer is not wired - Tesla has no consumption path without touching its TX command logic, and that is stated as an open item rather than smuggled around.
+
+Whether another pack is closed comes from a new Battery virtual: `ContactorState reported_contactor_state()`, tri-state (Unknown/Open/Closed). BMW i3, Tesla and MEB each override it with a mapping of an already-parsed member; SNA and error conditions return Unknown, never a definite state. The gate keys on reported Closed; Unknown falls back to BE-commanded state, so a commanded-but-failed close cannot deadlock the main pack.
+
+The two battery 2/3 check blocks were verbatim copy-paste. They collapse into one `check_parallel_join()` helper both joiners call, so the rule lives in one place. The 3700 dV sentinel is now a startup grace rather than a continuous skip condition: once both packs have been seen off it, the check runs regardless of transient 3700 readings. Cell voltages corroborate an ambiguous 370.0 V reading, adopting upstream's approach from #2958 verbatim. The latch and the corroboration cover different failures: the latch catches a joined pair drifting while one pack reads exactly 3700; the corroboration catches a pack that boots at 370.0 V and would otherwise wait in the startup grace indefinitely.
+
+Upstream applied the 370.0 V corroboration to battery 2 in #2958 and then to battery 3 in a separate commit a day later - one rule, written twice, because it lived in two copy-pasted blocks. This branch carries one instance, in the shared helper both joiners call. That is the argument for the refactor, made from the fix's own history rather than from a standalone defect.
+
+15 host tests: five fake-triple cases (normal mirror operation raises no event, single-tick lag absorbed by the 3 s grace), six symmetry cases (block on large diff, allow within window, disengaged pack does not block, existing battery-2 gating as regression guard, unknown-fallback path, gate blocks START_PRECHARGE), and three voltage-sync cases (existing disengage while main reads sentinel, boot-at-sentinel, cell-voltage grace). Builds on lilygo_330 and stark_330. Not run on hardware.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **Settings: only the full form may treat an absent checkbox as unchecked**
 Branch [`partial-form-bools`](https://github.com/ekholm/Battery-Emulator/tree/partial-form-bools) @ `2e959ad6` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:partial-form-bools)
 HTML forms omit unchecked checkboxes, so the server treats "absent" as "false" - correct for the full settings form, destructive for any partial POST, which silently wiped every boolean it did not mention. The full form now carries a hidden `FULLFORM` marker and only its presence licenses the absent-means-unchecked reading; partial POSTs leave unmentioned booleans alone. Fourteen lines, and the class of accidental factory-resets-by-curl goes away.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+`POST /saveSettings` applies absent-means-false to every boolean setting in its loop. That is correct for the full settings page - an unchecked HTML checkbox is simply absent from the submission - but it is destructive for any other caller. A partial POST, whether from curl, a script or an API client setting one field, silently clears every boolean it did not mention: `WIFIAPENABLED`, `MQTTENABLED` and the rest.
+
+The full settings form now marks itself with a hidden `FULLFORM` field. The handler reads it once before the boolean loop: with the marker present, absent-means-false applies as before; without it, a boolean is applied only when its field is actually in the POST (`on` = true, anything else = false), and a missing field is skipped entirely. A partial client can therefore set, clear or leave any boolean without coordinating with the rest. The double/triple capability clamp below the loop is unchanged - it enforces a stored invariant, not a form field, and runs in both paths.
+
+The change is fourteen lines. The class of accidental factory-resets-by-curl goes away, and sectioned forms - where a section's POST naturally omits every boolean outside its own section - become safe without any further server-side work.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 **Triple battery: the predicate and the switch agree again, and the invariant is now a test**
 Branch [`battery-instance-support-parity`](https://github.com/ekholm/Battery-Emulator/tree/battery-instance-support-parity) @ `2fc664ff` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:battery-instance-support-parity)
 `battery_supports_triple()` listed five types while the battery3 construction switch had six cases - `CmpSmartCar`'s case was unreachable, because the guard rejected the type before the switch could reach it. The resolution declares the CMP Smart Car triple-capable rather than deleting the dead case, and - the durable half - adds the test the file's own comment has always asked for: both label sets extracted and asserted equal, fallthrough-aware, so the "must match the switch in setup_battery() below" invariant fails a build instead of relying on a comment.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+`battery_supports_triple()` and the battery3 construction switch in `setup_battery()` are two lists of battery types that must agree - the file says so in a comment, "Must match the switch in setup_battery() below." They had drifted: `CmpSmartCar` has a complete, well-formed battery3 construction case and was absent from the predicate. The guard above the switch rejects the configuration before the switch can reach it, so the case is dead code and the UI never offers the option. The predicate was the side that was wrong: the driver takes a datalayer pointer in its multi-battery constructor, writes nothing to file-scope or `datalayer_extended` state, and is already declared and built for a second battery.
+
+`CmpSmartCar` is added to `battery_supports_triple()`, making the two lists agree.
+
+The durable half is the test that the file's comment has always asked for but that a comment cannot enforce. The invariant has two directions and they need different instruments, which is worth stating because it is not obvious:
+
+- Predicate true, switch cannot build: the guard passes and `setup_battery()` silently does nothing. Caught by running `setup_battery()` over every battery type and comparing the predicate against whether an instance appeared.
+- Switch can build, predicate false: dead code behind the predicate's own guard - not reachable by running anything. That is the direction that had drifted. The source is the only instrument, so the third test reads BATTERIES.cpp and compares the case labels in the predicate switch against the case labels in the construction switch.
+
+Both directions are mutation-tested: removing `CmpSmartCar` from the predicate fails the source-reading test; declaring a type with no construction case fails the runtime test. Three test cases cover the double predicate, the triple predicate, and the dead-code direction.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **Tesla: two advanced-page fields that report the wrong thing**
 Branch [`tesla-page-meaning`](https://github.com/ekholm/Battery-Emulator/tree/tesla-page-meaning) @ `dab355e3` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-page-meaning) · includes the lookup-bounds fix beneath it
-`HVP_currentSenseMia` was parsed with a two-bit mask on a one-bit field, so it read `Yes` whenever the neighbouring ref-voltage-mismatch bit was set alone - every sibling MIA field in the block masks a single bit correctly; this one was alone in being wrong. The review sweep found a second field of the same class the original fix had missed. Four PCS retry counters (3- and 4-bit) were rendered through a two-entry False/True table, so one retry read `True` and higher counts had no meaning; they now render as the numbers their labels ("Rty Cnt") always promised. Beneath it, the contained bounds fix: every lookup table on the page is bounded, an out-of-range value is named (`UNKNOWN(n)`) instead of dereferenced, and the emul String is null-guarded where Arduino's guards.
+`BMS_hvacPowerBudget` is a 10-bit field whose top nibble sits in byte 7, but byte 7 was read unmasked, so the neighbouring `BMS_inverterTQF` bits were folded into the power budget and it could report far more than its 1023 maximum. (The other field this entry used to name, `HVP_currentSenseMia`'s two-bit mask, was fixed upstream before `v12.6.0` and is no longer part of the branch.) Four PCS retry counters (3- and 4-bit) were rendered through a two-entry False/True table, so one retry read `True` and higher counts had no meaning; they now render as the numbers their labels ("Rty Cnt") always promised. Beneath it, the contained bounds fix: every lookup table on the page is bounded, an out-of-range value is named (`UNKNOWN(n)`) instead of dereferenced, and the emul String is null-guarded where Arduino's guards.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Two fields on the advanced page reported the wrong thing, and the bounds fix beneath them stops the class from recurring.
+
+**BMS_hvacPowerBudget.** The signal is 10 bits starting at bit 50: byte 6 supplies bits 50-55, and byte 7 only its low nibble (bits 56-59). The code read byte 7 unmasked. Byte 7's bits 4-5 are `BMS_inverterTQF`, a different signal parsed four lines below, so the power budget absorbed that signal and a 10-bit field could report far more than 1023. The display line for this field was already commented out with "Not giving useable data" - the value was seen to be wrong and the line removed rather than the cause found. The parse is now corrected; the display stays commented, since re-enabling it is a judgement call for someone with the car.
+
+**PCS retry counters.** Four retry counter fields (3-bit and 4-bit, lifted straight from `0x224`) were rendered through a two-entry `falseTrue[]` table. One retry read "True"; counts above 1 indexed past the end of the table. The fields' own labels already said "Rty Cnt". They now render the number. This deliberately changes what 0 and 1 display - "0" and "1" rather than "False" and "True" - because a count is not a boolean, and the only reading that was ever true is how many retries there were. `falseTrue[]` has no remaining users and is removed.
+
+**Lookup bounds.** All 14 static tables in the renderer are indexed by raw bit-slice values from CAN frames, and 10 of those slices are wider than the table they select. The widest gap was `PCS_dcdcSubState`: a 5-bit field indexing an 18-entry table, so any sub-state code from 18 upward dereferenced past the array. A `lookupName()` template takes each table by reference (bound from the array's own type, not a constant) and renders `UNKNOWN(n)` for an out-of-range code. All 40 lookups, including the commented-out ones, route through it.
+
+The host `String` emul is also null-guarded in its `const char*` constructor and `operator+=`, matching Arduino's behavior. Without this the host renderer crashed on char* fields that stay null until a CAN frame fills them; the firmware renders them as empty strings.
+
+19 tests in `test/tesla_html_bounds_tests.cpp` and `test/emul_string_null_tests.cpp`: the power-budget parser case (neighbouring flag set alone, field's own maximum pinned at 1023), one case per table with a reachable overrun, the exactly-covered tables still rendering their labels at the top code, the retry counters rendering numbers including 0 and 1, and the null-guard emul behavior. Not run on hardware.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
 **Tesla: a second battery stops corrupting the first battery's page**
 Branch [`tesla-instance-parity`](https://github.com/ekholm/Battery-Emulator/tree/tesla-instance-parity) @ `7241dc10` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-instance-parity)
 `TESLA-BATTERY.cpp` wrote the shared `datalayer_extended.tesla` struct from every instance - 483 sites, both constructors - so a double-Tesla setup interleaved two packs into one advanced page. Each instance now carries its own extended-struct pointer, set at construction and null for the second battery: the pattern ECMP and Renault Zoe Gen2 already use. The hoisted UDS part-number trigger is covered, and both ends of the guarded extended block are pinned by test.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+There is exactly one `datalayer_extended.tesla`, and both `TeslaBattery` constructors published into it from every instance. On a double-Tesla setup that means two packs interleaving their values into the first pack's advanced page - with nothing on the page to indicate whose numbers they are.
+
+`TeslaBattery` now carries a `DATALAYER_INFO_TESLA*` set at construction: the struct's address for the main instance, null for any additional instance. This is the pattern ECMP and Renault Zoe Gen2 already use. The 479 extended writes in `update_values()` occupy one contiguous region; a single `if (datalayer_tesla)` guards them all. Two things that live inside that region are hoisted above the guard so they keep running for every instance: the UDS part-number query trigger, which drives a request on the wire, and the pack's own energy counters, which are addressed through the per-instance `datalayer_battery` pointer rather than through the extended struct.
+
+`TeslaHtmlRenderer` takes the same pointer. An instance with no extended struct renders a brief "no extended data" section rather than the other pack's numbers. `renders_own_battery_data()` stays false for pack 2, keeping its existing "limited to the Main Battery" notice; the null path makes that a deliberate choice rather than the only safe option.
+
+The host `String` emulation now null-guards its `const char*` constructor and `operator+=`, matching Arduino's behavior. Some Tesla char* fields remain null until a CAN frame fills them; the firmware renders them as empty strings, but the previous `std::string` path threw. This was needed to run the Tesla HTML renderer in the host test binary at all.
+
+Eight tests in `test/tesla_instance_isolation_tests.cpp`: a positive control confirming the main instance still publishes (so "second instance wrote nothing" cannot pass vacuously), and cases pinning that a second instance leaves the struct untouched - including the UDS handshake path, which must still fire for every instance even though the extended struct is not written.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
@@ -226,11 +307,63 @@ Host tests drive the real receive path (`0x7E2` frame, `update_values()`, datala
 Branch [`solax-contactor-permission-uplift`](https://github.com/ekholm/Battery-Emulator/tree/solax-contactor-permission-uplift) @ `a69c78ef` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:solax-contactor-permission-uplift)
 When the inverter commanded the contactor open, the state machine reset but `inverter_allows_contactor_closing` stayed true until the next received frame. The revocation now happens in the open-command branch itself. The exposure, stated precisely: the flag was never unbounded - a 2-second silence timeout already clears it - so the window was the inverter's own next transmission or about 2-3 s, whichever came first. The tests pin both the revocation and the timeout backstop, including its AlwaysClosed gate, so neither safety layer can regress silently.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+`SolaxInverter::map_can_frame_to_variable()` grants and revokes `inverter_allows_contactor_closing` from the same state machine, but not at the same time.
+
+The `CONTACTOR_CLOSED` case sets the flag near its top, then tests the payload for the inverter's open command. That branch raises `EVENT_INVERTER_OPEN_CONTACTOR` and resets `STATE = BATTERY_ANNOUNCE` - but does not touch the flag. The `BATTERY_ANNOUNCE` case is what clears it, and that runs on the next received frame.
+
+So between the open request and the next frame, the permission stays true. If the inverter goes quiet after asking to disconnect, the clearing frame never comes, and the permission stands until `update_values()`'s RX-timeout backstop fires. That backstop bounds it: `INTERVAL_2_S` measured from `LastFrameTime`, which the open frame itself refreshed, checked on the 1 s core-loop cadence - so roughly 2-3 s of stale permission. The flag is read by `precharge_control.cpp`, `comm_contactorcontrol.cpp`, and about fourteen battery drivers.
+
+The fix is one line in the block that already handles the open request: revoke the permission there, so the frame carrying the request also carries the revocation.
+
+`LockAfterFirstClose` is deliberately unaffected. The revocation sits inside the same `NoWorkaround` gate as the `set_event` call, so the lock still holds. `AlwaysClosed` reaches the permission by a different path entirely - an early return that bypasses the state machine - and the timeout backstop is also gated on `NoWorkaround`, so that mode is unaffected by the backstop as well.
+
+Seven tests in `test/solax_contactor_permission_tests.cpp` drive the real state machine over RX frames: the open request leaves the permission false with no further frame; it stays false while `BATTERY_ANNOUNCE` runs; the backstop threshold, pinned at 1999 ms and 2000 ms of silence; `LockAfterFirstClose` survives the timeout and ignores the open payload; the backstop measures silence from the latest frame, not from the first; `AlwaysClosed` survives the timeout.
+
+Builds on lilygo_330. Not reproduced on hardware - no SOLAX inverter available. The state walk is from the source and from the host tests.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **BYD-CAN: the brand filter tested one byte and stored another**
 Branch [`byd-brand-filter`](https://github.com/ekholm/Battery-Emulator/tree/byd-brand-filter) @ `e9fa7e92` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:byd-brand-filter)
 The inverter-name filter had two independent defects that composed into "never correct on any input": both comparisons were `>` (so the printable range it was written to accept was exactly what it rejected), and the guard tested `u8[i]` while the body stored `u8[i + 1]`. Both fixed, and the review added the half a fix alone would have missed: a rejected byte clears its slot rather than leaving the previous scan's character behind. This deliberately does not decide the byte-0 mux question - see [FINDINGS.md](FINDINGS.md) - it makes the current reading self-consistent.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The 0x151 identification branch that populates `inverter_brand` had two independent defects:
+
+```cpp
+if ((rx_frame.data.u8[i] > 0x40) && (rx_frame.data.u8[i] > 0x7B))  //Filter out invalid chars
+    inverter_brand[i] = rx_frame.data.u8[i + 1];
+```
+
+**Both comparisons are `>`.** The condition collapses to `> 0x7B`, admitting exactly the bytes the comment calls invalid (above `z`) and rejecting the entire printable `A`..`z` range it was written to accept.
+
+**The guard reads `u8[i]` while the copy takes `u8[i + 1]`.** Byte 0 carries the identification-request flag, so the brand string lives in bytes 1..7 and the copy's offset is right. It was the test that needed to move with the copy, not the other way around.
+
+Together they meant `inverter_brand` was never once correct for a printable brand name: the string was populated only from bytes above 0x7B, shifted by one - almost never anything real.
+
+The review found the issue the first two fixes alone would have missed: a rejected byte left its slot untouched. The destination is never zeroed between frames, so "GoodWes" followed by "SMA" produced "SMAdWes" - a brand string that was never on the wire. That was unreachable while the broken filter accepted almost nothing, and became reachable the moment the filter started working, so it is fixed in the same change.
+
+The fix reads the byte once and writes either the character or `'\0'`:
+
+```cpp
+const uint8_t c = rx_frame.data.u8[i + 1];
+inverter_brand[i] = ((c > 0x40) && (c < 0x7B)) ? c : '\0';
+```
+
+Characterization tests cover: the name stored in order, both range bounds and the bytes immediately outside them, the high bytes the broken filter uniquely accepted, an invalid byte truncating rather than shifting the rest, a request frame not populating the name, and a shorter name following a longer one not inheriting its tail.
+
+The inherited range `A`..`z` still rejects digits and spaces. That is pre-existing and not changed here - widening it is a separate decision - but it is now pinned by a test rather than waiting to be discovered against a real inverter.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
@@ -238,11 +371,49 @@ The inverter-name filter had two independent defects that composed into "never c
 Branch [`hostname-no-copy`](https://github.com/ekholm/Battery-Emulator/tree/hostname-no-copy) @ `2f67b0fb` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:hostname-no-copy)
 `custom_hostname` was an `std::string` in a tree whose consumers speak Arduino `String`, so every read paid a conversion copy. It becomes a `String`, both accessors return `const String&`, and all five call sites bind for free - `MDNS.begin()` and `html_escape()` take the reference directly. The quieter win: the file is now host-testable at all, and ships with its tests.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+`active_hostname()` and `default_hostname()` returned `String` by value from storage that outlived every caller. "battery-emulator-" plus four hex digits is 21 characters, well past the 13 below which an Arduino String stays inline, so each call paid a malloc, a copy and a free. `syslog_send()` calls `active_hostname().c_str()` once per line. Measured with an operator-new probe: 100 allocations per 100 reads. Now 0.
+
+The reason a copy was unavoidable at all: `custom_hostname` was a `std::string`, so the custom-name branch built a `String(custom.c_str())` out of bytes that already existed. `custom_hostname` becomes a `String`, and both accessors return `const String&`. Every call site still works: the two that want their own copy assign to a `String` and get one; `MDNS.begin()` and `html_escape()` take `const String&` directly; the settings page still returns a value.
+
+`hostname.cpp` joins the host test build, with `esp_read_mac()` stubbed alongside the other IDF headers the test emulation already provides. `hostname_for_mac()` is split out as a pure function: `default_hostname()` reads the eFuse once and caches, which makes the format untestable through it. The pure function is what goes on the wire and now has tests for the cases that actually break - leading-zero handling (`%x` vs `%02x` is wrong only for some MACs), lowercase, and that only the last two bytes are used.
+
+Seven mutations caught: format-drops-leading-zeroes, wrong-mac-bytes-used, uppercase-hex, selection-inverted, active-returns-a-copy, cache-rebuilt-every-call, and back-to-returning-by-value (caught at compile time - the test takes the address of what it gets back, and an rvalue has none).
+
+Host suite green; lilygo_330 builds clean.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **AsyncTCP: the 4 KB stack request is real - proven from the emitted code, and now made explicit**
 Branch [`asynctcp-stack-claim`](https://github.com/ekholm/Battery-Emulator/tree/asynctcp-stack-claim) @ `1c792560` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:asynctcp-stack-claim)
 The suspicion was that `CONFIG_ASYNC_TCP_STACK_SIZE 4096` never reached the library, leaving its 16 KB default to win. Refuted twice over: `AsyncTCP.h`'s first include is `system_settings.h` itself, and the emitted object code builds the task-creation argument as 4096 (the counterfactual was also built and read). The change makes the ask explicit - `BE_ASYNC_TCP_STACK_SIZE`, mapped onto the library's config name - and adds a text-reading regression test that reddens if either define disappears. It deliberately does not pin which include supplies the value, since two paths do today.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The starting suspicion was that `CONFIG_ASYNC_TCP_STACK_SIZE 4096` in `system_settings.h` was not reaching `AsyncTCP.h` before its `#ifndef` fallback, leaving the task with 16384 bytes of stack instead of the 4096 asked for. That suspicion was refuted.
+
+`AsyncTCP.h`'s very first include is `system_settings.h` itself. The emitted object code was also read: in `_start_asyncsock_task` the stack argument to `xTaskCreateUniversal` is built as `movi.n a12, 1` then `slli a12, a12, 12` = 4096. The counterfactual was also built: commenting out the define and rebuilding gives `slli a12, a12, 14` = 16384.
+
+There are actually two independent include paths that bring `system_settings.h` in before the fallback - the direct include and the chain through `hal.h` into `datalayer.h`. Either is enough. An ordering test that pinned one of them would cry wolf at a tidy-up removing the redundant include while the 4096 stayed intact, so the test was not written that way.
+
+The setting is already working. What was missing was anything that notices if it stops.
+
+The change gives the project's value its own name: `BE_ASYNC_TCP_STACK_SIZE 4096` in `system_settings.h`, mapped onto `CONFIG_ASYNC_TCP_STACK_SIZE`. `AsyncTCP.h` then checks at preprocessor time whether the value it arrived at matches `BE_ASYNC_TCP_STACK_SIZE`, and fails the firmware build with a diagnostic message if not. This fires wherever the setting is lost, by any route.
+
+The host test only checks that the guard is still present, and says in the test text why it does not pin which include supplies the value.
+
+No functional change: the setting already worked. This is the protection it never had.
+
+235 passed / 1 skipped (pre-existing); lilygo_2CAN_330 builds clean.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
@@ -250,11 +421,47 @@ The suspicion was that `CONFIG_ASYNC_TCP_STACK_SIZE 4096` never reached the libr
 Branch [`gpio-event-names`](https://github.com/ekholm/Battery-Emulator/tree/gpio-event-names) @ `630c74e1` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:gpio-event-names)
 `alloc_pins()` wrote one shared name pair for both GPIO events, and the message string is read back live on every publish - events page, MQTT, ESP-NOW. So a missing-pin failure after a pin conflict re-pointed the conflict's message at the wrong component, and vice versa. Each event now owns its names; the shared pair is gone rather than left behind.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+`EVENT_GPIO_CONFLICT` and `EVENT_GPIO_NOT_DEFINED` both drew from a single pair of name slots written by `alloc_pins()` - one for the component that claimed a pin and one for the component that later tried to claim the same one. Event messages are not stored with the event: `get_event_message_string()` is re-rendered every time any consumer reads it, and the events page, MQTT and ESP-NOW all do. The message therefore reflects whoever wrote those shared slots most recently, not the components the event is actually about.
+
+On a misconfigured board both events are raised and neither is cleared. A pin conflict followed by a missing-pin failure overwrites the conflict's name slots with the missing-pin component, so the conflict event's message names the wrong component for the life of that board. The same happens in reverse.
+
+Each event now has its own name storage, set when the event is raised and written by nothing else. The shared pair is gone rather than left behind - a second event cannot reclaim it.
+
+Verified by measurement rather than by reading: restoring the shared slot turns the two cross-contamination cases red and leaves the positive cases green. Further mutations are caught: swapping the claimant and holder names (the test asserts the full "pin used by 'X' is already allocated by 'Y'" phrase, not merely that both names appear - a swap sends the user to the wrong setting), and freezing names on first write (which pins that this separated two events rather than merely latching each one's first value).
+
+Last-write-wins within one event is a deliberate property of `set_event()`. It is also the correct one here: the events page renders the data field and the message text in adjacent cells of one row, and first-wins names would put the newest failure's pin number beside the first failure's component names in that same row.
+
+238 host tests.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **Pin roles: illegal combinations refused at selection time**
 Branch [`pin-role-exclusions`](https://github.com/ekholm/Battery-Emulator/tree/pin-role-exclusions) @ `30454a6d` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:pin-role-exclusions)
 A legal-combination table (`pin_exclusions.{h,cpp}`) makes enforced exclusions data entries, with the known-legal shared-pin groups documented beside them with their rationale - so the next exclusion is an entry, not an investigation. Enforcement runs at `/saveSettings`: the would-be pin assignment is computed and an excluded pair is refused before it is stored, instead of discovered at boot. The board knowledge in the table is hand-maintained today; if board capabilities ever become declarative, this table is the natural first consumer.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Board pin tables multiplex one GPIO across several roles on purpose. Most coexisting roles are user-selectable alternatives or structurally exclusive options, so uniqueness alone cannot be asserted globally. What can be stated is which pairs of roles must never be active at the same time.
+
+Today, a collision like that surfaces at boot as `EVENT_GPIO_CONFLICT` out of `alloc_pins()`, when the user can no longer act on it. The new `pin_exclusions.{h,cpp}` moves enforcement to `/saveSettings`, where the would-be assignment can still be refused.
+
+The helper `pin_exclusion_conflict()` takes the candidate inverter protocol and equipment-stop setting plus the two board-specific pin numbers, and returns a user-showable sentence naming the conflict or `nullptr` for a legal combination. It is a pure function of its inputs, so every board's verdict is testable without hardware. `/saveSettings` reads the candidate state from the request's own parameters where present and from the currently stored values otherwise, calls the helper, and returns HTTP 400 with the conflict text if excluded.
+
+The currently ruled pair is the SMA inverter's contactor-enable pin and the equipment stop button, which the Stark board wires to the same GPIO (GPIO 2). SMA LV does not drive a contactor pin and stays legal. Boards that wire these roles to separate pins are not affected. `GPIO_NUM_NC` ("not connected") is treated as never colliding, so a board that does not wire one of these roles at all does not report a conflict.
+
+The known-legal shared-pin groups are documented in the header with their rationale, so the next exclusion lands as a table entry rather than requiring the wiring to be re-derived from the board schematics.
+
+The host matrix test instantiates every classic-ESP32 board HAL and pins each board's verdict explicitly. S3 boards do not compile in the host GPIO emulation and are recorded as read-apart at implementation time.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
@@ -262,11 +469,72 @@ A legal-combination table (`pin_exclusions.{h,cpp}`) makes enforced exclusions d
 Branch [`driver-dead-safety-events`](https://github.com/ekholm/Battery-Emulator/tree/driver-dead-safety-events) @ `ced4d411` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-dead-safety-events)
 Two drivers raised safety events on conditions that could not occur: the Kia/Hyundai HYBRID's interlock decode had a cast-precedence error, so `EVENT_HVIL_FAILURE` never fired (now fires and clears on `0x5AE`), and CHARGEBYTE's error ladder was ordered so an error while charging never reported `BMS_FAULT` (reordered). One decision stated openly: the E-GMP water-sensor check was dead - the member is initialised to 164 ("no water") and no E-GMP RX path ever writes it, so the event could never fire and the page rendered a constant. The sibling KIA-64 driver decodes the same sensor for real (`u8[3]` of its poll response, 164 = dry), so this was a copied pattern that never got its decode wired. Removed rather than guessed at; one E-GMP trace naming the byte restores it with the KIA-64 decode as the template.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+Three drivers raised safety events on conditions that could not occur, and one dead check is recorded rather than guessed at.
+
+**KIA/Hyundai HYBRID - HVIL interlock** (`KIA-HYUNDAI-HYBRID-BATTERY.cpp`): the interlock decode read
+
+```cpp
+interlock_missing = (bool)(rx_frame.data.u8[1] & 0x02) >> 1;
+```
+
+The `(bool)` cast bound before the shift: `(bool)(u8[1] & 0x02)` is 0 or 1, and `1 >> 1` is 0, so `interlock_missing` was always 0 on every `0x5AE` frame and `EVENT_HVIL_FAILURE` was unreachable. Removing the cast lets the shift happen on the raw masked byte, so bit 1 is tested correctly. The event now fires and clears through `0x5AE`.
+
+**CHARGEBYTE-CCS - BMS fault while charging** (`CHARGEBYTE-CCS.cpp`): the status ladder put `inCharge` before the error flags, so an error raised while charging reported `BMS_ACTIVE` and `BMS_FAULT` was unreachable in exactly the state where a fault matters most. Errors now rank first:
+
+```cpp
+if (hasLowLevelError || hasChargebyteError)
+  datalayer.battery.status.real_bms_status = BMS_FAULT;
+else if (inPrecharge)
+  ...
+```
+
+**KIA E-GMP - water ingress sensor** (`KIA-E-GMP-BATTERY.cpp`): `waterleakageSensor` was initialised to 164 ("no water") and no E-GMP RX path ever wrote it. The ingress check compared a constant, and the advanced page rendered that constant as if it were a live reading. The member, its getter, the dead check, and the misleading page line are removed. The decision is stated openly: the KIA-64 sibling decodes the same sensor from `u8[3]` of its `0x5D5` poll response (164 = dry), so the E-GMP decode has a template when a real CAN trace names the byte. Nothing is invented here.
+
+The fourth family gap - `EVENT_12V_LOW` on HYBRID - is not added and the reason is on record: no HYBRID frame set decodes a 12 V byte, and the sibling's `0x596` frame does not exist there. A trace or PID documentation is needed first.
+
+Five tests in `test/battery/dead_safety_events_tests.cpp`, each confirmed to fail against its defect before the fix: the HVIL event firing on a set interlock bit; the HVIL event clearing on a cleared bit; `BMS_FAULT` when charging with an error flag set; `BMS_ACTIVE` when charging cleanly; and a text check that the waterleakage line stays absent from the E-GMP status page.
+
+Not reproduced on hardware. These are host tests over the receive paths and status logic.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **Decode arithmetic: four values fixed, three pinned**
 Branch [`driver-decode-arithmetic`](https://github.com/ekholm/Battery-Emulator/tree/driver-decode-arithmetic) @ `aae8fc10` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-decode-arithmetic)
-Range Rover PHEV's 24-bit current read against the driver's own declared range; IMIEV had swapped channels, mV rounding loss, and - found during testing - uninitialised 88-entry instance arrays publishing heap reads until every sensor reports; RELION-LV's minimum temperature was decoded but never wired. **TESLA-LEGACY's wrapped subzero brick temperatures are no longer part of this: you fixed them independently in `a0687ce98`, with the same change this branch carried - `battery_BrickModelTMax/Min` widened to `int16_t`, the decode's own range being -40..+87.5 C.** What is left here for that driver is the reason, as a comment beside the declaration, and a test - which no longer fails before, and is kept only because nothing else pins the sign of that decode. Two further suspicions are pinned as correct-as-is by characterization tests with the evidence named, so the next reader does not re-litigate them. A third pin, TESLA-LEGACY's 100 kWh hardware-ID group, was removed once an owner's page settled it; that one you have since fixed too, and what remains of it is a test-only entry in [FEATURES.md](FEATURES.md).
+Range Rover PHEV's 24-bit current read against the driver's own declared range; IMIEV had swapped channels, mV rounding loss, and - found during testing - uninitialised 88-entry instance arrays publishing heap reads until every sensor reports; RELION-LV's minimum temperature was decoded but never wired. ENNOID-BMS put its only temperature in the minimum field, one degree above the maximum, and in whole degrees against deci-degree fields. **TESLA-LEGACY's wrapped subzero brick temperatures are no longer part of this: you fixed them independently in `a0687ce98`, with the same change this branch carried - `battery_BrickModelTMax/Min` widened to `int16_t`, the decode's own range being -40..+87.5 C.** What is left here for that driver is the reason, as a comment beside the declaration, and a test - which no longer fails before, and is kept only because nothing else pins the sign of that decode. Two further suspicions are pinned as correct-as-is by characterization tests with the evidence named, so the next reader does not re-litigate them. A third pin, TESLA-LEGACY's 100 kWh hardware-ID group, was removed once an owner's page settled it; that one you have since fixed too, and what remains of it is a test-only entry in [FEATURES.md](FEATURES.md).
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Four decode fixes, each with named evidence, and three pins where the evidence was not strong enough to change anything. The principle is stated once and applied throughout: a withdrawn BMW-PHEV DTC claim is the cautionary case for changing something you cannot settle.
+
+**RANGE-ROVER-PHEV - 24-bit current assembly** (`RANGE-ROVER-PHEV-BATTERY.cpp`): the driver's own declaration says the field spans 0 - 16,777,215 with offset -209,715.175 - a range whose midpoint only a 24-bit assembly reaches. The old code shifted both high bytes by 8:
+
+```cpp
+CurrentExt = ((rx_frame.data.u8[5] << 8) | (rx_frame.data.u8[6] << 8) | rx_frame.data.u8[7]);
+```
+
+Bytes 5 and 6 collided in one lane, leaving the value as a 16-bit number. Fixed to `<< 16` for byte 5, `<< 8` for byte 6.
+
+**IMIEV/C-Zero/Ion - temperature channels and voltage rounding** (`IMIEV-CZERO-ION-BATTERY.cpp`): temperature channels 2 and 3 guarded on `u8[2]` and `u8[3]` but read `u8[1]`, mirroring channel 1 on every frame - the guards themselves name the intended bytes. Cell voltages were truncated: `3.7f * 1000` is `3699.99...` in binary, and the cast published 3,699 mV for a cell the decode meant as 3,700. Changed to `lroundf`. The two 88-entry instance arrays (`cell_voltages`, `cell_temperatures`) were also uninitialised heap reads until every sensor reported; zero-initialised here. (The uninit fix also appears in `driver-uninit-sweep`; on this branch it travels with the decode corrections.)
+
+**RELION-LV - minimum temperature never wired** (`RELION-LV-BATTERY.cpp`): `min_cell_temperature` was decoded and then never used - both datalayer fields carried the maximum. Evidence: the case's own captured frame `47 01 01 47 01 01 00 00` reads as two (value, id, id) triplets, the same shape the driver uses for cell voltages. `u8[2]` is an id byte (0x01 = -49 C constant); `u8[3]` is the second value byte (0x47 = 21 C). Min is now wired from `u8[3]`.
+
+**ENNOID-BMS - temperature unit and ordering** (`ENNOID-BMS.cpp`): the single reported temperature landed in the MIN field one degree colder than the max, both in raw degrees Celsius against deci-Celsius fields. A 21 C pack displayed as 2.1 C with max < min. The author's synthetic 1-degree spread is kept, correctly ordered and scaled by 10.
+
+**TESLA-LEGACY brick temperatures - overtaken by upstream**: subzero brick temperatures wrapped through `uint8_t` intermediates while the decode range is -40 to +87.5 C. Upstream reached the identical fix independently (a0687ce98: `battery_BrickModelTMax/Min` widened to `int16_t`), so there is nothing left to fix. What remains is a comment beside the declaration explaining why the sign matters, and one test that pins the subzero case - not because it fails, but because nothing else pins the sign of that decode.
+
+**Pinned as correct-as-is** (characterisation tests with the evidence named): VOLVO-SPA-HYBRID `0x369` low-byte source is self-referential, and the sibling driver has the identical expression - no sibling settles the layout, and the field is display-only; RELION-LV `0x264` discharge current reads the regen bytes - its only consumer is commented out, and no trace names the discharge bytes.
+
+Seven tests in `test/battery/DecodeArithmeticTests.cpp`. Each fix test is confirmed to fail against its defect before the fix; each pin test reflects the evidence stated at the site.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
@@ -274,11 +542,57 @@ Range Rover PHEV's 24-bit current read against the driver's own declared range; 
 Branch [`driver-family-consistency`](https://github.com/ekholm/Battery-Emulator/tree/driver-family-consistency) @ `6c59fefc` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-family-consistency)
 FERROAMP now honours user voltage limits like PYLON and SOLXPOW already do (the siblings' 2.0 V offset deliberately not imported); GROWATT-WIT's capacity guard goes `> 0` to `> 10`, ending a 50,000 dAh fiction from a 0.5 V startup reading; MG-5's `MG5_USE_FULL_CAPACITY` branch - defined nowhere - is deleted; swapped charge/discharge byte labels corrected, values unchanged.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+Five drivers brought back to what their family or their own comments promise. Each was verified at the source before changing anything.
+
+**FERROAMP-CAN - user voltage limits not honoured** (`inverter/FERROAMP-CAN.cpp`): the `0x4221` frame always sent the raw design limits for charge and discharge cutoff voltages. The `0x4200` siblings PYLON and SOLXPOW already check `user_set_voltage_limits_active` and substitute the user-tightened window when it is active; FERROAMP did not, so a user-configured narrow window reached the emulator's own logic but not the inverter. Now follows the same pattern. The siblings carry a +/-2.0 V offset that this driver never had; that offset is deliberately not imported - only the voltage selection is aligned, not the offset convention.
+
+The same file had swapped byte comments on `0x4221`: charge and discharge labels were exchanged. The values were always correct; only the comments were wrong. Corrected to match the slot semantics the family uses.
+
+**GROWATT-WIT - capacity guard** (`inverter/GROWATT-WIT-CAN.cpp`): the rated-capacity calculation guarded `voltage_dV > 0`, which let a 0.5 V startup reading turn 30 kWh into a clamped 50,000 dAh fiction that went out on the wire. The HV and LV siblings both guard at `> 10` (1.0 V). Changed to match. The accompanying comment claimed the clamp allowed up to 65,535 while the code clamped to 50,000; the comment now says what the code does.
+
+**MG-5 - dead `MG5_USE_FULL_CAPACITY` branch** (`battery/MG-5-BATTERY.cpp`): the macro was defined nowhere, so the voltage-extended SoC rescale was compiled out of every build that ever shipped. Deleted rather than activated - its 4.1 V / 369 V / 92 % constants need a real-pack trace to validate. Deleting the branch orphaned a `cellVoltageValidTime` timer that was set and decremented but never read; removed with it, which also resolves the per-call-vs-per-second question the triage had noted about that timer.
+
+**SOFAR-CAN - charge consent follows the display spoof** (`inverter/SOFAR-CAN.cpp`): the charge/discharge consent gate used `spoofed_soc`, whose 99 % display cap made the discharge-only branch unreachable and its claimed hysteresis fiction. A truly full pack now revokes charge consent while the display still reads 99 %. Changed to `datalayer.battery.status.reported_soc`.
+
+Seven tests in `test/family_consistency_tests.cpp` pin the four behaviours. Each fix-reverted mutation fails its named test.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **Uninitialised driver arrays: the four that are live**
 Branch [`driver-uninit-sweep`](https://github.com/ekholm/Battery-Emulator/tree/driver-uninit-sweep) @ `51ef941a` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-uninit-sweep) · includes the memory-safety fixes beneath it
 A sweep sorted ten suspect arrays by liveness: four are whole-array memcpys into the datalayer reachable before frames fill them - BOLT-AMPERA, HYUNDAI-IONIQ-28, KIA-HYUNDAI-64 (whose `<300` filter passes high garbage), SANTA-FE-PHEV. All four get `= {0}` plus a poisoned default-init test through their own publish path; the six that are written-before-read are commented at the declaration instead of churned. Beneath it, the memory-safety commits it includes: an ORION out-of-range cell id is rejected rather than clamped (a corrupted id must neither overwrite a real cell nor inflate the detected-cell count), and explicit zero-init where a user-provided constructor defeats value-initialisation.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+This branch stacks two commits: the base commit fixes an out-of-bounds cell write and three uninitialised cell arrays (ORION, ECMP, IMIEV); the top commit zero-initialises the four additional live uninitialised arrays the sweep found when it sorted all ten suspects by liveness.
+
+**Base commit - out-of-bounds write and three arrays**
+
+ORION-BMS (`ORION-BMS.cpp`): an over-range cell id was clamped to `MAX_AMOUNT_CELLS` and then used as a write index - one past the end of `cellvoltages[MAX_AMOUNT_CELLS]`. The recorded decision is to reject the frame rather than clamp to the last cell: a corrupted or mis-configured id must neither overwrite a real cell's reading nor drive the detected-cell count to a full pack.
+
+ECMP, IMIEV, and ORION cell arrays were uninitialised instance members that were memcpy'd or min/max-scanned into the datalayer before any frame filled them. ECMP had this live - its user-provided constructors defeat the value-initialisation that `new T()` would otherwise perform for types without them. IMIEV and ORION happened to be safe today for the same reason, and that protection is exactly one added constructor away from vanishing. All four arrays get explicit `= {0}` initialisers.
+
+**Top commit - four more live arrays**
+
+A sweep of eight further drivers with the same pattern (user-provided constructor + uninitialised member array) sorted them by whether the array is a whole-array memcpy destination reachable before frames fill it:
+
+Live, fixed with `= {0}` and a poisoned-init test each: BOLT-AMPERA `cellblock_voltage[96]` (`update_values()` memcpys all 96 unconditionally), HYUNDAI-IONIQ-28 `cellvoltages_mv[96]` (same unconditional memcpy), KIA-HYUNDAI-64 `cellvoltages_mv[98]` (the POLL_GROUP_5 row memcpys all 98, and its `<300` filter passes high garbage - 0x4242 = 16,962 mV), SANTA-FE-PHEV `cellvoltages_mv[96]` (the poll-complete memcpy publishes all 96).
+
+Written-before-read or read-nowhere, commented at the declaration rather than initialised: BMW-I3 `message_data`, BMW-iX `UDS_buffer`, BOLT-AMPERA `battery_cell_voltages`, MEB `cellvoltages_polled` and `battery_serialnumber`, UdsCanBattery `seq_msg.data`.
+
+**Why the mutation evidence is stated rather than hidden**: removing the BOLT initialiser fails its test in a Release host build. Removing the other three does not - GCC's store-merging turns the neighbouring zero NSDMIs into a block clear that zeroes the gap array as collateral. At -O0 all three removals fail (0x42 poison surfaces verbatim), so the hazard is real wherever an optimizer or flag set stops covering it. The initialisers convert both accidents into a guarantee.
+
+The poisoned-init tests use placement-new over a buffer filled with 0x42 (not 0xAB: the obvious poison reads back as a float that truncates to zero, which is the value the test is trying to prove is not an accident).
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
@@ -286,11 +600,55 @@ A sweep sorted ten suspect arrays by liveness: four are whole-array memcpys into
 Branch [`driver-signedness-clamps`](https://github.com/ekholm/Battery-Emulator/tree/driver-signedness-clamps) @ `7a1a945d` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:driver-signedness-clamps) · stacked under `sbox-average-divisor`
 Three driver defects with the same shape: a signedness or width error that turns a real measurement into a plausible wrong number. The main one: `datalayer.shunt.measured_amperage_dA` was `uint16_t`, so every discharge current wrapped - a -50 A discharge read as ~65,486 dA. Now `int16_t`, matching `battery.status.current_dA`, the same quantity and unit already signed in-tree. The audit behind it found the field has two writers and zero in-tree readers, which is what makes the root fix safe to take first. Also: BMW-SBOX's rolling-average members go signed (`avg_mA_array`, `avg_sum` - the division then signs itself), and a review commit zero-initialises them and pins that.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+Three defects that corrupt a value instead of losing it - a signed quantity carried unsigned in two places, and a clamp that assigns its limit to the wrong variable. All three are silent: nothing is logged, nothing is refused, the wrong number simply goes out on the wire.
+
+**`datalayer.shunt.measured_amperage_dA` was `uint16_t`** (`datalayer/datalayer.h`, `shunt/BMW-SBOX.cpp`): every discharge current wrapped. The field is derived from `measured_amperage_mA`, which is `int32_t`; dividing a negative milliamp value by 100 and storing it in `uint16_t` turns -50 A (= -500 dA) into roughly 65,036. The field becomes `int16_t`, matching `battery.status.current_dA` - the same physical quantity in the same unit, already signed in the tree.
+
+The audit behind this change matters: the field has exactly two writers (BMW-SBOX and BYD-CAN in shunt mode) and zero in-tree readers. Widening the type cannot change any comparison anywhere; that is the reason this fix is safe to take independently, before the field has a reader.
+
+**BMW-SBOX rolling average signed wrong** (`shunt/BMW-SBOX.h`): `avg_mA_array` and `avg_sum` were `uint32_t`, and the division was unsigned. One -500 mA discharge sample summed across nine zero slots as `(2^32 - 500) / 10 = 429,496,679` mA and landed in the `int32_t` datalayer field as roughly +429 kA - a discharge reported as a colossal charge. Both declarations become `int32_t`, matching the samples they hold.
+
+The same pass zeroes these members and `k`: `avg_mA_array[10] = {0}`, `avg_sum = 0`, `k = 0`. Today `new BmwSbox()` happens to value-initialise them because the class declares no user-provided constructor, which is exactly the accident-of-allocation-expression that made ECMP's cell array live garbage the moment a constructor was added. One initialiser makes that impossible to repeat. A test pins it: `SboxMemoryInitTest.RollingAverageStartsZeroedNotHeapGarbage` default-init placement-news over a 0x42-poisoned buffer and confirms the first-sample average is not influenced by that poison.
+
+**CHEVY-VOLT-CHARGER over-current clamp** (`charger/CHEVY-VOLT-CHARGER.cpp`): the over-current branch assigned the max-amp constant to `setpoint_HV_VDC` (the voltage setpoint) instead of `setpoint_HV_IDC`. That transmitted a nonsense ~11 V voltage setpoint and left the current unclamped - the second consequence being the worse one. The neighbouring voltage clamps show the intended shape.
+
+Tests cover all three defects, both writers of the shared deci-amp field, and the charge direction that must not regress. The over-current test drives 250 V deliberately: at 300 V the power clamp reaches the same current by itself, so the assertion would hold even with the current clamp deleted.
+
+Not reproduced on hardware - no SBOX, no BYD shunt and no Volt charger on this bench. Host tests over the decode and clamp arithmetic.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **BMW-SBOX: the "1 second average" divides by 10 before 10 samples exist**
 Branch [`sbox-average-divisor`](https://github.com/ekholm/Battery-Emulator/tree/sbox-average-divisor) @ `be280452` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:sbox-average-divisor) · includes the entry above
 `BMW-SBOX` fills one average slot per 100 ms and unconditionally publishes `avg_sum / 10`, so for the first second - and after any gap in `0x200` frames - the average reads a tenth to nine tenths of the true current. Live, not theoretical: Kostal transmits `measured_avg1S_amperage_mA` to the inverter whenever an S-BOX is configured. The divisor becomes the count of samples actually taken, capped at the window. The judgement is stated rather than hidden: publish the average over the samples that exist, because the field carries no validity flag - "publish nothing" means the consumer keeps reading the initial 0 A, which is the same defect class in a quieter coat. An average over real samples converges inside the second.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+This branch includes the `driver-signedness-clamps` fixes and adds the average-divisor fix on top.
+
+`BMW-SBOX` accumulates one current sample per 100 ms in a ten-slot ring, then publishes `avg_sum / 10` as a one-second average. The divisor is always 10, whether the ring has filled or not. For the first second after the shunt starts reporting - and after any gap in `0x200` frames that lets the window go empty - the published average is a fraction of the real current: one real sample and nine zero slots averaged in as though they were zero-current readings, so the first sample is reported as one tenth of the real current.
+
+This is not an internal number. KOSTAL-RS485 transmits `measured_avg1S_amperage_mA` to the inverter whenever the S-BOX shunt is selected, so the understated reading goes out on the wire during that window.
+
+The divisor becomes the count of samples actually taken, capped at the window size (`avg_samples`, initialised to 0 and incremented each time the ring advances, capped at `AVG_SAMPLE_COUNT`). The sum still runs over the whole array: the unfilled slots are zero and contribute nothing, so the two are arithmetically equivalent, and the bound on the whole array is the one that cannot read past its end.
+
+The judgement is stated rather than hidden: the alternative considered was to publish nothing until the window fills. That is worse, because the field carries no validity flag - "publish nothing" means the consumer keeps reading the initial 0 A, which is a plausible-looking wrong number in a quieter coat. An average over the samples that exist is never a number no measurement supports, and it converges to the full-window average inside the second.
+
+The two window constants (`AVG_SAMPLE_COUNT = 10`, `AVG_SAMPLE_INTERVAL_MS = 100`) are named while the lines are open. They are one fact stated twice, and `measured_avg1S_amperage_mA` is named for it. A `static_assert(AVG_SAMPLE_COUNT * AVG_SAMPLE_INTERVAL_MS == 1000)` makes the relation a build-time constraint rather than a comment - the two cannot drift apart silently.
+
+Six new cases and a re-cut of two existing ones (those pins working: `OneDischargeSampleAveragesToItsOwnTenth` becomes `OneDischargeSampleAveragesToItself`). Seven mutations, each caught by a named test: divisor back to the window, cap removed, cap boundary `<=`, count starting at 1, sum dropping a slot, sampling guard removed, and the mathematically equivalent bound-to-count swap which is the whole fix's proof that the divisor is the only thing changing.
+
+Not reproduced on hardware - no SBOX on this bench. Host tests over the averaging arithmetic.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 
@@ -298,17 +656,79 @@ Branch [`sbox-average-divisor`](https://github.com/ekholm/Battery-Emulator/tree/
 Branch [`shunt-staleness-gate`](https://github.com/ekholm/Battery-Emulator/tree/shunt-staleness-gate) @ `199c9045` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:shunt-staleness-gate)
 `datalayer.shunt.available` is cleared 1000 ms after the last S-BOX frame - and nothing read it. Kostal kept transmitting the last shunt current forever after the shunt went silent. The gate makes Kostal check, and the interesting half is the fallback: when the S-BOX is stale, the inverter gets `battery.status.reported_current_dA` - not a value invented for an error path, but exactly what the same function's `else` branch already sends into the same two byte offsets for every installation without an S-BOX. It is the mapping the protocol already uses when nothing is measuring at the shunt, which is precisely the condition; the shunt reclaims the fields the moment frames resume. `0.0 A` was the alternative and is worse: equally untrue, and it reads as healthy idle.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+`datalayer.shunt.available` had three writers and no readers anywhere in the tree. BMW-SBOX clears it 1,000 ms after the last `0x200`/`0x210`/`0x220` frame, so the staleness the driver carefully tracks was recorded and then ignored.
+
+KOSTAL-RS485 is the live consumer: whenever an S-BOX is selected it writes `datalayer.shunt.measured_amperage_mA` and `measured_avg1S_amperage_mA` into the cyclic frame at byte offsets 18 and 22. Those fields keep their last value once the shunt goes quiet, so a dead shunt and a steady one look identical on the wire, for as long as the outage lasts.
+
+The gate makes KOSTAL check `datalayer.shunt.available` before writing those two offsets. When the shunt is stale, the inverter gets `datalayer.battery.status.reported_current_dA` into both positions instead. This is not a value invented for an error path: the `else` branch directly below in the same function already writes that same field into these exact two byte offsets for every installation without an S-BOX. It is the mapping the protocol already uses when nothing is measuring at the shunt, which is precisely the situation. The shunt reclaims the fields the moment frames resume.
+
+`0.0 A` was the alternative and is worse: equally untrue, and it reads as a healthy idle battery - the one state that invites the inverter to act.
+
+What is deliberately not gated: `CYCLIC_DATA[56]` and `[59]`, the precharge and contactor bytes. They also come off `datalayer.shunt`, but BMW-SBOX writes them from the emulator's own contactor state machine in `transmit_can()`, not from received frames, so they are not stale when the shunt goes quiet.
+
+Tests drive the real request/response path rather than peeking at the internal buffer: the test-harness `Serial2` grew a read queue and a write capture, and the tests feed the actual battery-info and cyclic-data request frames, then read the two floats out of the 64-byte frame the firmware actually sent, with null stuffing undone. That is what makes "the average field is quoted from the same dead shunt" a checkable claim rather than a second copy of the first assertion.
+
+Not reproduced on hardware - no SBOX on this bench.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **Native CAN: a transmit to an interface that never started is a silent success**
 Branch [`native-can-transmit-guard`](https://github.com/ekholm/Battery-Emulator/tree/native-can-transmit-guard) @ `f59f3050` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:native-can-transmit-guard)
 The native TWAI interface is the only one whose init failure raises no event - the MCP2515 and CAN-FD paths both do - and a transmit to it after a failed or absent init simply disappears. On boards that log nothing unless USB logging is enabled, that is a dead peripheral presenting as a working one. This refuses the transmit and raises a new `EVENT_CAN_NATIVE_NOT_INITIALIZED`, APPENDED at the end of the event enum: event ordinals go out on the wire (ESP-NOW publishes the enum value as a u16), so a mid-enum insertion would renumber every event after it for any peer on a different build. A review commit closes the second path to the dead peripheral, and a test pins the enum layout so the next event cannot un-append it.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+`transmit_can_frame_to_interface()` routed a `CAN_NATIVE` frame to `ACAN_ESP32::tryToSend()` with no check that the interface came up. `tryToSend()` writes TWAI registers from inside `portENTER_CRITICAL`. If the peripheral was never taken out of reset, that write raises a hardware exception with interrupts already masked - a double exception - and the watchdog resets the board straight back into the same transmit. Measured on silicon with a battery on the MCP2515 add-on and native unconfigured: roughly 45 resets a minute, indefinitely. On S3 boards each boot is another chance to lose the USB port; two boards here needed physical replugs after exactly this.
+
+Every other interface in the same switch already refuses this way - they hold a driver pointer and short-circuit on null. The native path has a `native_can_initialized` flag instead, and that flag was only ever read by `receive_can()`, so the interface was inert inbound and lethal outbound.
+
+The fix reads the flag before reaching `tryToSend()`, drops the frame, sets a datalayer flag, and the safety pass raises `EVENT_CAN_NATIVE_NOT_INITIALIZED` (WARNING). Trading a boot loop for an unexplained dead interface would not be an improvement on boards that log nothing unless `USBENABLED` is set.
+
+A review commit found the same hole in two further entry points: `stop_can()` and `restart_can()` wrote TWAI registers with no init check. `restart_can()` additionally dereferences `settingsespcan`, which is only assigned when native init succeeds - on a pin-conflicted or unconfigured native interface that dereference is null.
+
+The event is appended to the enum rather than inserted beside related events. ESP-NOW publishes the enum value as a `uint16_t`, so a mid-enum insertion renumbers every event after it for any peer on a different build.
+
+`comm_can.cpp` is not part of the host binary, so the guard's properties are read from source. The reporting path is tested for real.
+
+233 host tests (1 pre-existing skip); lilygo_330, lilygo_2CAN_330 and stark_330 build clean.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **CAN: a missing add-on chip is reported as a full buffer**
 Branch [`uninitialized-interface-diagnosis`](https://github.com/ekholm/Battery-Emulator/tree/uninitialized-interface-diagnosis) @ `9ac81590` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:uninitialized-interface-diagnosis) · pairs with the entry above
 When an SPI add-on CAN chip is absent or failed to init, transmits to it surface as `CAN_BUFFER_FULL` - a message that sends the reader towards traffic load when the truth is "this chip never existed". Diagnosed on the bench, where a board with no 2515 populated produced exactly that. Three per-interface not-initialized events replace the misdiagnosis, appended to the enum for the same wire-ordinal reason as the entry above; a review commit tightens the replacement message so it does not promise an error state that need not exist.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+When an SPI add-on CAN chip is absent or failed to initialize, `init_CAN()` leaves its driver pointer null. `transmit_can_frame_to_interface()` already short-circuited on null and never dereferenced it - that was not the defect. The defect was what happened next: the short-circuit set the same flag a genuine failed send sets, so what reached the user was `EVENT_CANMCP2515_BUFFER_FULL`, `EVENT_CANFD_BUFFER_FULL` or `EVENT_CANFD_2_BUFFER_FULL`: "CAN failed to send. Buffer full or no one on the bus to ACK the message!"
+
+A chip that is not there is neither of those. The message sends someone to check bus wiring and ACK counts for a peripheral that was never running. Diagnosed on the bench: a board with no MCP2515 chip populated produced exactly that event on every frame the driver sent.
+
+Each add-on case now tests its driver pointer before building the frame, sets a per-chip flag in `datalayer.system.info`, and the safety pass raises `EVENT_CANMCP2515_NOT_INITIALIZED`, `EVENT_CANFD_NOT_INITIALIZED` or `EVENT_CANFD_2_NOT_INITIALIZED` (all WARNING). The old null short-circuit in the send check is removed rather than left alongside the new guard - leaving it in place would keep the old buffer-full path reachable for the same condition.
+
+All three events share one message string the way the buffer-full family does, since the event name itself says which interface. The message deliberately does not promise that a boot-time initialization error was raised: three early-exit paths in `init_CAN()`'s native branch run before `can2515` is ever created, so a pin conflict on the native pins leaves the MCP2515 null with no prior error event.
+
+A review commit tightens the replacement text so it names where to look next rather than implying an error state that may not exist.
+
+All three events are appended to the enum for the same wire-ordinal reason as the native entry this pairs with.
+
+`comm_can.cpp` has no host build; the three guards are read from source. The reporting path is tested for real.
+
+235 host tests (1 pre-existing skip); 8 mutations each biting. lilygo_2CAN_330, lilygo_330 and esp32devkit_330 build clean.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 

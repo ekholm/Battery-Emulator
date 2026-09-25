@@ -26,6 +26,22 @@ questions on hardware we do not run.
 Branch [`ota-revert`](https://github.com/ekholm/Battery-Emulator/tree/ota-revert) @ `fcbb3fa9` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ota-revert) · one commit
 A web-UI control to boot the other OTA slot. Most of the feature is the states it must refuse - a USB-flashed board with no passive image, a slot a rollback already marked aborted, a half-written slot that fails validation at click time - each rendered as a reason, never a dead button. Building it exposed the confirmation path around it, and the second half hardens that: the revert button reports the server's answer instead of blind-reloading, and the page counts consecutive failed polls at one-second cadence, so a single dropped request during the restart cannot read as a rollback, and a rollback verdict stays on screen until it is dismissed instead of being wiped by the page's own refresh; a restart deadline defers while a confirmation is still owed, so a healthy board under load cannot be rolled back by ordinary scheduling; a confirmation is a statement about the image that has run, so the write declines once the boot selection has moved; and an upload beginning is the last moment the running image can still be confirmed, so OTA start arms it - two flag writes in the TCP task, the otadata write stays on the main-task path. Run on hardware: an in-window revert flips slots cleanly and the reverted-into image earns its own confirmation window. Ships with the refusal-ladder, gate and feedback test suites.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+Every dual-slot board already has the previous firmware in the passive OTA slot. What was missing was a UI telling the user whether the passive slot is actually usable before they commit to a reboot.
+
+The feature is the set of states in which the control must not be offered. A board flashed over USB has no valid passive image. A slot an automatic rollback already rejected is marked ABORTED and the IDF refuses it - so the control becomes unavailable exactly when a rollback has just fired, and it says why rather than showing a dead button. A revert inside the confirmation window is one-way, because the bootloader marks the departing slot ABORTED before it selects anything; the dialog says so and quotes the window length from the confirmation gate's own constant, so the text and the threshold cannot drift apart.
+
+The decision lives in `ota_revert_assessment()`, a pure function of four facts the caller extracts on the target, so the full state matrix is covered by host tests. `esp_ota_set_boot_partition()` re-validates the image at click time, so a half-written slot is refused there.
+
+Building the revert exposed five problems in the confirmation path. The page now reads the server's reply rather than blind-reloading. One dropped poll during restart is not a rollback - the detection latch is a count of consecutive failures, not a boolean. A rollback verdict is stored with the running version and stays on screen until dismissed rather than being wiped by the page's 15 s reload. The restart deadline defers while a confirmation is still owed, so a healthy board cannot be rolled back by ordinary scheduling. The confirmation write is gated on the running image still being the boot selection - a revert or an OTA upload inside the previous update's window could otherwise ship the arriving image pre-confirmed; OTA start arms the confirmation instead of skipping it.
+
+Three new test files cover the feature: `test/ota_revert_tests.cpp` (the assessment matrix), `test/ota_confirm_tests.cpp` (the confirmation gate and target-aware write), and `test/ota_revert_feedback_tests.cpp` (poll-count and verdict-persistence). The fact extraction that feeds the decision lives in `webserver.cpp`, which is not in the host test binary; that part is bench-verified only. The poll-count logic was also exercised from a real browser to confirm that a single injected connection failure does not trigger the rollback verdict and that the counter clears on an answering poll.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **Ford Mach-E: hand the UDS transport to the shared superclass, and fix two latent superclass bugs it exposed**
@@ -170,6 +186,38 @@ The declarations are checked rather than trusted, and each refusal has its own t
 From the same declarations it emits each board's capability set as a constant expression - what a registry would ask instead of testing the board name - plus the pad and pin-role tables an on-device pin validator would need. Nothing in the firmware reads those yet: this is the build-time half. It also answers one question outright, in a checked-in report: whether a single image could identify its board at runtime by probing for parts. Today it cannot do so safely - reaching the part that separates the remaining candidates drives pins that are contactor, precharge or wake-up lines on the other boards in contention - and a pin change that alters that answer arrives as a diff.
 This is the code behind [dalathegreat/Battery-Emulator#2737](https://github.com/dalathegreat/Battery-Emulator/issues/2737), and the build-time half of what that discussion reframed it towards: boards as configuration rather than as build variants. Worth a design conversation before code review. Published 2026-08-07, head last moved 2026-09-14.
 
+<details>
+<summary>PR body it would ship with</summary>
+
+This is the code behind issue #2737. Eight YAML board declarations drive a Python generator that rewrites the constant-pin block inside each existing HAL header, between markers. A reviewer opening `hw_lilygo.h` still opens one file; the generated block sits between `// BEGIN GENERATED` and `// END GENERATED` markers and the rest of the file is unchanged.
+
+**What is generated and what stays hand-written.** The generator writes the constant getters - pins that are a single GPIO number. Getters whose GPIO is chosen at runtime (a `setting:` or `variant:` in the YAML) emit nothing and stay hand-written below the block; the role is still declared so validation is not bypassed. `tools/board_gen.py` is the generator. `tools/board_verify_transcription.py` is the migration proof: it requires every generated member line to appear verbatim in the header as it was before the tooling existed. 227 member lines are checked across all eight boards. A pin that changed would fail it.
+
+**What else the generator emits.** `Software/src/devboard/hal/capabilities.h`: a `BoardCap` enum built from the union of declared features, a `constexpr` capability set per board, and `BE_BOARD_CAPS` bound to the active board. No firmware code reads this for runtime gating yet - the enum is the build-time half. Also `Software/src/devboard/settings/pin_settings_rows.inc`: one settings row per user-movable role, keyed as `PIN<id>` with ids in the append-only sidecar `tools/pin_role_ids.json`. The settings page does not yet splice this in.
+
+**Proof firmware is unchanged.** ELF section identity was checked across five locally buildable envs after the headers gained their generated blocks: every allocated section identical, every symbol identical in name and size. One later commit found and measured a 64-byte vtable inflation introduced by an emitted keyword, and measured the fix back to zero.
+
+**Suggested review order:**
+
+*Core tooling:* `980b2e9b` (declarations + generator foundation), `5ea46827` (generate in-place, feature-centric schema with shared bus declarations), `156b0e27` (baseline tracks merge-base rather than a hardcoded SHA). These establish the YAML shape and the marker convention.
+
+*Capability layer:* `d0e0fee5` (validate capabilities against declared pin map), `702b0c51` (emit `capabilities.h`), `a6ac3360` (Ethernet support and cross-feature pin-conflict check). The key design decision is that `sd_mmc` and `sd_spi` both `provide: SdCard`, so a consumer asks one question rather than an OR.
+
+*Board completeness:* `a910aeae` (Edge101, eighth board), `85d91d6a` (acknowledgement mechanism for hardware the pre-tooling headers never had - needed for Edge101's Ethernet getters), `11c69965` (chip and flash size declarations cross-checked against platformio.ini and against the board's own pin ranges), `a9e5fb8a` (3LB build env, which the board had lacked since 2024), `1b636b5d` (CI must compile every declared board - the structural check that would have caught the 3LB gap).
+
+*Module add-on validation:* `df167e595` (add-on module templates and direction check). A signal the module receives that is bound to an input-only pad is now a build error naming board, add-on, signal and pin. `mcp2515` gains an `optional:` reset line, because three of the four boards carrying that part tie RST high.
+
+*Probe plan:* `90dd4cfc` and its test commits. The declarations already know every board's pin roles and SPI wiring, so the question "which boards can safely identify themselves at runtime by probing for parts" is answerable from them. The answer today is that three of the four undecided groups cannot be resolved safely - the probes that would separate them drive contactor, precharge or wake-up pins on the boards still in contention. The report is checked in as `Software/boards/probe-plan.md` and regenerates from the declarations, so a pin change that alters the safety answer arrives as a diff.
+
+*Wizard series:* `8779e71d` (pad properties per chip and role-constraint tables, needed for the on-device validator) and `e6c7ca93` (PIN row emission and role-id sidecar). CLI-only; no firmware consumer yet.
+
+*Review fixes at the tip:* `8b3d0a42` (member-visibility correction, 64-byte vtable, measured) and `49c4fd86` (MCP2515 interrupt requirement, asymmetry with the CAN-FD case pinned from both sides).
+
+`tools/test_board_validation.py` (759 lines) is the main refusal suite; `tools/test_probe_plan.py` (220 lines) and `tools/test_transcription_verify.py` (143 lines) cover the other two tools. A check job in `.github/workflows` runs all three plus `board_gen.py --check`.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ---
 
 **TESLA-LEGACY: a test that pins the capacity-by-hardware-ID table**
@@ -179,6 +227,20 @@ Branch [`tesla-legacy-100kwh-capacity`](https://github.com/ekholm/Battery-Emulat
 `test/battery/tesla_legacy_capacity_tests.cpp` walks every hardware-ID group in `update_values()` and asserts the capacity each reports against the label the switch carries - all six groups, not just the one that was wrong - so a future edit to that switch cannot silently move a group's value again. It also pins two behaviours around it: hardware ID 0 leaves a preloaded capacity alone, and a known hardware ID overwrites a stored capacity on every update, which is why a user cannot correct such a value from the settings page and why it has to be right at the source.
 
 No behaviour change: the branch adds a test file and touches no driver. The original defect report is #2673, an owner running a Model X 100 kWh whose page read "Total capacity: 70.0 kWh".
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Upstream commit `b5d9df5f8` ("Fix capacity autodetect on 100kWh packs", 2026-09-19) shipped the same one-line fix this branch carried: `case 79:` and `case 89:` now set 100000 rather than 70000, the value of the 70 kWh group four cases above them. That fix shipped without tests, and nothing currently pins any of the other five groups either. This branch offers the coverage alone; there is no behaviour change.
+
+`test/battery/tesla_legacy_capacity_tests.cpp` (103 lines, one new file) walks every hardware-ID group in `update_values()` and asserts the capacity each reports against the label the switch carries - all six groups, not only the one that was wrong. A future edit to that switch cannot now silently move any group's value.
+
+Two behaviours around the switch are also pinned: hardware ID 0 leaves a preloaded capacity alone, and a known hardware ID overwrites a stored capacity on every update. The second matters to users directly, because it is why a corrected value entered from the settings page does not persist - the table has to be right at the source.
+
+The original defect is upstream issue #2673, an owner running a Model X 100 kWh whose page read "Total capacity: 70.0 kWh". The mismatch had been in the switch since its first commit (PR #1946).
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
 
 ---
 **Flash writes no longer starve the CAN receive FIFOs: a broker, sector erases, and the measurement that says what is left**
