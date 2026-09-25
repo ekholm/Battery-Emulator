@@ -247,6 +247,8 @@ Note: drafted with AI assistance, reviewed by me.
 Branch [`flash-write-interleave`](https://github.com/ekholm/Battery-Emulator/tree/flash-write-interleave) @ `55801b8c` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:flash-write-interleave)
 A flash program or erase parks both cores: the cache is off for the whole operation, no task runs, and nothing drains the CAN controllers' receive FIFOs. That is why frames go missing during a settings save or an OTA upload. This funnels every runtime flash write through a broker that drains CAN first, runs ONE operation, and yields so the drain happens again before the next - turning a storm into a train of short windows. It also switches OTA erases from 64 KB blocks to 4 KB sectors, and measures what is left: on a T-CAN485 the longest gap between CAN drains during an OTA falls from **319-332 ms to 81-82 ms**. It does not claim zero loss, and says exactly why.
 
+*Overlaps the CAN lane (the next entry).* The sector-erase half of this branch is the same `CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE` option the lane carries as [`ota-erase-granularity`](https://github.com/ekholm/Battery-Emulator/tree/ota-erase-granularity), so take that half from one of them, not both. The broker half is not in the lane: an A/B on the lane, with and without this broker under a settings storm and an OTA upload, measured no difference on its IRAM-resident receive paths.
+
 <details>
 <summary>PR body it would ship with</summary>
 
@@ -413,6 +415,6 @@ erases the OTA partition in 64 KB blocks that each take about 88 ms on this part
 per upload at a 10 ms cadence and 6 at 1 ms, enough to miss a pack keepalive, with nothing lost,
 only late. Pacing the upload cannot help, because nothing inserts idle time inside one command.
 One build option switches the erase to 4 KB sectors: 0 intervals over 100 ms at either cadence,
-worst 32.2 ms, and the upload takes about 64 percent longer, once per update.
+worst 32.2 ms, and the upload takes about 64 percent longer, once per update. The same erase option is also part of [`flash-write-interleave`](https://github.com/ekholm/Battery-Emulator/tree/flash-write-interleave) (the entry above), beside a flash-write broker; an A/B of that broker on this lane, before its lift, measured no difference, so the broker is not part of the lane.
 
 *Note: maintained with AI assistance, reviewed before publishing.*
