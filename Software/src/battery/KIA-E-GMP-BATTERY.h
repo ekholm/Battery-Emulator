@@ -18,6 +18,7 @@ class KiaEGmpBattery : public UdsCanBattery {
   virtual void update_values();
   virtual void transmit_can(unsigned long currentMillis);
   void request_startup_sequence();
+  static constexpr BatteryType TYPE = BatteryType::KiaEGmp;
   static constexpr const char* Name = "Kia/Hyundai EGMP platform";
 
   String get_uds_info_html() override;

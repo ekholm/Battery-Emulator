@@ -81,6 +81,7 @@ class AkasolBattery : public CanBattery, public BatteryHtmlRenderer {
   bool renders_own_battery_data() { return true; }
 
   static constexpr const char* Name = "AKASOL";
+  static constexpr BatteryType TYPE = BatteryType::Akasol;
 
  private:
   // --- CAN node addresses (J1939-style: the low byte of every extended ID) -

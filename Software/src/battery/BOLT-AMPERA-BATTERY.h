@@ -23,6 +23,7 @@ class BoltAmperaBattery : public UdsCanBattery {
   virtual void update_values();
   virtual void transmit_can(unsigned long currentMillis);
 
+  static constexpr BatteryType TYPE = BatteryType::BoltAmpera;
   static constexpr const char* Name = "Chevrolet Bolt EV/Opel Ampera-e";
 
   String get_uds_info_html() override;

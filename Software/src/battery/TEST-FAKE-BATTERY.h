@@ -20,6 +20,7 @@ class TestFakeBattery : public CanBattery, public BatteryHtmlRenderer {
     allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
   }
 
+  static constexpr BatteryType TYPE = BatteryType::TestFake;
   static constexpr const char* Name = "Fake battery for testing purposes";
 
   virtual void setup();
