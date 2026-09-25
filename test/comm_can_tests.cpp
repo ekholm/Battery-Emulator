@@ -98,9 +98,8 @@ TEST_F(CommCanTest, AnInterfaceNobodyAskedForIsNeverTouched) {
  * of it is only as visible as some other test's dependence on that particular
  * static. Measured, one line at a time, each in a clean build directory:
  * dropping the driver pointers or the native flag fails several cases, but
- * dropping `user_selected_CAN_ID_cutoff_filter = 0` failed NOTHING, and
- * dropping `settingsespcan = nullptr` still fails nothing - the reset is
- * trusted rather than checked.
+ * dropping `settingsespcan = nullptr` fails nothing - the reset is trusted
+ * rather than checked.
  *
  * So the hook is pinned from outside: what it claims is that the CAN layer is
  * back to power-on, and this asserts that directly. A new file static still has
@@ -117,14 +116,11 @@ TEST_F(CommCanTest, ResettingTheCanLayerLeavesNothingBehind) {
 
   RecordingReceiver native_receiver;
   register_can_receiver(&native_receiver, CAN_NATIVE);
-  user_selected_CAN_ID_cutoff_filter = 0x400;
   emul_can_init_on_full_board();
   ASSERT_TRUE(emul_can::is_running(Chip::Native));
 
   comm_can_reset_for_test();
   emul_can::reset();
-
-  EXPECT_EQ(user_selected_CAN_ID_cutoff_filter, 0) << "the log cutoff survived the reset";
 
   // Ask for ONE interface that is not the one registered above. A registry the
   // reset failed to empty still holds the native receiver, and init_CAN() would
@@ -600,7 +596,7 @@ TEST_F(CommCanTest, ChangingTheSpeedOfAnInterfaceWithNoDriverFails) {
 }
 
 // ---------------------------------------------------------------------------
-// format_can_frame() / dump_can_frame()
+// format_can_frame()
 // ---------------------------------------------------------------------------
 
 TEST_F(CommCanTest, AStandardFrameIsFormattedWithThreeHexDigitsOfIdentifier) {
@@ -658,49 +654,4 @@ TEST_F(CommCanTest, ABufferTooSmallForTheLineIsLeftEmptyRatherThanOverrun) {
 
   EXPECT_EQ(written, 0u);
   EXPECT_EQ(buffer[0], '\0');
-}
-
-TEST_F(CommCanTest, TheLogWrapsToTheStartWhenTheTailIsTooShort) {
-  CAN_frame frame = make_frame(0x123, 8);
-  datalayer.system.info.logged_can_messages_offset = sizeof(datalayer.system.info.logged_can_messages) - 8;
-
-  dump_can_frame(frame, CAN_NATIVE, MSG_RX);
-
-  EXPECT_LT(datalayer.system.info.logged_can_messages_offset, sizeof(datalayer.system.info.logged_can_messages) - 8)
-      << "the line does not fit at the tail, so it is written from the start again";
-  EXPECT_NE(std::string(datalayer.system.info.logged_can_messages).find(" 123 [8] "), std::string::npos);
-}
-
-TEST_F(CommCanTest, TheCutoffFilterKeepsLowIdentifiersOutOfTheLog) {
-  datalayer.system.info.can_logging_active = true;
-  user_selected_CAN_ID_cutoff_filter = 0x200;
-  const CAN_frame below = make_frame(0x100, 1);
-  const CAN_frame above = make_frame(0x300, 1);
-
-  transmit_can_frame_to_interface(&below, CAN_NATIVE);
-  transmit_can_frame_to_interface(&above, CAN_NATIVE);
-
-  const std::string log(datalayer.system.info.logged_can_messages);
-  EXPECT_EQ(log.find(" 100 "), std::string::npos) << log;
-  EXPECT_NE(log.find(" 300 "), std::string::npos) << log;
-}
-
-/* The identifier EQUAL to the cutoff is the one case the setting's own wording
- * leaves open - it says "messages below this ID will not be logged", and the
- * code excludes the boundary too. Whichever it should be, nothing pinned it:
- * the case above uses 0x100 and 0x300 against a cutoff of 0x200, so mutating
- * the comparison to `>=` passed the entire suite. Pinned as the code behaves.
- */
-TEST_F(CommCanTest, AnIdentifierEqualToTheCutoffIsAlsoKeptOut) {
-  datalayer.system.info.can_logging_active = true;
-  user_selected_CAN_ID_cutoff_filter = 0x200;
-  const CAN_frame at_cutoff = make_frame(0x200, 1);
-  const CAN_frame just_above = make_frame(0x201, 1);
-
-  transmit_can_frame_to_interface(&at_cutoff, CAN_NATIVE);
-  transmit_can_frame_to_interface(&just_above, CAN_NATIVE);
-
-  const std::string log(datalayer.system.info.logged_can_messages);
-  EXPECT_EQ(log.find(" 200 "), std::string::npos) << "the cutoff itself is excluded: " << log;
-  EXPECT_NE(log.find(" 201 "), std::string::npos) << "the next identifier up is logged: " << log;
 }

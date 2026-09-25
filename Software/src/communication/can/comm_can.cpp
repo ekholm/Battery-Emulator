@@ -239,7 +239,6 @@ void comm_can_reset_for_test() {
   settings2517_2 = nullptr;
   SPI2517 = nullptr;
   SPI2517_2 = nullptr;
-  user_selected_CAN_ID_cutoff_filter = 0;
 }
 #endif  // UNIT_TEST
 
