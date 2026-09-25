@@ -23,8 +23,8 @@ new release rather than a merge is what triggers the next uplift cycle. The bran
 there and the host test suite run on the result, all green, unless its entry says otherwise. The
 pinned commits are those rebased, tested ones.*
 
-*Two entries below still name an older `main` instead: their branches sit outside this shelf and
-have not been lifted, and saying they were would be false.*
+*One entry below, `can-speed-conflict`, still names an older `main` instead: its branch sits
+outside this shelf and has not been lifted, and saying it was would be false.*
 
 ## CAN
 
