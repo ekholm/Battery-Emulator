@@ -394,6 +394,39 @@ Note: drafted with AI assistance, reviewed by me.
 
 </details>
 
+---
+
+**CAN: the BECom's second CAN-FD interface does not work unless the first one is also configured**
+Branch [`fix/becom-fd2-standalone`](https://github.com/ekholm/Battery-Emulator/tree/fix/becom-fd2-standalone) @ `2433a59b` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/becom-fd2-standalone)
+The BECom's second MCP2518 is clocked from the first chip's CLKO output, and that divider is only programmed inside the first interface's `begin()`; the chip powers up dividing by 10, so the second interface alone ran at 4 MHz instead of 40 and failed to start. It now programs the first chip's oscillator register itself when it starts alone. A reviewer suggested reusing the first interface's init; that would start an interface nobody configured just for its clock output, so the one register write is done on its own. Host-tested only - no BECom was available on a bench.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The BECom's second MCP2518 is clocked from the first chip's CLKO output
+(hw_becom.h declares CLKODIV divide-by-1). That divider is programmed by
+the first FD interface's driver during begin(), and the chip powers up
+with CLKO at divide-by-10 - so configuring only the second interface
+left the second chip running at 4 MHz while the driver assumed 40 MHz,
+and it failed to initialize.
+
+When the second FD interface starts without the first one, program the
+first chip's OSC register directly (reset, then one register write) so
+its CLKO carries the frequency the board declares. Starting the first
+driver just to get its clock output would bring up an interface nobody
+configured, so the one register write is done on its own. Chip 1 runs
+from its own crystal - CLKODIV divides only the output - so the write is
+not constrained by the second chip's divided clock; it uses a slow,
+universally legal SPI speed because a one-off transaction needs no
+throughput. Boards with the default divider (stark, lilygo2can second
+chips have their own clocks) are unaffected.
+
+Host tests pin the gate condition and the exact SPI command sequence.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
 ## Battery drivers
 
 ---
@@ -943,6 +976,31 @@ Note: drafted with AI assistance, reviewed by me.
 
 </details>
 
+---
+
+**Contactors: every battery's veto on closing is ignored, so no driver can hold its contactors open**
+Branch [`fix/restore-battery-contactor-veto`](https://github.com/ekholm/Battery-Emulator/tree/fix/restore-battery-contactor-veto) @ `1b739986` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/restore-battery-contactor-veto)
+`battery_allows_contactor_closing` was half of the contactor state machine's closing gate until `1645c5b3` dropped it; since then contactors close on the inverter's say-so alone. Every driver that withholds the flag until it has seen its BMS or finished a handshake (MEB/MQB, BMW iX, Atto 3, MG Gen1, LEAF, the Volvos, Growatt LV, CHAdeMO) is overruled, and nothing reads the flag. The visible case is CHAdeMO, whose contactors close at boot with nothing plugged in (#1863, #1662).
+
+<details>
+<summary>PR body it would ship with</summary>
+
+`battery_allows_contactor_closing` was half of the contactor FSM's DISCONNECTED gate until `1645c5b3` ("Further improve dialogue boxes and texts", #1433, first shipped in v9.0.RC3) dropped it from the condition. Since then contactors close on inverter say-so alone: the gate reads `inverter_allows_contactor_closing && !equipment_stop_active`, and the battery's flag is written by the drivers but read by nothing.
+
+That matters for every driver that withholds the flag until it has seen the BMS or completed a handshake: MEB/MQB, BMW iX, Atto 3, MG Gen1, LEAF, the Volvos, Growatt LV. None of them can keep contactors open any more. The most visible case is CHAdeMO, which holds the flag false from setup and only grants it in `CHADEMO_EVSE_START`, after the CAN session, the pin-4 permission and a valid target voltage. With the gate gone the whole EVSE sequence is bypassed and contactors close at boot with nothing plugged in - the symptom in #1863 and #1662.
+
+This restores the flag to the gate and fixes the drivers the restoration would otherwise leave unable to close. The flag defaults to false, so a driver that never writes it would never close contactors: **CHARGEBYTE-CCS**, **GEELY-SEA** and **AKASOL** now grant at setup with the vacuous allow stated in a comment, the same contract as the other setup-granting drivers. No driver's behaviour changes otherwise; the diff to the gate is one added condition.
+
+**Tests.** `contactor_veto_contract_tests` runs every constructible battery driver through setup plus benign update ticks and asserts the flag lands where that driver's declared behaviour says: setup-granting drivers must have granted, handshake- and CAN-gated drivers must still be withholding. A driver that never writes the flag fails, and a new driver fails until its author declares which kind it is - which is how AKASOL and Growatt LV, added after this was first written, were caught. Two scenario tests in `contactor_sequence_tests`: `ChademoWithNothingPluggedInNeverClosesAtBoot` (the #1863 report, through the real driver: five seconds of contactor ticks, DISCONNECTED throughout) and `CompletedIsNotReopenedByBatteryRevocation`, which pins the existing semantics on purpose - the veto gates *closing* only; a battery revoking mid-session does not open contactors from COMPLETED (opening under load is the e-stop path's sequenced job).
+
+**What this does not claim.** No hardware leg was possible for CHAdeMO itself; the gate change is exercised on the host through the real drivers. The CHAdeMO driver's other regressions are separate.
+
+Refs #1863, #1662.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
 ## Settings and web UI
 
 ---
@@ -1054,6 +1112,55 @@ The two are guarded for DIFFERENT reasons, which is worth stating rather than co
 `webserver.cpp` is not part of the host build, so the accompanying test is a source guard rather than a behavioural one: it pins that the SSID branch tests the value before saving.
 
 **The guard's own first version was worse than useless, and the reason generalises.** It asked whether `isEmpty()` appears between the SSID branch and the save. That is satisfied by `if (p->value().isEmpty()) { save }` - which saves the SSID ONLY when the submitted field is blank, keeping the original defect and making Wi-Fi configuration impossible. It passed the test. The property is the NEGATION, not the mention, so the guard now looks for `!p->value().isEmpty()` and prints what it found when it fails. Three mutations are caught by name: guard removed, guard inverted, guard weakened to always-true.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Settings: Min-SOC above 50% silently reverts on reboot, and an inverted SOC window is accepted**
+Branch [`fix/soc-window-validation`](https://github.com/ekholm/Battery-Emulator/tree/fix/soc-window-validation) @ `8be61c45` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/soc-window-validation)
+The SOC window had three different rules at three entry points: the live routes accepted anything, the save stored whatever was live, and boot silently dropped a stored minimum above 50%. Nothing enforced min < max, so an inverted window pins the scaled SOC at 100% and wraps the scaled capacity. One validator now guards every entry point; the routes answer 400 on an invalid pair; the arbitrary 50% cap is gone.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The SOC window (min/max percentage) was guarded by three different rules
+at three entry points:
+
+- /updateSocMin and /updateSocMax accepted any value with no validation
+- store_settings() persisted whatever was live
+- boot load rejected stored minimums above 50.0%, silently falling back
+  to the compiled default
+
+So setting Min-SOC above 50% worked until the next reboot, then quietly
+disappeared. Worse, nothing anywhere enforced min < max: with an
+inverted window CONSTRAIN() pins the scaled SOC to 100% toward the
+inverter, and the scaled total capacity wraps negative into a huge
+unsigned value.
+
+This adds a single validator used by every entry point, values in pptt:
+-10.00% <= min, max <= 100.00%, min at least 1.00% below max (which also
+keeps the scaling divisor from getting arbitrarily small), and max at
+least 1.00%. The last one matters because a stored maximum of 0 collides
+with the NVS never-stored sentinel for MAXPERCENTAGE: the pair would be
+accepted live, persisted as 0, and replaced by the compiled default at
+boot - the same accept-then-lose class this removes.
+
+The live routes reject invalid pairs with HTTP 400 and the settings page
+shows the rejection instead of ignoring it. Boot-time load validates the
+stored pair and, when it is invalid, keeps the compiled defaults for
+both values. No new event is raised for that: an invalid stored pair can
+only come from an older build or a hand-edited store, and an event is not
+worth its flash cost for it.
+
+The old 50% boot cap on the minimum is dropped deliberately: large
+reserve floors (60-70%) are legitimate for backup-power installations,
+and the cap had no counterpart on the live path. NVS encoding and keys
+are unchanged.
+
+Host tests cover the validator rules and the apply/reject behaviour.
 
 Note: drafted with AI assistance, reviewed by me.
 

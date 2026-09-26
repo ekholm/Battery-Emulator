@@ -418,3 +418,348 @@ One build option switches the erase to 4 KB sectors: 0 intervals over 100 ms at 
 worst 32.2 ms, and the upload takes about 64 percent longer, once per update. The same erase option is also part of [`flash-write-interleave`](https://github.com/ekholm/Battery-Emulator/tree/flash-write-interleave) (the entry above), beside a flash-write broker; an A/B of that broker on this lane, before its lift, measured no difference, so the broker is not part of the lane.
 
 *Note: maintained with AI assistance, reviewed before publishing.*
+
+---
+
+**Settings: one descriptor table for every setting, and a boot audit of what is actually on the device**
+Branch [`refactor/settings-audit`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-audit) @ `3458d623` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-audit)
+A setting's key, NVS type, default and range are spread over up to five hand-synced places and have already drifted. This adds one row per setting (a constexpr X-macro table, validated at compile time, nothing reading it yet) and a boot-time audit that reads the table alongside the existing loads and reports - applies nothing - any stored entry whose NVS type disagrees with its row. That mismatch is what would make a table-driven loader silently replace a user's setting with a default.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+**Add a settings descriptor table, with nothing reading it yet**
+
+Every setting's identity is spread across up to five hand-synced places: the NVS key, its
+storage type and boot default in comm_nvm.cpp, the render default and range in
+settings_html.cpp, the save parsing in webserver.cpp. They have already drifted - #2697
+fixed six render-vs-boot default mismatches, and many keys have no range stated
+anywhere.
+
+This adds one row per setting stating the key, the storage type, the default and the range
+once, and nothing that reads it. The consumers replace their copies one at a time in later
+changes; until then this is data, and because the table is constexpr with no consumer the
+linker drops it.
+
+SettingKind encodes the on-flash NVS type rather than the in-memory one. NVS entries carry
+a type tag and Preferences enforces it - getInt() on a key written by putUInt() fails and
+silently returns the default - so a uniform integer kind would reset every existing
+device's settings the moment a loader started using the table.
+
+One X-macro list generates both the Sid enum and the rows, following events.h, so a setting
+cannot exist in one and not the other. table_valid() runs over the whole table in a constant
+expression and is asserted at compile time: a duplicate key, a key past the 15-character NVS
+ceiling, an inverted range and a default outside its own range are build failures. Reading
+the def union is what keeps kind and default honest - touching the string member of a
+non-string row is not a constant expression, so such a row fails to compile. All five of
+those defect classes were checked to fail the build, not assumed to.
+
+The tests cover what the compile-time check cannot phrase as readable failures - the NVS key
+limit, key and placeholder uniqueness, defaults inside their ranges, unsigned rows staying
+inside int32_t - and pin two facts: the only two signed keys on the device are MINPERCENTAGE
+and CPUTEMPOFFSET, and SF_SECRET sits on the four password-carrying rows and nowhere else.
+
+A further test scans the loader's own source and fails if a key it reads has no row, so
+adding a setting without one breaks the suite and names the key. Keys reached through a
+variable stay invisible to it on purpose: that is how the legacy static-IP octets are read,
+and they deliberately have no rows.
+
+Ranges describe the stored value, which is not always what the page shows: the SOC window,
+the current and voltage limits and the BMS reset duration are all scaled between the two.
+Rows whose stored 0 means "never stored" admit 0 in their range.
+
+Every setting the firmware stores has a row, including the six added upstream most recently
+(BYDBALEN, BYDBALMIN, BYDNATTERM, CHGSTARQ, INVACCREB, INVWDTMO), and each of their values is
+read off upstream's own code rather than chosen here: CHGSTARQ is 0..2 because its handler
+clamps anything above 2 back to 0, and it is the one setting taken into use without a reboot;
+INVWDTMO's bounds and default are the Modbus inverter's own watchdog limits, and it is not
+user-editable, so it has no placeholder; INVACCREB and BYDNATTERM take their defaults from
+their getBool() calls.
+
+**Audit the stored settings against the table at boot**
+
+The table added in the previous commit is data nobody reads. Before any loader starts
+reading it instead of its hand-written lines, there is one thing worth knowing that no test
+can establish: whether the table describes what is actually on the devices.
+
+NVS tags every entry with the type it was written as, and Preferences enforces that tag on
+read - a getter that disagrees returns the caller's default rather than the stored value. A
+row whose kind does not match its tag would therefore make a generic loader replace a user's
+setting with a default, and a generic save would write that default back. That is data loss
+with no symptom, on settings including the charge and discharge limits and the SOC window,
+and it cannot be ruled out by reading the code or by a host test: it depends on what past
+firmware wrote to a particular device.
+
+So the table is read here in parallel with the existing loads, at the end of the boot pass,
+and every disagreement is reported. Nothing is applied. The values the hand-written loads
+produced stand exactly as before.
+
+A key that was never stored is skipped rather than compared - both paths would produce their
+own default, which says nothing about the flash. On a mismatch the log names the key, the tag
+it is stored under, the tag the table expects, and both readings of it, and one info-level
+event carries the row index so a device reports it without a serial console. The result is
+reported even when nothing disagrees: a clean device and a device with nothing stored would
+otherwise look identical, and the second one proves nothing.
+
+Cost is one existence check and one type read per row during boot, and nothing afterwards.
+No polling, no second pass, and no allocation unless something actually disagrees.
+
+The emulated Preferences in test/emul gains the type enum and getType alongside, so the stub
+still mirrors the API this file now uses.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Settings: typed accessors generated from the table, and a guard that stops new code addressing settings by key**
+Branch [`refactor/settings-accessors`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-accessors) @ `60c5604d` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-accessors) · stacked on `refactor/settings-audit` (includes it)
+`setting_get<Sid::X>()` / `setting_save<Sid::X>()` take the key, NVS type and default from the row, so a mistyped access does not compile. A ratchet stops new call sites naming keys by hand; the webserver's literal-key access and the BYD calibration routes (which opened their own NVS handles beside the store) are migrated. Includes the settings-store coverage and the NVS type-tag emulation it needs.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+**Cover the settings store, make the emulation real, and stop a read-only store reporting changes**
+
+Every setting is read and written through BatteryEmulatorSettingsStore, and
+none of it was tested - the Preferences emulation discarded every write and
+returned zero from every read, so a round-trip was not observable at all.
+
+The emulation now keeps values in memory per namespace, surviving a store
+being closed and reopened the way real NVS survives a reboot, and models two
+constraints that otherwise only appear on hardware: a read-only store cannot
+write, and keys longer than the NVS limit of 15 characters are rejected. The
+longest keys in the firmware are exactly at that limit (TARGETDISCHVOLT among
+them), so a new one that exceeded it would silently never persist.
+
+Writing the tests turned up one defect: the save and remove methods set
+settingsUpdated even on a read-only store, where the underlying write is
+refused. Nothing reaches that today - the only read-only store is the one the
+settings page opens to render values, and it never saves - but it would have
+told the user to reboot to apply a change that never happened. The store now
+refuses the write outright when it is read-only.
+
+The cases: round-trip per type, persistence across reopening, defaults,
+removal and clearing, read-only stores, the key-length limit, and the
+settingsUpdated flag - including the first save of a zero, false or empty
+value, which the isKey() guards exist to stop being mistaken for a no-op.
+
+**Make the emulation's typed reads honor the NVS type tag**
+
+Real NVS tags every entry with the type it was written as and a typed
+getter on a mismatched key returns the caller's default, not the stored
+bits. The emulation returned whichever field the getter named, which for
+a cross-typed read is a zero that real hardware would never produce. The
+shadow audit and the accessor layer both exist because of exactly this
+tag behaviour, so the emulation has to model it for their tests to mean
+anything.
+
+**Add typed setting accessors generated from the table**
+
+setting_get<Sid::X>() and setting_save<Sid::X>() take the key, the
+on-flash NVS type and the default from the setting's own row, so a call
+site names only the id: the C++ type it gets back and the store call
+used underneath both follow from the row's kind, and a mistyped access
+does not compile. This is the accessor half of the follow-up roadmap
+stated in the table PR's thread; prohibiting direct key access outside
+this layer comes separately.
+
+Nothing in the firmware calls the accessors yet - settings_table.cpp
+includes the header so the device toolchain keeps compiling it. The
+accessor tests walk every row on the Preferences emulation: after a save
+through its accessor, every key carries exactly the NVS type
+tag its row declares - the executable form of the boot audit's mismatch
+condition, proven over the whole table.
+
+**Stop new call sites reaching a setting by key**
+
+A call site that names a key repeats three facts the table already states - the
+spelling, the on-flash NVS type and the default - and NVS punishes the middle one
+silently: a typed read of a key stored under a different tag returns the default
+instead of the stored value, so a setting is lost with no symptom. That is what the
+boot audit exists to catch after the fact. The accessors remove the chance to make the
+mistake, because a call site names only the id and the row supplies the rest.
+
+This holds the list of places that still address keys by hand and refuses to let it
+grow. Dropping BELOW an entry fails too, so migrating a file has to lower its number
+rather than quietly bank the progress - the same shape as the statics ratchet and the
+extended-data census.
+
+Two files are exempt permanently rather than listed. The store IS the key-addressed
+API, and the loader's whole job is to walk rows and address keys - it does that through
+the table, not by hand.
+
+The first batch is migrated as the demonstration: MQTT's two saves, and the six reads
+in the webserver whose key is a literal. Their defaults were already what their rows
+say - "admin" for the HTTP user, empty for the passwords, None for the battery type -
+which is the argument for the accessor in one line: the default stops being a thing
+each call site remembers.
+
+What stays behind there is the generic save loops, which take the key from a runtime
+variable (`uintSettingNames` and kin). Those cannot use a compile-time id at all; they
+go when the loop itself becomes table-driven, and their count is what is left on the
+entry.
+
+The scan is substring-based rather than a regex pass over the tree: the regex version
+cost several times the rest of the suite, and a check that slow is one that
+gets switched off.
+
+All three directions were checked by injecting them - an unlisted file reaching a key,
+a listed file growing, and a listed file finishing without lowering its entry.
+
+**Migrate the webserver's remaining literal-key settings access**
+
+The previous commit said what was left in webserver.cpp was "the generic loops". That
+was wrong, and only checking made it visible: most of what was left still named a key
+as a literal and could move today. Nearly all of them are saves, which carry no default
+at all, so there was nothing to weigh - they were left behind for no reason beyond the
+first batch being called a demonstration and stopping there.
+
+Moved, and what remains is genuinely blocked rather than merely unvisited:
+
+  - the generic save loops, whose key is a runtime variable (`uintSettingNames` and
+    kin) and which cannot take a compile-time id until the loop is table-driven
+  - raw Preferences handles in the BYD routes
+  - the calls on those handles, which bypass the settings store entirely
+
+The raw handles are worth a second look later: they open the NVS namespace directly
+beside a store that is already open, which is a different problem from naming a key and
+is not something an accessor fixes.
+
+The two settings upstream added most recently that the settings page reads, CHGSTARQ and
+INVACCREB, go through their accessors too.
+
+**Give the emulation's NVS tag enforcement test teeth**
+
+Review of the accessor layer. Reverting the emulation commit that
+makes typed reads honor the tag passed the entire suite: the one probe of
+that behaviour used a bool row whose default is false, indistinguishable
+from the zero field a tag-ignoring read returns. Cross-typed probes now
+use rows whose defaults are NOT the cross-typed zero, at both the store
+and the accessor level, and the emulation's Value fields are
+zero-initialized so a regression fails deterministically instead of
+reading whatever the stack held. A second new case saves through the
+accessor and reads back through the raw typed getter, pinning the row's
+literal key spelling from outside the abstraction - the existing
+round-trip test was accessor-in accessor-out, self-consistent even under
+a row-lookup skew.
+
+Both mutations re-verified caught: stripping the emulation's tag guards
+fails the two new cross-type tests; flipping the BoolU8 save dispatch to
+saveUInt fails the whole-table tag walk by row name, as designed.
+
+**Scan the remove and exists verbs in the direct-access guard**
+
+Review of the guard. Deleting or probing a key by name repeats the
+key's spelling just like reading one, but the scan's verb list stopped at
+get/save/put, so the first future removeKey or settingExists call site
+would have passed unnoticed. Added with zero grandfathered uses - the
+census found none outside the exempt store - and verified caught by
+injection. The receiver-rename evasion (a store instance not named
+settings or prefs) stays open by design: this is a tripwire against the
+copied idiom, not a boundary, and the cost of closing it is the regex
+pass the file's own comment rejects.
+
+**Take the BYD routes off their own NVS handles**
+
+The five BYD calibration routes opened Preferences directly, beside a
+store the rest of the webserver already uses. They were thought
+blocked; review showed they are not - the keys are table rows with
+matching kinds in the same namespace, all compile-time - so they are
+migrated here with the accessor layer as it stands.
+
+Beyond the key spelling, the raw handles bypassed what the store does:
+no read-only guard, and no skip-identical check, so every hit on one of
+these routes issued a write whether or not the value had changed. Through
+setting_save<Sid::X> the type comes from the row - a mistyped save is
+now a compile error rather than a mistagged NVS entry - and the tags
+written are unchanged (BoolU8 -> putBool, U32 -> putUInt), so an
+already-provisioned device reads back exactly what it did before.
+
+The direct-access guard's webserver.cpp entry drops by the number it
+printed on its own when the sites went away. What is left are the
+generic save loops, whose key is a runtime variable; they stay until the
+loops themselves are table-driven. webserver.cpp no longer includes
+Preferences.h - the store's header owns that.
+
+**Pin the BYD routes' on-flash contract, both directions**
+
+The migration was first claimed safe for a provisioned device on
+construction alone, on the grounds that no webserver harness exists. The harness is not what the claim needs: the risk is on flash,
+not in the routing. A device provisioned by the old firmware has to read
+back through the accessor exactly what the old raw putBool/putUInt
+wrote, and what the new route writes has to be visible to a reader still
+using the old typed call - both testable on the Preferences emulation,
+which enforces NVS tags.
+
+Stored values are deliberately not the row defaults, since a silently
+defaulting read returns the default and would pass a test that used one.
+The second test pins what the raw handles were giving up: they called
+putX unconditionally, so a repeated route hit made an NVS write call -
+and reported a change - every time, even though NVS itself leaves an
+identical value alone.
+
+Mutation-checked both ways - flipping BYDAUTOCALEN's row from BoolU8 to
+U32 fails the contract test in both directions, and removing the store's
+skip-identical branch fails the second.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Drivers: protected base destructors, a TYPE on every driver class, and Tesla variants as their own classes**
+Branch [`refactor/pr1-prep`](https://github.com/ekholm/Battery-Emulator/tree/refactor/pr1-prep) @ `e535409b` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/pr1-prep)
+Groundwork for a compile-time descriptor table, with no behaviour change: deleting a driver through its base becomes a compile error (it was undefined behaviour) at no flash cost; every battery, inverter, charger and shunt class states its enum `TYPE` beside its `Name`; the Tesla Model 3/Y and S/X variants become subclasses instead of one class reading a global to find out what it is.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Preparation for a descriptor-table refactor. No behaviour change anywhere:
+everything is additive, a mechanical rename, or a compile-time guarantee.
+
+1. Protected non-virtual destructors on the polymorphic bases (Battery,
+   InverterProtocol, Transmitter, CanReceiver). Deleting through a base
+   pointer is undefined behaviour without a virtual destructor; making it a
+   compile error instead gives the same correctness guarantee at no flash
+   cost - no destructor pairs or thunks in any vtable. Instances are used
+   polymorphically but never deleted through the base, in production as in
+   the tests: the Tesla variant test deletes through the concrete factory
+   types, and the parameterized fixtures abandon instances instead of
+   deleting them (the old deletes also left dangling register_transmitter
+   entries; abandonment mirrors device lifetime). The one test that did
+   delete through the base globals (the BYD Atto 3 balance-API case) now
+   deletes through the concrete type, which is what the protected
+   destructor is there to enforce.
+
+2. static constexpr TYPE on every battery, inverter, charger and shunt
+   class, alongside the existing Name statics - groundwork for replacing the
+   hand-synced factory/name switches with a compile-time descriptor table.
+
+3. Tesla variant split: TeslaModel3YBattery / TeslaModelSXBattery
+   subclasses of TeslaBattery. Previously two enum values mapped to one
+   class that read user_selected_battery_type deep inside the driver to
+   resolve its own variant. The variant-dependent tail of setup() (pack
+   design limits, reported protocol name) is now a pure virtual
+   apply_variant_config() implemented per subclass and called at the same
+   point in the sequence, so the variant is expressed by the constructed
+   type alone. The Name3Y / NameSX special case is gone (each subclass
+   carries its own Name and TYPE), the factory constructs the right
+   subclass, and mqtt.cpp's Tesla type-sniffing becomes a capability query
+   on the instance (supports_tesla_dcdc_metrics).
+
+4. Tesla contactor alias cleanup: battery_contactor was a historical alias
+   of BMS_contactorState (its own 0x20A parse has been commented out; it was
+   assigned verbatim from the 0x212 parse). Deleted, with its readers
+   switched to BMS_contactorState directly. Value 4 meant closed and 0 meant
+   SNA under both the old and the current enum, so this is a pure rename.
+
+Adds tests constructing both Tesla variants with user_selected_battery_type
+deliberately set to None, asserting the variant-dependent pack limits and
+reported protocol name resolve from the constructed type alone.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
