@@ -1166,6 +1166,90 @@ Note: drafted with AI assistance, reviewed by me.
 
 </details>
 
+---
+
+**Settings: a mistagged NVS key can never be repaired by saving, and the user's value is lost at every boot**
+Branch [`fix/savex-nvs-tag`](https://github.com/ekholm/Battery-Emulator/tree/fix/savex-nvs-tag) @ `e9a01fd3` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/savex-nvs-tag)
+A typed NVS read of a key stored under the wrong type returns the caller's default, and every `saveX()` skipped the write when that read equalled the new value - so saving exactly the value the mistagged read reports did nothing, and the write that would have fixed the tag never happened. For `WIFIAPENABLED` (default on) that means switching the access point off is silently lost. A save is now skipped only when the stored tag matches too. The branch also makes the host build's settings-store emulation real, which turned up a second, smaller defect: a read-only store reported changes it had refused to write.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+**Make the settings-store emulation real, and stop a read-only store reporting changes**
+
+Every setting is read and written through BatteryEmulatorSettingsStore, and
+the Preferences emulation discarded every write and returned zero from every
+read, so a round-trip was not observable in a host build at all.
+
+The emulation now keeps values in memory per namespace, surviving a store
+being closed and reopened the way real NVS survives a reboot, and models two
+constraints that otherwise only appear on hardware: a read-only store cannot
+write, and keys longer than the NVS limit of 15 characters are rejected. The
+longest keys in the firmware are exactly at that limit (TARGETDISCHVOLT among
+them), so a new one that exceeded it would silently never persist.
+
+Exercising the store against it turned up one defect: the save and remove
+methods set settingsUpdated even on a read-only store, where the underlying
+write is refused. Nothing reaches that today - the only read-only store is the
+one the settings page opens to render values, and it never saves - but it
+would have told the user to reboot to apply a change that never happened. The
+store now refuses the write outright when it is read-only.
+
+**Make the emulation's typed reads honor the NVS type tag**
+
+Real NVS tags every entry with the type it was written as and a typed
+getter on a mismatched key returns the caller's default, not the stored
+bits. The emulation returned whichever field the getter named, which for
+a cross-typed read is a zero that real hardware would never produce. The
+shadow audit and the accessor layer both exist because of exactly this
+tag behaviour, so the emulation has to model it for their tests to mean
+anything.
+
+**Repair a mistagged setting instead of skipping the write that would fix it**
+
+NVS records the type a value was written under, and a typed read returns the
+caller's default when that tag does not match. So on a key stored under the
+wrong type, getX() reports the default rather than what is stored - and saveX()
+skipped the write whenever the current read equalled the new value.
+
+Saving exactly the value the mistagged read reports therefore did nothing. That
+skipped write is the only thing that would have repaired the tag, because
+nvs_set_* finds the existing entry whatever its type, writes the new one and
+deletes the old. The key stays mistagged and every later boot reads the row
+default instead of the user's choice.
+
+One value per type is affected: 0, false, and "". WIFIAPENABLED is the case that
+shows why it matters - its default is TRUE, so a user switching the access point
+off writes the one value that gets swallowed, and the device keeps booting with
+the AP on with nothing pointing at the cause.
+
+A save is now skipped only when the stored tag matches as well, for all four
+savers: saveBool->PT_U8 (putBool forwards to putUChar), saveUInt->PT_U32,
+saveInt->PT_I32, saveString->PT_STR.
+
+Builds on the settings-store emulation in the preceding commits, which already
+stores real values in real namespaces and whose typed reads already honour the
+tag. What this adds to it is getType(),
+which neither had and which the fix needs - the tag is exactly what a getter
+cannot tell you, since it answers with the caller's default on a mismatch - and
+a write counter, because the skip-identical optimisation is invisible from the
+stored value and a test otherwise cannot tell "left alone" from "rewritten with
+the same value".
+
+Tests cover all four savers on their dangerous value, plus both directions of
+what must NOT change: an unchanged, correctly-tagged value is still skipped,
+and the first save of a falsy value into a missing key is still written, which
+is what the existing isKey() guards are for. The skip is not about flash wear -
+ESP-IDF's NVS already compares before writing and leaves an identical value
+alone, which a bench run confirmed - but about the store's own bookkeeping:
+settingsUpdated decides whether the user is told to reboot to apply a change,
+and a no-op save must not set it. Verified by reverting the four tag
+checks: the four repair cases fail, the two preservation cases pass.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
 ## Platform, build and storage
 
 ---

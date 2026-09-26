@@ -514,17 +514,17 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Settings: typed accessors generated from the table, and a guard that stops new code addressing settings by key**
-Branch [`refactor/settings-accessors`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-accessors) @ `60c5604d` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-accessors) · stacked on `refactor/settings-audit` (includes it)
-`setting_get<Sid::X>()` / `setting_save<Sid::X>()` take the key, NVS type and default from the row, so a mistyped access does not compile. A ratchet stops new call sites naming keys by hand; the webserver's literal-key access and the BYD calibration routes (which opened their own NVS handles beside the store) are migrated. Includes the settings-store coverage and the NVS type-tag emulation it needs.
+Branch [`refactor/settings-accessors`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-accessors) @ `0f346c12` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-accessors) · stacked on `refactor/settings-audit` (includes it)
+`setting_get<Sid::X>()` / `setting_save<Sid::X>()` take the key, NVS type and default from the row, so a mistyped access does not compile. A ratchet stops new call sites naming keys by hand; the webserver's literal-key access and the BYD calibration routes (which opened their own NVS handles beside the store) are migrated. Includes the settings-store emulation and NVS type-tag behaviour it needs.
 
 <details>
 <summary>PR body it would ship with</summary>
 
-**Cover the settings store, make the emulation real, and stop a read-only store reporting changes**
+**Make the settings-store emulation real, and stop a read-only store reporting changes**
 
 Every setting is read and written through BatteryEmulatorSettingsStore, and
-none of it was tested - the Preferences emulation discarded every write and
-returned zero from every read, so a round-trip was not observable at all.
+the Preferences emulation discarded every write and returned zero from every
+read, so a round-trip was not observable in a host build at all.
 
 The emulation now keeps values in memory per namespace, surviving a store
 being closed and reopened the way real NVS survives a reboot, and models two
@@ -533,17 +533,12 @@ write, and keys longer than the NVS limit of 15 characters are rejected. The
 longest keys in the firmware are exactly at that limit (TARGETDISCHVOLT among
 them), so a new one that exceeded it would silently never persist.
 
-Writing the tests turned up one defect: the save and remove methods set
-settingsUpdated even on a read-only store, where the underlying write is
-refused. Nothing reaches that today - the only read-only store is the one the
-settings page opens to render values, and it never saves - but it would have
-told the user to reboot to apply a change that never happened. The store now
-refuses the write outright when it is read-only.
-
-The cases: round-trip per type, persistence across reopening, defaults,
-removal and clearing, read-only stores, the key-length limit, and the
-settingsUpdated flag - including the first save of a zero, false or empty
-value, which the isKey() guards exist to stop being mistaken for a no-op.
+Exercising the store against it turned up one defect: the save and remove
+methods set settingsUpdated even on a read-only store, where the underlying
+write is refused. Nothing reaches that today - the only read-only store is the
+one the settings page opens to render values, and it never saves - but it
+would have told the user to reboot to apply a change that never happened. The
+store now refuses the write outright when it is read-only.
 
 **Make the emulation's typed reads honor the NVS type tag**
 
@@ -636,17 +631,16 @@ Review of the accessor layer. Reverting the emulation commit that
 makes typed reads honor the tag passed the entire suite: the one probe of
 that behaviour used a bool row whose default is false, indistinguishable
 from the zero field a tag-ignoring read returns. Cross-typed probes now
-use rows whose defaults are NOT the cross-typed zero, at both the store
-and the accessor level, and the emulation's Value fields are
-zero-initialized so a regression fails deterministically instead of
-reading whatever the stack held. A second new case saves through the
-accessor and reads back through the raw typed getter, pinning the row's
-literal key spelling from outside the abstraction - the existing
-round-trip test was accessor-in accessor-out, self-consistent even under
-a row-lookup skew.
+use rows whose defaults are NOT the cross-typed zero, at the accessor
+level, and the emulation's Value fields are zero-initialized so a
+regression fails deterministically instead of reading whatever the stack
+held. A second new case saves through the accessor and reads back through
+the raw typed getter, pinning the row's literal key spelling from outside
+the abstraction - the existing round-trip test was accessor-in
+accessor-out, self-consistent even under a row-lookup skew.
 
 Both mutations re-verified caught: stripping the emulation's tag guards
-fails the two new cross-type tests; flipping the BoolU8 save dispatch to
+fails the new cross-type test; flipping the BoolU8 save dispatch to
 saveUInt fails the whole-table tag walk by row name, as designed.
 
 **Scan the remove and exists verbs in the direct-access guard**
