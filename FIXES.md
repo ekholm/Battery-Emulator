@@ -1001,6 +1001,38 @@ Note: drafted with AI assistance, reviewed by me.
 
 </details>
 
+---
+
+**Safety: with two or three packs, a healthy pack clears another pack's cell-deviation or SOH-difference warning**
+Branch [`fix/shared-pack-warnings`](https://github.com/ekholm/Battery-Emulator/tree/fix/shared-pack-warnings) @ `53f78944` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/shared-pack-warnings)
+The cell-deviation and SOH-difference checks run per pack and each clears the SHARED event, so whichever pack is evaluated last decides whether a real warning is shown: a healthy second pack silently clears the first pack's deviation warning every cycle. The two checks now aggregate across the packs before deciding, and a placeholder SOH reading can no longer clear a genuine SOH warning. One file, `safety.cpp`. Still present on upstream `main`.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+With two or three packs, the cell-deviation and SOH-difference checks in
+update_machineryprotection() each ran per pack and called clear_event()
+on the shared event, so whichever pack was evaluated last decided the
+outcome: a healthy pack cleared a warning another pack had just raised.
+
+Both checks now aggregate across the configured packs before deciding.
+EVENT_CELL_DEVIATION_HIGH is raised when any pack's spread exceeds its
+limit, with the first offending pack's deviation as the event data (same
+/20 scaling), and cleared only when no pack exceeds it. EVENT_SOH_DIFFERENCE
+compares battery 1 against each extra pack and is raised when any pair
+differs by more than MAX_SOH_DEVIATION_PPTT.
+
+The SOH-difference warning is left untouched when no pack pair has two
+real readings (a pack reporting the 9900 placeholder), exactly as the
+per-pair checks behaved for a single pair, so a transient placeholder
+cannot clear a genuine warning.
+
+The per-pack event scheme is a separate change: it renames published
+events, which is a question of its own and does not belong in this one.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ## Settings and web UI
 
 ---
