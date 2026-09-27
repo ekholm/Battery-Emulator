@@ -1015,8 +1015,8 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Contactors: every battery's veto on closing is ignored, so no driver can hold its contactors open**
-Branch [`fix/restore-battery-contactor-veto`](https://github.com/ekholm/Battery-Emulator/tree/fix/restore-battery-contactor-veto) @ `1b739986` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/restore-battery-contactor-veto)
-`battery_allows_contactor_closing` was half of the contactor state machine's closing gate until `1645c5b3` dropped it; since then contactors close on the inverter's say-so alone. Every driver that withholds the flag until it has seen its BMS or finished a handshake (MEB/MQB, BMW iX, Atto 3, MG Gen1, LEAF, the Volvos, Growatt LV, CHAdeMO) is overruled, and nothing reads the flag. The visible case is CHAdeMO, whose contactors close at boot with nothing plugged in (#1863, #1662).
+Branch [`fix/restore-battery-contactor-veto`](https://github.com/ekholm/Battery-Emulator/tree/fix/restore-battery-contactor-veto) @ `4cb01736` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/restore-battery-contactor-veto)
+`battery_allows_contactor_closing` was half of the contactor state machine's closing gate until `1645c5b3` dropped it; since then contactors close on the inverter's say-so alone. Every driver that withholds the flag until it has seen its BMS or finished a handshake (MEB/MQB, BMW iX, Atto 3, MG Gen1, LEAF, the Volvos, Growatt LV, CHAdeMO) is overruled, and nothing reads the flag. The visible case is CHAdeMO, whose contactors close at boot with nothing plugged in (#1863, #1662). The status page gains a line for the battery's permission, so a battery that holds it is visible.
 
 <details>
 <summary>PR body it would ship with</summary>
@@ -1027,9 +1027,13 @@ That matters for every driver that withholds the flag until it has seen the BMS 
 
 This restores the flag to the gate and fixes the drivers the restoration would otherwise leave unable to close. The flag defaults to false, so a driver that never writes it would never close contactors: **CHARGEBYTE-CCS**, **GEELY-SEA** and **AKASOL** now grant at setup with the vacuous allow stated in a comment, the same contract as the other setup-granting drivers. No driver's behaviour changes otherwise; the diff to the gate is one added condition.
 
+**Status page.** It listed "Emulator allows contactor closing" and "Inverter allows contactor closing" but not the battery's own permission, which the gate now reads again. A driver withholding it - by design while its handshake runs, or wrongly - left the page showing two ticks next to contactors that never close. A "Battery allows contactor closing" line between the two now shows it the same way the inverter's is shown.
+
 **Tests.** `contactor_veto_contract_tests` runs every constructible battery driver through setup plus benign update ticks and asserts the flag lands where that driver's declared behaviour says: setup-granting drivers must have granted, handshake- and CAN-gated drivers must still be withholding. A driver that never writes the flag fails, and a new driver fails until its author declares which kind it is - which is how AKASOL and Growatt LV, added after this was first written, were caught. Two scenario tests in `contactor_sequence_tests`: `ChademoWithNothingPluggedInNeverClosesAtBoot` (the #1863 report, through the real driver: five seconds of contactor ticks, DISCONNECTED throughout) and `CompletedIsNotReopenedByBatteryRevocation`, which pins the existing semantics on purpose - the veto gates *closing* only; a battery revoking mid-session does not open contactors from COMPLETED (opening under load is the e-stop path's sequenced job).
 
 **What this does not claim.** No hardware leg was possible for CHAdeMO itself; the gate change is exercised on the host through the real drivers. The CHAdeMO driver's other regressions are separate.
+
+Nothing has read the flag since v9.0.RC3, so each driver's own logic for it has gone unexercised in the field for that long. A driver that wrongly withholds under some benign condition would now never close its contactors, and the contract test covers setup plus benign update ticks only, not later in a session. If contactors stop closing after this change, check the status page: "Battery allows contactor closing" showing ✗ while the inverter allows closing points at the battery driver, and that driver's handling of `battery_allows_contactor_closing` is where to look.
 
 Refs #1863, #1662.
 
