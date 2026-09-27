@@ -1561,6 +1561,12 @@ String processor(const String& var) {
     } else {
       content += "<span>✓</span>";
     }
+    content += "<br>Battery allows contactor closing: ";
+    if (datalayer.system.status.battery_allows_contactor_closing == true) {
+      content += "<span>✓</span>";
+    } else {
+      content += "<span style='color: red;'>✗</span>";
+    }
     content += "<br>Inverter allows contactor closing: ";
     if (datalayer.system.status.inverter_allows_contactor_closing == true) {
       content += "<span>✓</span></h4>";
