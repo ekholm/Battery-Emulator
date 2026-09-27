@@ -804,6 +804,42 @@ Note: drafted with AI assistance, reviewed by me.
 
 </details>
 
+---
+
+**BYD Atto 3: a battery that powers up after the emulator never gets its contactors closed**
+Branch [`fix/atto3-close-retry-late-bms`](https://github.com/ekholm/Battery-Emulator/tree/fix/atto3-close-retry-late-bms) @ `a6080e5d` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/atto3-close-retry-late-bms)
+The close request is edge-triggered on inverter permission. When the close-confirm window expired against a still-silent BMS (the emulator powered before the battery, the startup order the wiki warns about), the state machine fell back to standby and the consumed edge meant nothing asked again until a reboot. The fallback now arms a retry that fires once the BMS has spoken since the give-up, so a dead bus cannot loop it, and any close that starts consumes it, so contactors opened on purpose stay open. A tester review was requested on the original pull request and never came; the change is host-tested through the full sequence.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The close request is edge-triggered on inverter permission. When the
+close-confirm window (15 s) expired against a still-silent BMS - the
+emulator powered before the battery, the wiki's documented startup-order
+restriction - the FSM fell back to standby and the consumed edge meant
+nothing ever requested close again until the emulator rebooted.
+
+The fallback now arms a retry that fires when the BMS has SPOKEN since
+the give-up: only 0x344 feedback strictly newer than the fallback counts
+(a frame from the give-up's own millisecond was handled before it), so a
+dead bus cannot loop it, and each failed retry re-arms against strictly
+newer feedback. Any close that starts - a permission re-grant or a manual
+close - consumes the arm, so a stale retry can never re-close contactors
+that were later opened on purpose. An alive-but-refusing BMS therefore
+sees one visible retry cycle (EVENT_BYD_CONTACTOR_MISMATCH per attempt)
+instead of a silent dead end - deliberate: permission still granted means
+keep trying, matching the GPIO state machine's semantics.
+
+Regression test drives the full sequence through transmit_can (boot
+held open, permission edge, confirm timeout, late 0x344, re-close);
+fails without the fix. Further tests pin the refusals: feedback from
+before the give-up, or from its own millisecond, must not fire the
+retry; and after a permission cycle or a manual close, contactors opened
+on purpose stay open when the BMS speaks again.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
 ## Inverters
 
 ---

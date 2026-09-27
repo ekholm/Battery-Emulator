@@ -757,3 +757,84 @@ reported protocol name resolve from the constructed type alone.
 Note: drafted with AI assistance, reviewed by me.
 
 </details>
+
+---
+
+**Web UI: language catalog storage, endpoints and a Languages block**
+Branch [`feature/i18n-stack`](https://github.com/ekholm/Battery-Emulator/tree/feature/i18n-stack) @ `34b8a09b` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:feature/i18n-stack)
+Storage and plumbing for translating the web interface without rebuilding firmware: uploaded catalogs live in a power-loss-safe slot store on the otherwise unused spiffs partition, with upload/list/serve/delete endpoints and a Languages block on the settings page. Hardened after a security review (upload authenticated before any flash is touched; a rejected-upload crash; range-checked directory entries). Converting the UI strings is a separate change.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Groundwork for translating the web interface without rebuilding firmware: a
+user uploads a gzip'd JSON catalog, the device stores it and serves it back to
+the pages. This is the storage and plumbing only - converting the UI strings
+to use it is separate.
+
+Storage is a raw slot store on the spiffs partition, which the firmware does
+not otherwise use: up to 16 named blobs, a double-buffered directory (the
+valid-CRC block with the higher sequence wins) and data extents at 4 KB
+granularity. The directory flip is the commit point, so a power loss at any
+moment leaves the previous directory and every catalog it references intact.
+No filesystem driver is linked; the store sits behind a narrow flash interface
+so it is host-testable against a RAM-backed fake. A mount failure is
+tolerated: the feature stays off until the user formats the storage from the
+new Languages block on the settings page, which also uploads, deletes and
+selects catalogs. The selected language is stored in NVS.
+
+Hardened after nagyrobi's security review of the stack:
+
+- The catalog upload authenticates itself on the first chunk and touches no
+  flash until it has. It had been registered with a raw server.on(), and the
+  server middleware chain does not stand in for an auth helper: it runs after
+  the whole body has been parsed and every onUpload chunk handled, so an
+  unauthenticated POST could have erased and rewritten the partition before
+  anything rejected it.
+- Rejected uploads no longer flag themselves through request->_tempObject.
+  The request destructor free()s that slot unconditionally, so every rejected
+  upload freed a non-heap pointer and panicked the device - chained with the
+  missing auth, an unauthenticated remote reboot. The flag lives next to the
+  upload state; the store permits one stream at a time anyway.
+- mount() range-checks every directory entry against the partition and forces
+  the name field NUL-terminated: a valid CRC only proves the block was written,
+  not that its extents are inside the partition.
+- Catalog downloads capture the store generation and abort if it changes
+  mid-transfer, since an upload or delete that commits moves extents.
+- /updateLanguage validates the code before it reaches NVS, and the list
+  endpoint refuses to interpolate a malformed stored value into its JSON.
+
+Host tests cover the store (commit points, power-loss, range checks,
+concurrent generation change) and the name/code validation.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
+
+---
+
+**Build: each battery's web-page renderer compiles in its own file instead of inside the battery factory**
+Branch [`refactor/battery-renderer-tus`](https://github.com/ekholm/Battery-Emulator/tree/refactor/battery-renderer-tus) @ `e9a04610` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/battery-renderer-tus)
+Eighteen battery pages defined their renderers inline in headers, so all of that code was compiled into the battery factory's object: flash cost showed up against the factory instead of the driver that owns it, and touching any page rebuilt the factory. The bodies now live in one `.cpp` per renderer, the pattern BMW i3, BMW iX and Ioniq 28 already used. Pure code motion - every moved body is token-identical to what it replaced - and the firmware gets slightly smaller.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Every renderer defined inline in a *-HTML.h header is emitted in
+whichever translation unit instantiates it - in practice BATTERIES.cpp -
+so the factory object carries every renderer's code, per-driver flash
+attribution charges renderer cost to BATTERIES.o instead of the driver
+that owns it, and BATTERIES.cpp rebuilds on every driver-HTML touch.
+
+Move the method bodies to per-renderer .cpp files, following the
+existing BMW-I3/BMW-IX/IONIQ-28 idiom: headers keep the class with its
+declarations, one-line definitions stay inline, a default argument stays
+on the declaration, and a helper used only by the bodies (Tesla's
+appendFault) moves with them. A method under a preprocessor guard keeps
+the same guard on both sides. Pure code motion: every moved body is
+token-identical to its inline original (comments and whitespace aside).
+The compiled sizes do change - out of the BATTERIES.cpp translation unit
+the compiler makes different inlining choices - and the firmware gets
+smaller overall; no behavior changes.
+
+Note: drafted with AI assistance, reviewed by me.
+</details>
