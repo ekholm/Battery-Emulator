@@ -325,30 +325,6 @@ Note: drafted with AI assistance, reviewed by me.
 
 </details>
 
----
-
-**TESLA-LEGACY: a test that pins the capacity-by-hardware-ID table**
-Branch [`tesla-legacy-100kwh-capacity`](https://github.com/ekholm/Battery-Emulator/tree/tesla-legacy-100kwh-capacity) @ `83936fca` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-legacy-100kwh-capacity)
-**The defect this branch was written for is gone - you fixed it in `b5d9df5f8` ("Fix capacity autodetect on 100kWh packs"), landing the same one-line change it carried: hardware IDs 79 and 89 now report 100000 Wh rather than 70000.** That fix shipped without a test, so what is offered here is only the coverage, and it is offered because nothing currently pins any of the six groups.
-
-`test/battery/tesla_legacy_capacity_tests.cpp` walks every hardware-ID group in `update_values()` and asserts the capacity each reports against the label the switch carries - all six groups, not just the one that was wrong - so a future edit to that switch cannot silently move a group's value again. It also pins two behaviours around it: hardware ID 0 leaves a preloaded capacity alone, and a known hardware ID overwrites a stored capacity on every update, which is why a user cannot correct such a value from the settings page and why it has to be right at the source.
-
-No behaviour change: the branch adds a test file and touches no driver. The original defect report is #2673, an owner running a Model X 100 kWh whose page read "Total capacity: 70.0 kWh".
-
-<details>
-<summary>PR body it would ship with</summary>
-
-Upstream commit `b5d9df5f8` ("Fix capacity autodetect on 100kWh packs", 2026-09-19) shipped the same one-line fix this branch carried: `case 79:` and `case 89:` now set 100000 rather than 70000, the value of the 70 kWh group four cases above them. That fix shipped without tests, and nothing currently pins any of the other five groups either. This branch offers the coverage alone; there is no behaviour change.
-
-`test/battery/tesla_legacy_capacity_tests.cpp` (103 lines, one new file) walks every hardware-ID group in `update_values()` and asserts the capacity each reports against the label the switch carries - all six groups, not only the one that was wrong. A future edit to that switch cannot now silently move any group's value.
-
-Two behaviours around the switch are also pinned: hardware ID 0 leaves a preloaded capacity alone, and a known hardware ID overwrites a stored capacity on every update. The second matters to users directly, because it is why a corrected value entered from the settings page does not persist - the table has to be right at the source.
-
-The original defect is upstream issue #2673, an owner running a Model X 100 kWh whose page read "Total capacity: 70.0 kWh". The mismatch had been in the switch since its first commit (PR #1946).
-
-Note: drafted with AI assistance, reviewed by me.
-</details>
-
 ## Settings and web UI
 
 ---
