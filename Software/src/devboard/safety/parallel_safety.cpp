@@ -2,10 +2,16 @@
 #include "../../battery/BATTERIES.h"
 #include "../../datalayer/datalayer.h"
 #include "../utils/events.h"
+#include "safety.h"
 
 void check_parallel_battery_safety(uint8_t batteryNumber) {
   /* Before the checks are started, we need to know the battery is alive via CAN, and that the voltages have ben read*/
   if ((batteryNumber == 2) && battery2_detected) {
+    // A pack silent this long is taken off the DC link; it rejoins through the checks below once heard again.
+    if (can_silent_s(datalayer.battery2.status.CAN_battery_still_alive) >= CAN_SILENCE_MISSING_S) {
+      datalayer.system.status.battery2_allowed_contactor_closing = false;
+      return;
+    }
     if (datalayer.battery.status.voltage_dV == 0 || datalayer.battery2.status.voltage_dV == 0) {
       return;  // 0 = not decoded yet, every pack starts there. Both are needed to start the check
     }
@@ -37,6 +43,11 @@ void check_parallel_battery_safety(uint8_t batteryNumber) {
   }
 
   if ((batteryNumber == 3) && battery3_detected) {
+    // A pack silent this long is taken off the DC link; it rejoins through the checks below once heard again.
+    if (can_silent_s(datalayer.battery3.status.CAN_battery_still_alive) >= CAN_SILENCE_MISSING_S) {
+      datalayer.system.status.battery3_allowed_contactor_closing = false;
+      return;
+    }
     if (datalayer.battery.status.voltage_dV == 0 || datalayer.battery3.status.voltage_dV == 0) {
       return;  // 0 = not decoded yet, every pack starts there. Both are needed to start the check
     }

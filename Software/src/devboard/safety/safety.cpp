@@ -43,19 +43,37 @@ battery_pause_status emulator_pause_status = NORMAL;
 // detected-event on the first counter refresh, raise the missing-event when the
 // counter runs out, decrement and clear it otherwise. The inverter has its own
 // logic (long-timeout option, startup grace) and is handled separately.
+uint8_t can_silent_s(uint8_t still_alive_counter) {
+  // Drivers refresh the counter to CAN_STILL_ALIVE on every frame they accept; each safety cycle takes one off.
+  return still_alive_counter < CAN_STILL_ALIVE ? CAN_STILL_ALIVE - still_alive_counter : 0;
+}
+
 static void check_can_component_alive(uint8_t& still_alive_counter, bool& detected, EVENTS_ENUM_TYPE detected_event,
-                                      EVENTS_ENUM_TYPE missing_event, uint8_t missing_event_data) {
+                                      EVENTS_ENUM_TYPE missing_event, uint8_t missing_event_data,
+                                      uint8_t missing_after_s) {
   if (!detected) {
     if (still_alive_counter >= CAN_STILL_ALIVE) {
       detected = true;
       set_event(detected_event, 1);
     }
   }
-  if (!still_alive_counter) {
+  // Until first heard from, a component may still be waking up, so it keeps the whole counter.
+  if (can_silent_s(still_alive_counter) >= (detected ? missing_after_s : CAN_STILL_ALIVE)) {
     set_event(missing_event, missing_event_data);
   } else {
-    --still_alive_counter;
     clear_event(missing_event);
+  }
+  if (still_alive_counter) {
+    --still_alive_counter;
+  }
+}
+
+// A detected pack that has been silent for CAN_SILENCE_ZERO_LIMITS_S offers no power: its last published limits
+// are stale, and the inverter must not keep charging or discharging on them.
+static void zero_limits_if_silent(DATALAYER_BATTERY_STATUS_TYPE& status, bool detected) {
+  if (detected && can_silent_s(status.CAN_battery_still_alive) >= CAN_SILENCE_ZERO_LIMITS_S) {
+    status.max_charge_power_W = 0;
+    status.max_discharge_power_W = 0;
   }
 }
 
@@ -192,6 +210,7 @@ void update_machineryprotection() {
       datalayer.battery.status.max_discharge_power_W = 0;
       datalayer.battery.status.max_charge_power_W = 0;
     }
+    zero_limits_if_silent(datalayer.battery.status, battery_detected);
 
     // Temperature checks for every configured battery are done together in
     // check_battery_temperatures(), called further down.
@@ -376,9 +395,10 @@ void update_machineryprotection() {
     }
 
     // Check that the BMS has been seen and is still sending CAN messages.
-    // If we go 60s without messages we raise an error
+    // After CAN_SILENCE_MISSING_S without messages we raise an error
     check_can_component_alive(datalayer.battery.status.CAN_battery_still_alive, battery_detected,
-                              EVENT_CAN_BATTERY_DETECTED, EVENT_CAN_BATTERY_MISSING, can_config.battery);
+                              EVENT_CAN_BATTERY_DETECTED, EVENT_CAN_BATTERY_MISSING, can_config.battery,
+                              CAN_SILENCE_MISSING_S);
   }
 
   if (inverter && inverter->interface_type() == InverterInterfaceType::Can) {
@@ -426,7 +446,7 @@ void update_machineryprotection() {
     // Check that the charger has been seen and is still sending CAN messages.
     // If we go 60s without messages we raise a warning
     check_can_component_alive(datalayer.charger.CAN_charger_still_alive, charger_detected, EVENT_CAN_CHARGER_DETECTED,
-                              EVENT_CAN_CHARGER_MISSING, charger->interface());
+                              EVENT_CAN_CHARGER_MISSING, charger->interface(), CAN_STILL_ALIVE);
   }
 
   // Additional Double-Battery safeties are checked here
@@ -438,10 +458,12 @@ void update_machineryprotection() {
       datalayer.battery2.status.max_discharge_power_W = 0;
       datalayer.battery2.status.max_charge_power_W = 0;
     }
+    zero_limits_if_silent(datalayer.battery2.status, battery2_detected);
 
     // Check that the Battery 2 BMS has been seen and is still sending CAN messages
     check_can_component_alive(datalayer.battery2.status.CAN_battery_still_alive, battery2_detected,
-                              EVENT_CAN_BATTERY2_DETECTED, EVENT_CAN_BATTERY2_MISSING, can_config.battery_double);
+                              EVENT_CAN_BATTERY2_DETECTED, EVENT_CAN_BATTERY2_MISSING, can_config.battery_double,
+                              CAN_SILENCE_MISSING_S);
 
     // Cell overvoltage, critical latching error without automatic reset. Requires user action.
     if (datalayer.battery2.status.cell_max_voltage_mV >= datalayer.battery2.info.max_cell_voltage_mV) {
@@ -488,10 +510,12 @@ void update_machineryprotection() {
       datalayer.battery3.status.max_discharge_power_W = 0;
       datalayer.battery3.status.max_charge_power_W = 0;
     }
+    zero_limits_if_silent(datalayer.battery3.status, battery3_detected);
 
     // Check that the Battery 3 BMS has been seen and is still sending CAN messages
     check_can_component_alive(datalayer.battery3.status.CAN_battery_still_alive, battery3_detected,
-                              EVENT_CAN_BATTERY3_DETECTED, EVENT_CAN_BATTERY3_MISSING, can_config.battery_triple);
+                              EVENT_CAN_BATTERY3_DETECTED, EVENT_CAN_BATTERY3_MISSING, can_config.battery_triple,
+                              CAN_SILENCE_MISSING_S);
 
     // Cell overvoltage, critical latching error without automatic reset. Requires user action.
     if (datalayer.battery3.status.cell_max_voltage_mV >= datalayer.battery3.info.max_cell_voltage_mV) {

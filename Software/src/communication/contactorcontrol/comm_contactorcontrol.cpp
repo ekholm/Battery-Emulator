@@ -62,14 +62,14 @@ uint32_t bmsPowerOnTime = 0;
 const uint32_t bmsWarmupDuration = 3000;
 #define BMS_RESET_DEFER_SOC_PPTT 1500  // 15.00%, below this the low-SOC guard defers the periodic reset
 
-/* The safety layer decrements CAN_battery_still_alive once per second and latches
-   EVENT_CAN_BATTERY_MISSING when it reaches zero, so the BMS may only be silent for
-   CAN_STILL_ALIVE seconds. A reset that keeps the BMS powered off for longer than that
+/* The safety layer decrements CAN_battery_still_alive once per second and raises
+   EVENT_CAN_BATTERY_MISSING after CAN_SILENCE_MISSING_S of silence from a detected pack, so the
+   BMS may only be silent that long. A reset that keeps the BMS powered off for longer than that
    would always trip the event, so for those durations we refresh the liveness counters
    ourselves while the reset runs. Refreshing one second before the window closes keeps
-   the counter from ever reaching zero. Durations that fit inside the window are left
+   the event from ever being raised. Durations that fit inside the window are left
    alone and keep the original, unmasked behaviour. */
-#define BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS ((unsigned long)(CAN_STILL_ALIVE - 1) * 1000UL)
+#define BMS_RESET_CAN_KEEPALIVE_INTERVAL_MS ((unsigned long)(CAN_SILENCE_MISSING_S - 1) * 1000UL)
 unsigned long lastCanKeepaliveTime = 0;
 
 void set(uint8_t pin, bool direction, uint32_t pwm_freq = 0xFFFF) {
@@ -586,12 +586,11 @@ void handle_BMSpower() {
       if (currentTime - lastPowerRemovalTime >= datalayer.battery_settings.user_set_bms_reset_duration_ms) {
         bms_power_on();
         bmsPowerOnTime = currentTime;
-        /* The last periodic refresh can have been up to a full interval ago, which would leave
-           the BMS only a sliver of the window to get back on the bus. Refreshing here gives it
-           the whole window from power-on, measured from the same moment for every off time. */
-        if (bms_reset_needs_can_keepalive()) {
-          bms_reset_refresh_can_alive();
-        }
+        /* The BMS was silent for the whole off time (or since the last periodic refresh), which
+           can leave it only a sliver of the window to get back on the bus. Refreshing here gives it
+           the whole window from power-on, measured from the same moment for every off time, short
+           resets included: the default 30 s off time alone is two thirds of the window. */
+        bms_reset_refresh_can_alive();
         datalayer.system.status.bms_reset_status = BMS_RESET_POWERING_ON;
       }
     } else if (datalayer.system.status.bms_reset_status == BMS_RESET_POWERING_ON) {

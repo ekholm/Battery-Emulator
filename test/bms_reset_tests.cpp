@@ -392,15 +392,15 @@ TEST(BmsResetTests, LongBmsResetHoldsCanAlive) {
 
   // Nothing is refreshed before the first interval is up
   datalayer.battery.status.CAN_battery_still_alive = 7;
-  set_millis64(reset_start + 58000);
+  set_millis64(reset_start + 43000);
   handle_BMSpower();
   EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 7);
 
-  // The counter is topped up one second before the window would close, and again
-  // on every following interval, so it never reaches zero during the off time.
+  // The counter is topped up one second before the missing window would close, and
+  // again on every following interval, so the event is never raised during the off time.
   for (int interval = 1; interval <= 10; interval++) {
     datalayer.battery.status.CAN_battery_still_alive = 1;
-    set_millis64(reset_start + interval * 59000);
+    set_millis64(reset_start + interval * (CAN_SILENCE_MISSING_S - 1) * 1000);
     handle_BMSpower();
     EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, CAN_STILL_ALIVE)
         << "not refreshed at interval " << interval;
@@ -423,8 +423,9 @@ TEST(BmsResetTests, LongBmsResetHoldsCanAlive) {
   teardown_periodic_reset_test();
 }
 
-// An off time that fits inside the liveness window keeps the original behaviour, the
-// alive counter is left alone so a genuinely missing BMS is still detected.
+// An off time that fits inside the liveness window is not masked while the BMS is off. At
+// power-on the BMS gets the whole window to rejoin the bus (the default 30 s off time alone is
+// two thirds of it); a BMS that stays silent after that is still reported missing.
 TEST(BmsResetTests, ShortBmsResetLeavesCanAliveAlone) {
   setup_periodic_reset_test(24);
   datalayer.battery_settings.user_set_bms_reset_duration_ms = 30000;  // 30 seconds
@@ -443,7 +444,7 @@ TEST(BmsResetTests, ShortBmsResetLeavesCanAliveAlone) {
   set_millis64(reset_start + 31000);
   handle_BMSpower();
   EXPECT_EQ(datalayer.system.status.bms_reset_status, BMS_RESET_POWERING_ON);
-  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 3);
+  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, CAN_STILL_ALIVE);
 
   teardown_periodic_reset_test();
 }

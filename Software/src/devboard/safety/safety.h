@@ -8,6 +8,12 @@
 #define BATTERY_MAXTEMPERATURE 500
 #define BATTERY_MINTEMPERATURE -250
 #define MAX_CHARGE_DISCHARGE_LIMIT_FAILURES 5
+/* Battery CAN silence, counted in safety cycles (1 s) since a detected pack was last heard from. After
+   CAN_SILENCE_ZERO_LIMITS_S the pack offers no charge or discharge power; after CAN_SILENCE_MISSING_S its
+   missing event is raised (pack 1: an error, so FAULT and the contactors open) and a second or third pack is
+   taken off the DC link. A pack never heard from since boot keeps the whole CAN_STILL_ALIVE window. */
+#define CAN_SILENCE_ZERO_LIMITS_S 10
+#define CAN_SILENCE_MISSING_S 45
 
 //battery pause status begin
 enum battery_pause_status { NORMAL = 0, PAUSING = 1, PAUSED = 2, RESUMING = 3 };
@@ -20,6 +26,9 @@ extern bool allowed_to_send_CAN;
 extern bool battery_detected;
 extern bool battery2_detected;
 extern bool battery3_detected;
+
+// Safety cycles since the component behind this alive counter was last heard from.
+uint8_t can_silent_s(uint8_t still_alive_counter);
 
 extern void store_settings_equipment_stop();
 

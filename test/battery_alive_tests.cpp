@@ -100,10 +100,11 @@ TEST_F(BatteryAliveTest, BatteryMissingSetsAtZeroAndClearsOnRefresh) {
   update_machineryprotection();
   ASSERT_EQ(get_event_pointer(EVENT_CAN_BATTERY_MISSING)->state, EVENT_STATE_ACTIVE);
 
-  datalayer.battery.status.CAN_battery_still_alive = 10;
+  datalayer.battery.status.CAN_battery_still_alive = CAN_STILL_ALIVE;  // a frame, as a driver refreshes it
   update_machineryprotection();
   EXPECT_EQ(get_event_pointer(EVENT_CAN_BATTERY_MISSING)->state, EVENT_STATE_INACTIVE);
-  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, 9) << "Counter must decrement on every cycle";
+  EXPECT_EQ(datalayer.battery.status.CAN_battery_still_alive, CAN_STILL_ALIVE - 1)
+      << "Counter must decrement on every cycle";
 }
 
 TEST_F(BatteryAliveTest, SecondBatteryMissingSetsAtZeroAndClearsOnRefresh) {
@@ -111,10 +112,10 @@ TEST_F(BatteryAliveTest, SecondBatteryMissingSetsAtZeroAndClearsOnRefresh) {
   update_machineryprotection();
   ASSERT_EQ(get_event_pointer(EVENT_CAN_BATTERY2_MISSING)->state, EVENT_STATE_ACTIVE);
 
-  datalayer.battery2.status.CAN_battery_still_alive = 10;
+  datalayer.battery2.status.CAN_battery_still_alive = CAN_STILL_ALIVE;  // a frame, as a driver refreshes it
   update_machineryprotection();
   EXPECT_EQ(get_event_pointer(EVENT_CAN_BATTERY2_MISSING)->state, EVENT_STATE_INACTIVE);
-  EXPECT_EQ(datalayer.battery2.status.CAN_battery_still_alive, 9);
+  EXPECT_EQ(datalayer.battery2.status.CAN_battery_still_alive, CAN_STILL_ALIVE - 1);
 }
 
 TEST_F(BatteryAliveTest, ChargerMissingSetsAtZeroAndClearsOnRefresh) {
