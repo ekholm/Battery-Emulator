@@ -90,6 +90,10 @@ class TeslaBattery : public CanBattery {
   uint16_t temp = 0;
   bool mux0_read = false;
   bool mux1_read = false;
+  // 0x352 layout detection: the multiplexer index last seen, and how often it has changed. A muxed pack
+  // cycles its index continuously; an older pack's byte 0 is a slowly drifting energy value.
+  uint8_t energy_mux_last = 0xFF;
+  uint8_t energy_mux_changes = 0;
   uint16_t brick_volts = 0;      // per-brick voltage scratch variable (0x401)
   uint8_t mux_zero_counter = 0;  // counts mux==0 frames to detect full cell scan
   uint8_t mux_max = 0;           // highest mux index seen so far
