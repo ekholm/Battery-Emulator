@@ -6,9 +6,21 @@
 void check_parallel_battery_safety(uint8_t batteryNumber) {
   /* Before the checks are started, we need to know the battery is alive via CAN, and that the voltages have ben read*/
   if ((batteryNumber == 2) && battery2_detected) {
-    if (datalayer.battery2.status.voltage_dV == 0 || datalayer.battery2.status.CAN_battery_still_alive == 0) {
-      // Pack 2 reads 0 V or has gone silent: it is not on the DC link, so it must not stay counted as joined
-      // (a pack left joined keeps its SOC in the total the inverter sees).
+    /* Pack 2 reads 0 V or has gone silent: it is not on the DC link, so it must not stay counted as joined
+       (a pack left joined keeps its SOC in the total the inverter sees). A joined pack cannot really read 0 V,
+       so a single 0 V reading is a decode glitch: unjoining on it would open the pack's contactors under load
+       and rejoin them a cycle later. 0 V must last as long as an out-of-sync voltage before the pack leaves. */
+    static uint8_t secondsAtZeroVoltsBattery2 = 0;
+    if (datalayer.battery2.status.voltage_dV == 0) {
+      if (secondsAtZeroVoltsBattery2 < 10) {
+        secondsAtZeroVoltsBattery2++;
+      } else {
+        datalayer.system.status.battery2_allowed_contactor_closing = false;
+      }
+      return;
+    }
+    secondsAtZeroVoltsBattery2 = 0;
+    if (datalayer.battery2.status.CAN_battery_still_alive == 0) {
       datalayer.system.status.battery2_allowed_contactor_closing = false;
       return;
     }
@@ -43,9 +55,21 @@ void check_parallel_battery_safety(uint8_t batteryNumber) {
   }
 
   if ((batteryNumber == 3) && battery3_detected) {
-    if (datalayer.battery3.status.voltage_dV == 0 || datalayer.battery3.status.CAN_battery_still_alive == 0) {
-      // Pack 3 reads 0 V or has gone silent: it is not on the DC link, so it must not stay counted as joined
-      // (a pack left joined keeps its SOC in the total the inverter sees).
+    /* Pack 3 reads 0 V or has gone silent: it is not on the DC link, so it must not stay counted as joined
+       (a pack left joined keeps its SOC in the total the inverter sees). A joined pack cannot really read 0 V,
+       so a single 0 V reading is a decode glitch: unjoining on it would open the pack's contactors under load
+       and rejoin them a cycle later. 0 V must last as long as an out-of-sync voltage before the pack leaves. */
+    static uint8_t secondsAtZeroVoltsBattery3 = 0;
+    if (datalayer.battery3.status.voltage_dV == 0) {
+      if (secondsAtZeroVoltsBattery3 < 10) {
+        secondsAtZeroVoltsBattery3++;
+      } else {
+        datalayer.system.status.battery3_allowed_contactor_closing = false;
+      }
+      return;
+    }
+    secondsAtZeroVoltsBattery3 = 0;
+    if (datalayer.battery3.status.CAN_battery_still_alive == 0) {
       datalayer.system.status.battery3_allowed_contactor_closing = false;
       return;
     }

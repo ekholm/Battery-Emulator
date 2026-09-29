@@ -31,10 +31,19 @@ class PackJoinOwnership : public ::testing::Test {
 
 }  // namespace
 
+// 0 V must last as long as an out-of-sync voltage (10 checks, one per second) before the pack leaves.
+void zero_volts_for(uint8_t pack, int checks) {
+  (pack == 2 ? datalayer.battery2 : datalayer.battery3).status.voltage_dV = 0;
+  for (int i = 0; i < checks; i++) {
+    check_parallel_battery_safety(pack);
+  }
+}
+
 TEST_F(PackJoinOwnership, AJoinedPackThatReadsZeroVoltsLeavesTheJoin) {
   ASSERT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing) << "precondition: pack 2 joined";
-  datalayer.battery2.status.voltage_dV = 0;
-  check_parallel_battery_safety(2);
+  zero_volts_for(2, 10);
+  EXPECT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing) << "pack 2 left after 10 checks at 0 V";
+  zero_volts_for(2, 1);
   EXPECT_FALSE(datalayer.system.status.battery2_allowed_contactor_closing)
       << "pack 2 reads 0 V but is still counted as joined";
 }
@@ -49,8 +58,9 @@ TEST_F(PackJoinOwnership, AJoinedPackThatGoesSilentLeavesTheJoin) {
 
 TEST_F(PackJoinOwnership, TheThirdPackIsTreatedTheSame) {
   ASSERT_TRUE(datalayer.system.status.battery3_allowed_contactor_closing) << "precondition: pack 3 joined";
-  datalayer.battery3.status.voltage_dV = 0;
-  check_parallel_battery_safety(3);
+  zero_volts_for(3, 10);
+  EXPECT_TRUE(datalayer.system.status.battery3_allowed_contactor_closing) << "pack 3 left after 10 checks at 0 V";
+  zero_volts_for(3, 1);
   EXPECT_FALSE(datalayer.system.status.battery3_allowed_contactor_closing);
 }
 
@@ -62,10 +72,21 @@ TEST_F(PackJoinOwnership, TheMainPackAtZeroVoltsDoesNotUnjoinPack2) {
 }
 
 TEST_F(PackJoinOwnership, APackThatComesBackInSyncJoinsAgain) {
-  datalayer.battery2.status.voltage_dV = 0;
-  check_parallel_battery_safety(2);
+  zero_volts_for(2, 11);
   ASSERT_FALSE(datalayer.system.status.battery2_allowed_contactor_closing);
   datalayer.battery2.status.voltage_dV = 3752;  // back, within 1.5 V
   check_parallel_battery_safety(2);
   EXPECT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing) << "pack 2 did not rejoin once back in sync";
+}
+
+// A single 0 V reading from a joined pack is a glitch: leaving on it would open pack 2's contactors under load
+// and close them again on the next in-sync check.
+TEST_F(PackJoinOwnership, OneZeroVoltReadingDoesNotCycleTheContactors) {
+  zero_volts_for(2, 1);
+  EXPECT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing) << "one 0 V reading unjoined pack 2";
+  datalayer.battery2.status.voltage_dV = 3751;
+  check_parallel_battery_safety(2);
+  zero_volts_for(2, 9);
+  EXPECT_TRUE(datalayer.system.status.battery2_allowed_contactor_closing)
+      << "the 0 V count carried over a good reading";
 }
