@@ -479,6 +479,17 @@ void TeslaBattery::
   //The inverter setting will ramp down this value based on SOC%
   datalayer_battery->status.max_charge_power_W = datalayer_battery->status.override_charge_power_W;
 
+  // Near the cell voltage limit, allow only a float current, whatever the SOC says. The SOC taper
+  // follows the SOC, which lags the cells at the top: a pack can reach its cell limit below the taper
+  // band and would otherwise be charged at full power until the hard stop at the limit itself.
+  const uint16_t max_cell_mV = (datalayer_battery->info.chemistry == battery_chemistry_enum::LFP)
+                                   ? MAX_CELL_VOLTAGE_LFP
+                                   : MAX_CELL_VOLTAGE_NCA_NCM;
+  if (battery_cell_max_v > (max_cell_mV - FLOAT_START_MV) &&
+      datalayer_battery->status.max_charge_power_W > FLOAT_MAX_POWER_W) {
+    datalayer_battery->status.max_charge_power_W = FLOAT_MAX_POWER_W;
+  }
+
   datalayer_battery->status.temperature_min_dC = battery_min_temp;
 
   datalayer_battery->status.temperature_max_dC = battery_max_temp;

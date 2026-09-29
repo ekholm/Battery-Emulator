@@ -79,6 +79,8 @@ class TeslaBattery : public CanBattery {
   static const int MIN_CELL_VOLTAGE_NCA_NCM =
       2950;                                      //Battery is put into emergency stop if one cell goes below this value
   static const int MAX_CELL_VOLTAGE_LFP = 3650;  //Battery is put into emergency stop if one cell goes over this value
+  static const int FLOAT_MAX_POWER_W = 200;      // W, charge power allowed within FLOAT_START_MV of the cell limit
+  static const int FLOAT_START_MV = 20;          // mV below the cell limit where only float charging is allowed
   static const int MIN_CELL_VOLTAGE_LFP = 2800;  //Battery is put into emergency stop if one cell goes below this value
 
   DATALAYER_BATTERY_TYPE* datalayer_battery;
