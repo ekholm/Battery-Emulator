@@ -32,7 +32,6 @@ class Mg5Battery : public CanBattery {
   static const int MAX_CELL_DEVIATION_MV = 150;
   static const int MAX_CELL_VOLTAGE_MV = 4250;  //Battery is put into emergency stop if one cell goes over this value
   static const int MIN_CELL_VOLTAGE_MV = 2700;  //Battery is put into emergency stop if one cell goes below this value
-  static const int TOTAL_BATTERY_CAPACITY_WH = 52500;  // 52.5 kWh
 
   unsigned long previousMillis10 = 0;   // will store last time a 10ms CAN Message was send
   unsigned long previousMillis20 = 0;   // will store last time a 20ms CAN Message was send

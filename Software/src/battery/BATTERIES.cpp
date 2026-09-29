@@ -440,7 +440,6 @@ bool battery_detects_capacity(BatteryType type) {
     case BatteryType::KiaHyundai64:
     case BatteryType::KiaHyundaiHybrid:
     case BatteryType::Meb:
-    case BatteryType::Mg5:
     case BatteryType::MgGen1:
     case BatteryType::NissanLeaf:
     case BatteryType::Pylon:

@@ -770,7 +770,6 @@ void Mg5Battery::setup(void) {  // Performs one time setup at startup
   datalayer.battery.info.min_design_voltage_dV = MIN_PACK_VOLTAGE_DV;
   datalayer.battery.info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
   datalayer.battery.info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
-  datalayer.battery.info.total_capacity_Wh = TOTAL_BATTERY_CAPACITY_WH;
   datalayer.battery.info.number_of_cells = 96;
   uds_tx_in_flight = true;                  // Make sure UDS doesn't start right away
   uds_req_started_ms = millis();            // prevent immediate timeout
