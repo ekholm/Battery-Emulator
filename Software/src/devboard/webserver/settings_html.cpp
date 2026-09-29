@@ -933,7 +933,7 @@ String raw_settings_processor(const String& var, BatteryEmulatorSettingsStore& s
     return datalayer.battery_settings.user_requests_balancing ? "active" : "inactive";
   }
 
-  if (var == "BALANCING_MAX_TIME") {
+  if (var == "BAL_MAX_TIME") {
     return String(datalayer.battery_settings.balancing_max_time_ms / 60000.0f, 1);
   }
 
