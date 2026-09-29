@@ -24,11 +24,14 @@ class TeslaBattery : public CanBattery {
     previous_max_percentage = datalayer.battery_settings.max_percentage;
     datalayer_tesla = &datalayer_extended.tesla;
   }
-  // Use this constructor for the second battery.
-  TeslaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_TESLA* extended, CAN_Interface targetCan)
+  // Use this constructor for the second battery. `contactor_closing_allowed_ptr` is the join gate
+  // parallel safety drives for this pack; the pack goes to DRIVE only while it is true.
+  TeslaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, DATALAYER_INFO_TESLA* extended, CAN_Interface targetCan,
+               bool* contactor_closing_allowed_ptr = &datalayer.system.status.battery2_allowed_contactor_closing)
       : CanBattery(targetCan), renderer(extended, datalayer_ptr) {
     datalayer_battery = datalayer_ptr;
     allows_contactor_closing = nullptr;
+    contactor_closing_allowed = contactor_closing_allowed_ptr;
     previous_max_percentage = datalayer.battery_settings.max_percentage;
     datalayer_tesla = extended;
   }
@@ -101,6 +104,8 @@ class TeslaBattery : public CanBattery {
 
   // If not null, this battery decides when the contactor can be closed and writes the value here.
   bool* allows_contactor_closing;
+  // The join gate for a second or third pack (nullptr for the first): DRIVE only while it is true.
+  bool* contactor_closing_allowed = nullptr;
 
   void printFaultCodesIfActive();
   void printFaultCodesPcsCp();  // PCS 0x3A4 + CP 0x31E alert matrices (tesla-m3-pack-findings)

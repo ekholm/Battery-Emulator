@@ -1125,9 +1125,11 @@ void TeslaBattery::
   datalayer_tesla->CP_alertMatrixActive[94] = CP_a095_thermalDcLimitActive;
   datalayer_tesla->CP_alertMatrixActive[95] = CP_a096_pilotWake;
 
-  //Safety checks for CAN message sending
+  //Safety checks for CAN message sending. A second or third pack also waits for its join gate, so it does not
+  //close onto a DC link parallel safety has not let it join.
   if ((datalayer.system.status.inverter_allows_contactor_closing == true) &&
-      (datalayer.system.status.system_status != FAULT) && (!datalayer.system.info.equipment_stop_active)) {
+      (datalayer.system.status.system_status != FAULT) && (!datalayer.system.info.equipment_stop_active) &&
+      (contactor_closing_allowed == nullptr || *contactor_closing_allowed)) {
     // Carry on: 0x221 DRIVE state & reset power down timer
     vehicleState = CAR_DRIVE;
     powerDownSeconds = 9;
