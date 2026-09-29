@@ -1036,7 +1036,7 @@ uint16_t EcmpBattery::handle_pid(uint16_t pid, uint32_t value, const uint8_t* da
       pid_insulation_res = value;
       break;
     case PID_PACK_VOLTAGE:
-      pid_pack_voltage = value;
+      pid_pack_voltage = value / 2;  // the reply is twice the voltage in 0.1 V; +800 is added in update_values
       break;
     case PID_HIGH_CELL_VOLTAGE:
       pid_high_cell_voltage = value;
