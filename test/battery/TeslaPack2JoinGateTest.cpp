@@ -101,3 +101,39 @@ TEST(TeslaPack2JoinGate, Pack1HasNoJoinGateAndStillDrives) {
   }
   EXPECT_TRUE(drives) << "Tesla pack 1 must still go to DRIVE: the join gate is for packs 2 and 3";
 }
+
+// ===========================================================================
+// A joined pack 2 whose gate closes again must leave DRIVE: parallel safety revokes the join when the pack
+// drifts away from the link (voltage difference, a fault), and a pack that kept driving would stay on it.
+// The case above only ever opens the gate, so a gate honoured once and then latched passes it.
+TEST(TeslaPack2JoinGate, Pack2LeavesDriveWhenItsJoinIsRevoked) {
+  datalayer = DataLayer();
+  datalayer_extended = DataLayerExtended();
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  datalayer.system.status.battery2_allowed_contactor_closing = true;
+  datalayer.system.status.system_status = ACTIVE;
+  TeslaBattery tb2(&datalayer.battery2, &datalayer_extended.tesla_2, CAN_ADDON_MCP2515);
+  tb2.update_values();
+  clear_transmitted_frames();
+  unsigned long now = 1000;
+  for (; now < 11000; now += 1000) {
+    tb2.transmit_can(now);
+  }
+  bool drove = false;
+  for (const CAN_frame& f : get_transmitted_frames()) {
+    drove = drove || (f.ID == 0x221 && (f.data.u8[0] & 0xF0) == 0x60);
+  }
+  ASSERT_TRUE(drove) << "precondition: pack 2 drives while its join is allowed";
+
+  datalayer.system.status.battery2_allowed_contactor_closing = false;  // parallel safety revokes the join
+  tb2.update_values();
+  clear_transmitted_frames();
+  for (unsigned long end = now + 10000; now < end; now += 1000) {
+    tb2.transmit_can(now);
+  }
+  bool still_drives = false;
+  for (const CAN_frame& f : get_transmitted_frames()) {
+    still_drives = still_drives || (f.ID == 0x221 && (f.data.u8[0] & 0xF0) == 0x60);
+  }
+  EXPECT_FALSE(still_drives) << "pack 2 kept sending DRIVE after parallel safety revoked its join";
+}
