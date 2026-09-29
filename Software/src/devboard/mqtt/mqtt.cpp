@@ -455,6 +455,28 @@ static const char* get_balancing_status_text(balancing_status_enum status) {
   }
 }
 
+// Whether the pack's cell max/min hold decoded values. Integrations that fill the per-cell array
+// derive max/min from it, so those are known once the array is filled (a partly filled array
+// gives a bogus minimum). Many integrations never fill the array and report max/min from their
+// own frames instead, often with number_of_cells set: theirs are known once they have left the
+// datalayer's untouched defaults.
+static bool cell_max_min_known(const DATALAYER_BATTERY_TYPE& battery_data) {
+  const uint16_t cells = battery_data.info.number_of_cells;
+  if (cells != 0u && battery_data.status.cell_voltages_mV[cells - 1] != 0u) {
+    return true;
+  }
+  const uint16_t checked = (cells != 0u && cells < MAX_AMOUNT_CELLS) ? cells : MAX_AMOUNT_CELLS;
+  for (uint16_t i = 0; i < checked; ++i) {
+    if (battery_data.status.cell_voltages_mV[i] != 0u) {
+      return false;  // the array is being filled: wait until it is complete
+    }
+  }
+  static const DATALAYER_BATTERY_STATUS_TYPE untouched{};
+  const bool at_defaults = battery_data.status.cell_max_voltage_mV == untouched.cell_max_voltage_mV &&
+                           battery_data.status.cell_min_voltage_mV == untouched.cell_min_voltage_mV;
+  return !at_defaults && battery_data.status.cell_min_voltage_mV != 0u;
+}
+
 // Fills the document with the state values for one battery. All keys are un-suffixed
 // const char* literals: ArduinoJson stores those by pointer (zero copy), whereas the old
 // "key" + suffix String keys were each heap-allocated and then copied into the document
@@ -518,8 +540,7 @@ void set_battery_attributes(JsonDocument& doc, const DATALAYER_BATTERY_TYPE& bat
   doc["stat_batt_power"] = ((float)((int32_t)battery_data.status.active_power_W));
   doc["battery_current"] = ((float)((int16_t)battery_data.status.current_dA)) / 10.0f;
   doc["battery_voltage"] = ((float)battery_data.status.voltage_dV) / 10.0f;
-  if (battery_data.info.number_of_cells != 0u &&
-      battery_data.status.cell_voltages_mV[battery_data.info.number_of_cells - 1] != 0u) {
+  if (cell_max_min_known(battery_data)) {
     doc["cell_max_voltage"] = ((float)battery_data.status.cell_max_voltage_mV) / 1000.0f;
     doc["cell_min_voltage"] = ((float)battery_data.status.cell_min_voltage_mV) / 1000.0f;
     doc["cell_voltage_delta"] =
