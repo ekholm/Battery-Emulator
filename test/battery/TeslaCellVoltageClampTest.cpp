@@ -58,3 +58,20 @@ TEST(TeslaCellVoltageClamp, LfpBelowTheWindowKeepsTheAllowedPower) {
 TEST(TeslaCellVoltageClamp, TheClampNeverRaisesALowerLimit) {
   EXPECT_EQ(charge_limit_W(4240, battery_chemistry_enum::NCA, 100), 100u);
 }
+
+// The window edge: the clamp starts above limit - 20 mV (0x332 has 2 mV steps), not at it.
+TEST(TeslaCellVoltageClamp, NcmAtTheWindowEdgeKeepsTheAllowedPower) {
+  EXPECT_EQ(charge_limit_W(4230, battery_chemistry_enum::NCA), 10000u);
+}
+
+TEST(TeslaCellVoltageClamp, NcmOneStepInsideTheWindowAllowsOnlyFloatPower) {
+  EXPECT_EQ(charge_limit_W(4232, battery_chemistry_enum::NCA), 200u);
+}
+
+TEST(TeslaCellVoltageClamp, LfpAtTheWindowEdgeKeepsTheAllowedPower) {
+  EXPECT_EQ(charge_limit_W(3630, battery_chemistry_enum::LFP), 10000u);
+}
+
+TEST(TeslaCellVoltageClamp, LfpOneStepInsideTheWindowAllowsOnlyFloatPower) {
+  EXPECT_EQ(charge_limit_W(3632, battery_chemistry_enum::LFP), 200u);
+}
