@@ -102,3 +102,38 @@ TEST(EcmpPidDecode, PidPackVoltageMustBeHalvedBeforeStorage) {
 
   delete bat;
 }
+
+// One reply pins a point, not the scale: an offset that happens to map 4800 to 2400 passes the case above.
+// A second, different raw value fixes the factor (raw / 2) - the byte-level decode the driver had before its
+// UDS superclass conversion.
+namespace {
+uint16_t pack_voltage_for_reply(uint8_t hi, uint8_t lo) {
+  reset_ecmp_state();
+  auto bat = new EcmpBattery();
+  bat->setup();
+  bat->handle_incoming_can_frame(ecmp_frame(0x2D4, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}));
+  if (dynamic_cast<UdsCanBattery*>(bat) != nullptr) {
+    clear_transmitted_frames();
+    bool poll_found = false;
+    for (unsigned long now = 100; now < 100000 && !poll_found; now += 100) {
+      set_millis64(now);
+      bat->transmit_can(now);
+      for (const auto& f : get_transmitted_frames()) {
+        poll_found = poll_found || (f.ID == 0x6B4 && f.data.u8[0] == 0x03 && f.data.u8[1] == 0x22 &&
+                                    f.data.u8[2] == 0xD8 && f.data.u8[3] == 0x15);
+      }
+    }
+    EXPECT_TRUE(poll_found) << "no UDS poll for PID 0xD815";
+  }
+  bat->handle_incoming_can_frame(ecmp_frame(0x694, {0x05, 0x62, 0xD8, 0x15, hi, lo, 0x00, 0x00}));
+  bat->update_values();
+  const uint16_t voltage_dV = datalayer.battery.status.voltage_dV;
+  delete bat;
+  return voltage_dV;
+}
+}  // namespace
+
+TEST(EcmpPidDecode, PidPackVoltageScalesAsHalfTheReply) {
+  EXPECT_EQ(pack_voltage_for_reply(0x12, 0xC0), 3200u);  // 4800 / 2 + 800
+  EXPECT_EQ(pack_voltage_for_reply(0x17, 0x70), 3800u);  // 6000 / 2 + 800
+}
