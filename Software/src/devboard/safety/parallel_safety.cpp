@@ -6,8 +6,14 @@
 void check_parallel_battery_safety(uint8_t batteryNumber) {
   /* Before the checks are started, we need to know the battery is alive via CAN, and that the voltages have ben read*/
   if ((batteryNumber == 2) && battery2_detected) {
-    if (datalayer.battery.status.voltage_dV == 0 || datalayer.battery2.status.voltage_dV == 0) {
-      return;  // 0 = not decoded yet, every pack starts there. Both are needed to start the check
+    if (datalayer.battery2.status.voltage_dV == 0 || datalayer.battery2.status.CAN_battery_still_alive == 0) {
+      // Pack 2 reads 0 V or has gone silent: it is not on the DC link, so it must not stay counted as joined
+      // (a pack left joined keeps its SOC in the total the inverter sees).
+      datalayer.system.status.battery2_allowed_contactor_closing = false;
+      return;
+    }
+    if (datalayer.battery.status.voltage_dV == 0) {
+      return;  // The main pack is not decoded yet: nothing to compare pack 2 against
     }
     uint16_t voltage_diff_battery2_towards_main =
         abs(datalayer.battery.status.voltage_dV - datalayer.battery2.status.voltage_dV);
@@ -37,8 +43,14 @@ void check_parallel_battery_safety(uint8_t batteryNumber) {
   }
 
   if ((batteryNumber == 3) && battery3_detected) {
-    if (datalayer.battery.status.voltage_dV == 0 || datalayer.battery3.status.voltage_dV == 0) {
-      return;  // 0 = not decoded yet, every pack starts there. Both are needed to start the check
+    if (datalayer.battery3.status.voltage_dV == 0 || datalayer.battery3.status.CAN_battery_still_alive == 0) {
+      // Pack 3 reads 0 V or has gone silent: it is not on the DC link, so it must not stay counted as joined
+      // (a pack left joined keeps its SOC in the total the inverter sees).
+      datalayer.system.status.battery3_allowed_contactor_closing = false;
+      return;
+    }
+    if (datalayer.battery.status.voltage_dV == 0) {
+      return;  // The main pack is not decoded yet: nothing to compare pack 3 against
     }
     uint16_t voltage_diff_battery3_towards_main =
         abs(datalayer.battery.status.voltage_dV - datalayer.battery3.status.voltage_dV);
