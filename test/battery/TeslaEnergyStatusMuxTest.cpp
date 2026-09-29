@@ -6,8 +6,9 @@
 
 // 0x352 BMS_energyStatus comes in two layouts: packs from about 2021 multiplex it on byte 0's low two bits;
 // older packs send one frame whose byte 0 is the low byte of BMS_nominalFullPackEnergy. The driver may only
-// take a pack for muxed once it has seen BOTH index 0 and index 1 - an older pack's byte 0 reads as index 0
-// or 1 by its value alone, and taking one such frame for "muxed" loses the old layout for good.
+// take a pack for muxed once it has seen index 0 and index 1 AND an index changing on three consecutive
+// frames - an older pack's byte 0 reads as index 0 or 1 by its value alone, and taking such frames for
+// "muxed" loses the old layout for good.
 
 namespace {
 
@@ -70,4 +71,42 @@ TEST(TeslaEnergyStatusMux, AMuxedPackIsConfirmedByBothIndicesAndThenSkipsTheOldL
   tesla.update_values();
   EXPECT_EQ(datalayer_extended.tesla.battery_nominal_full_pack_energy, before)
       << "a confirmed muxed pack's frame was decoded as the old layout";
+}
+
+TEST(TeslaEnergyStatusMux, AnOlderPackDriftingSlowlyAcrossSeveralIndicesIsNeverTakenForMuxed) {
+  datalayer = DataLayer();
+  datalayer_extended = DataLayerExtended();
+  TeslaBattery tesla;
+  tesla.setup();
+  // Over a long uptime the BMS re-estimates its capacity: 75.3, 75.2, 75.1, 75.0 kWh, each held for many
+  // frames. Byte 0 reads as index 1, 0, 3, 2 - three changes of "index", both 0 and 1 seen, yet never two
+  // in consecutive frames. A muxed pack changes its index on every frame.
+  const uint8_t lows[] = {0xF1, 0xF0, 0xEF, 0xEE};
+  for (uint8_t low : lows) {
+    for (int i = 0; i < 50; i++) {
+      tesla.handle_incoming_can_frame(f352(low, 0x02));
+    }
+  }
+  tesla.update_values();
+  EXPECT_FALSE(datalayer_extended.tesla.BMS352_mux) << "a slowly drifting older pack was taken for muxed";
+  EXPECT_EQ(datalayer_extended.tesla.battery_nominal_full_pack_energy, 750);
+}
+
+TEST(TeslaEnergyStatusMux, TwoConsecutiveChangesDoNotConfirmMuxed) {
+  datalayer = DataLayer();
+  datalayer_extended = DataLayerExtended();
+  TeslaBattery tesla;
+  tesla.setup();
+  // An older pack's value flickering 75.2, 75.3, 75.2 kWh on consecutive frames: index 0, 1, 0 - two
+  // consecutive changes, both indices seen. A muxed pack is only confirmed on the third.
+  for (int i = 0; i < 5; i++) {
+    tesla.handle_incoming_can_frame(f352(0xF0, 0x02));
+  }
+  tesla.handle_incoming_can_frame(f352(0xF1, 0x02));
+  for (int i = 0; i < 5; i++) {
+    tesla.handle_incoming_can_frame(f352(0xF0, 0x02));
+  }
+  tesla.update_values();
+  EXPECT_FALSE(datalayer_extended.tesla.BMS352_mux) << "two consecutive index changes confirmed muxed";
+  EXPECT_EQ(datalayer_extended.tesla.battery_nominal_full_pack_energy, 752);
 }

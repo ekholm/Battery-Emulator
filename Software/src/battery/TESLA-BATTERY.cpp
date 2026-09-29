@@ -1179,8 +1179,12 @@ void TeslaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
     case 0x352:  // 850 BMS_energyStatus newer BMS
       datalayer_battery->status.CAN_battery_still_alive = CAN_STILL_ALIVE;
       mux = ((rx_frame.data.u8[0]) & 0x03);  //BMS_energyStatusIndex M : 0|2@1+ (1,0) [0|0] ""  X
-      if (energy_mux_last != 0xFF && mux != energy_mux_last && energy_mux_changes < 255) {
-        energy_mux_changes++;
+      if (energy_mux_last != 0xFF && mux != energy_mux_last) {
+        if (energy_mux_changes < 255) {
+          energy_mux_changes++;
+        }
+      } else {
+        energy_mux_changes = 0;  // A repeated index is not a cycling mux
       }
       energy_mux_last = mux;
       if (mux == 0) {
@@ -1207,10 +1211,11 @@ void TeslaBattery::handle_incoming_can_frame(CAN_frame rx_frame) {
       }
       if (mux == 2) {
       }  // Additional information needed on this mux 2, example frame: 02 26 02 20 02 80 00 00 doesn't change
-      // The muxed layout is confirmed by index 0 AND index 1 AND a cycling index (three changes). An older
-      // pack's byte 0 is BMS_nominalFullPackEnergy, whose low bits read as index 0 or 1 by value alone, and a
-      // drifting energy can cross from one to the other; neither may take it for muxed. Until confirmed the
-      // old layout is decoded - skipping it on one index frame lost it for good.
+      // The muxed layout is confirmed by index 0 AND index 1 AND an index that changed on three consecutive
+      // frames. An older pack's byte 0 is BMS_nominalFullPackEnergy, whose low bits read as index 0 or 1 by
+      // value alone, and a drifting energy crosses index boundaries over an uptime - but never on every frame;
+      // none of that may take it for muxed. Until confirmed the old layout is decoded - skipping it on one
+      // index frame lost it for good.
       if (mux0_read && mux1_read && energy_mux_changes >= 3) {
         mux0_read = false;
         mux1_read = false;
