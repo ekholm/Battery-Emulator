@@ -77,3 +77,42 @@ TEST(TeslaCellVoltageGate, CommandsDriveOnlyAfterCellVoltagesAreRead) {
   EXPECT_TRUE(cycle_sends_drive(tesla, now))
       << "the Tesla driver did not command DRIVE after the pack reported its cell voltages";
 }
+
+// The power state starts as DRIVE and update_values(), which applies the gate, runs once a second; the
+// transmit path must not send DRIVE in that first window either.
+TEST(TeslaCellVoltageGate, NoDriveBeforeTheFirstUpdateEither) {
+  datalayer = DataLayer();
+  datalayer_extended = DataLayerExtended();
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  datalayer.system.status.system_status = ACTIVE;
+
+  TeslaBattery tesla;
+  tesla.setup();
+  clear_transmitted_frames();
+  unsigned long now = 0;
+  for (int call = 0; call < 10; call++) {  // transmit before update_values() has ever run
+    now += 100;
+    tesla.transmit_can(now);
+  }
+  EXPECT_FALSE(drive_frame_sent()) << "the Tesla driver commanded DRIVE in the boot window, before any cell voltage";
+}
+
+// Until the cell voltages arrive the driver is on the shutdown path it takes when the inverter withholds
+// permission (0x221 ACCESSORY first), not silent on 0x221 and not in DRIVE.
+TEST(TeslaCellVoltageGate, WaitsOnTheShutdownPathUntilTheCellVoltagesArrive) {
+  datalayer = DataLayer();
+  datalayer_extended = DataLayerExtended();
+  datalayer.system.status.inverter_allows_contactor_closing = true;
+  datalayer.system.status.system_status = ACTIVE;
+
+  TeslaBattery tesla;
+  tesla.setup();
+  unsigned long now = 0;
+  ASSERT_FALSE(cycle_sends_drive(tesla, now)) << "precondition: no DRIVE before any cell voltage";
+  bool accessory = false;
+  for (const CAN_frame& f : get_transmitted_frames()) {
+    accessory = accessory || (f.ID == 0x221 && (f.data.u8[0] & 0xF0) == 0x40);
+  }
+  EXPECT_TRUE(accessory) << "no 0x221 ACCESSORY frame before the cell voltages: the power-state decision did not "
+                            "take the shutdown path";
+}

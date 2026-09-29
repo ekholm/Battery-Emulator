@@ -2420,8 +2420,9 @@ void TeslaBattery::transmit_can(unsigned long currentMillis) {
   if (currentMillis - previousMillis50 >= INTERVAL_50_MS && transmitPhase == 1) {
     previousMillis50 = currentMillis;
 
-    //0x221 VCFRONT_LVPowerState
-    if (vehicleState == CAR_DRIVE) {
+    //0x221 VCFRONT_LVPowerState. vehicleState starts as DRIVE and update_values() decides it only once a
+    //second, so DRIVE is gated here too: without the pack's cell voltages the first second would still close.
+    if (vehicleState == CAR_DRIVE && cellvoltagesRead) {
       if (alternateMux) {
         generateMuxFrameCounterChecksum(TESLA_221_DRIVE_Mux0, frameCounter_TESLA_221, 52, 4, 56, 8);
         transmit_can_frame(&TESLA_221_DRIVE_Mux0);
