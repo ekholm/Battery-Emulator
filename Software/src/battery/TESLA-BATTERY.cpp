@@ -1125,9 +1125,11 @@ void TeslaBattery::
   datalayer_tesla->CP_alertMatrixActive[94] = CP_a095_thermalDcLimitActive;
   datalayer_tesla->CP_alertMatrixActive[95] = CP_a096_pilotWake;
 
-  //Safety checks for CAN message sending
+  //Safety checks for CAN message sending. DRIVE also waits for the pack's cell voltages (0x332 min/max): until
+  //they are read the safety checks only see the 3300 mV defaults, so a damaged pack could close its contactors.
   if ((datalayer.system.status.inverter_allows_contactor_closing == true) &&
-      (datalayer.system.status.system_status != FAULT) && (!datalayer.system.info.equipment_stop_active)) {
+      (datalayer.system.status.system_status != FAULT) && (!datalayer.system.info.equipment_stop_active) &&
+      cellvoltagesRead) {
     // Carry on: 0x221 DRIVE state & reset power down timer
     vehicleState = CAR_DRIVE;
     powerDownSeconds = 9;
