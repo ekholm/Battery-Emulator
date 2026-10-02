@@ -57,9 +57,11 @@ void filter_charge_taper_soc(void) {
        charge session terminates instead of asymptotically stalling below
        full. Only applied when the allowance entering the taper is non-zero,
        so it never overrides a zero coming from the BMS itself or from the
-       safety layer (cell overvoltage, battery full, pause states). */
+       safety layer (cell overvoltage, battery full, pause states). Never
+       above that allowance either: a BMS or driver derate below the floor
+       (cold, near a cell limit) is kept as it is. */
     if (base_W > 0 && charge_taper_floor_W > 0 && soc < 10000 && charge_W < charge_taper_floor_W) {
-      charge_W = charge_taper_floor_W;
+      charge_W = (base_W < charge_taper_floor_W) ? base_W : charge_taper_floor_W;
     }
 
     datalayer.battery.status.max_charge_power_W = charge_W;
