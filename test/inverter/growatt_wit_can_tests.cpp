@@ -136,11 +136,11 @@ TEST_F(GrowattWitCanInverterTest, PeriodicGroupsCadence) {
 // ---------------------------------------------------------------------------
 
 TEST_F(GrowattWitCanInverterTest, LimitsFrameEncodesCurrentAndVoltageLE) {
-  datalayer.battery.status.max_charge_current_dA = 150;
-  datalayer.battery.status.max_discharge_current_dA = 250;
-  datalayer.battery.info.max_design_voltage_dV = 4100;
-  datalayer.battery.info.min_design_voltage_dV = 2900;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_charge_current_dA = 150;
+  datalayer.aggregate.max_discharge_current_dA = 250;
+  datalayer.aggregate.max_design_voltage_dV = 4100;
+  datalayer.aggregate.min_design_voltage_dV = 2900;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
   gw->update_values();
 
   wake_inverter();
@@ -156,9 +156,9 @@ TEST_F(GrowattWitCanInverterTest, LimitsFrameEncodesCurrentAndVoltageLE) {
 }
 
 TEST_F(GrowattWitCanInverterTest, UserVoltageLimitsOverrideDesignInLimitsFrame) {
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3950;
-  datalayer.battery.settings.max_user_set_discharge_voltage_dV = 3100;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 3950;
+  datalayer.battery_settings.max_user_set_discharge_voltage_dV = 3100;
   gw->update_values();
 
   wake_inverter();
@@ -171,8 +171,8 @@ TEST_F(GrowattWitCanInverterTest, UserVoltageLimitsOverrideDesignInLimitsFrame) 
 }
 
 TEST_F(GrowattWitCanInverterTest, CVVoltageIs100dVBelowMaxChargeVoltage) {
-  datalayer.battery.info.max_design_voltage_dV = 4200;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_design_voltage_dV = 4200;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
   gw->update_values();
 
   wake_inverter();
@@ -185,10 +185,10 @@ TEST_F(GrowattWitCanInverterTest, CVVoltageIs100dVBelowMaxChargeVoltage) {
 }
 
 TEST_F(GrowattWitCanInverterTest, SocSohAndCapacityEncodedIn1AC6) {
-  datalayer.battery.status.reported_soc = 6500;  // 65.00 % → byte 65
-  datalayer.battery.status.soh_pptt = 9200;      // 92.00 % → byte 92
-  datalayer.battery.info.reported_total_capacity_Wh = 20000;
-  datalayer.battery.status.voltage_dV = 4000;  // 400 V
+  datalayer.aggregate.reported_soc = 6500;  // 65.00 % → byte 65
+  datalayer.aggregate.soh_pptt = 9200;      // 92.00 % → byte 92
+  datalayer.aggregate.reported_total_capacity_Wh = 20000;
+  datalayer.aggregate.voltage_dV = 4000;  // 400 V
   // dAh = Wh * 100 / voltage_dV = 20000*100/4000 = 500
   gw->update_values();
 
@@ -203,8 +203,8 @@ TEST_F(GrowattWitCanInverterTest, SocSohAndCapacityEncodedIn1AC6) {
 }
 
 TEST_F(GrowattWitCanInverterTest, LowSohSetsScrapWarningBit) {
-  datalayer.battery.status.soh_pptt = 4900;  // 49 % → scrap warning bit
-  datalayer.battery.status.voltage_dV = 3500;
+  datalayer.aggregate.soh_pptt = 4900;  // 49 % → scrap warning bit
+  datalayer.aggregate.voltage_dV = 3500;
   gw->update_values();
 
   wake_inverter();
@@ -217,8 +217,8 @@ TEST_F(GrowattWitCanInverterTest, LowSohSetsScrapWarningBit) {
 }
 
 TEST_F(GrowattWitCanInverterTest, VoltageCurrentEncodedIn1AC7WithOffset) {
-  datalayer.battery.status.voltage_dV = 3800;
-  datalayer.battery.status.current_dA = static_cast<int16_t>(-300);  // -30.0 A
+  datalayer.aggregate.voltage_dV = 3800;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-300);  // -30.0 A
   // Raw current = current_dA + 10000 = 9700
   gw->update_values();
 
@@ -234,7 +234,7 @@ TEST_F(GrowattWitCanInverterTest, VoltageCurrentEncodedIn1AC7WithOffset) {
 TEST_F(GrowattWitCanInverterTest, WorkingStatusByteFaultChargeDischarge) {
   // Fault → status byte = 5
   datalayer.system.status.system_status = FAULT;
-  datalayer.battery.status.current_dA = 200;
+  datalayer.aggregate.current_dA = 200;
   gw->update_values();
   wake_inverter();
   gw->transmit_can(INTERVAL_100_MS + 1);
@@ -247,7 +247,7 @@ TEST_F(GrowattWitCanInverterTest, WorkingStatusByteFaultChargeDischarge) {
   clear_transmitted_frames();
 
   // Charging: current > 5 dA → status = 2
-  datalayer.battery.status.current_dA = 10;
+  datalayer.aggregate.current_dA = 10;
   gw->update_values();
   gw->transmit_can(INTERVAL_100_MS + 101);
   {
@@ -258,7 +258,7 @@ TEST_F(GrowattWitCanInverterTest, WorkingStatusByteFaultChargeDischarge) {
   clear_transmitted_frames();
 
   // Discharging: current < -5 dA → status = 3
-  datalayer.battery.status.current_dA = static_cast<int16_t>(-10);
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-10);
   gw->update_values();
   gw->transmit_can(INTERVAL_100_MS + 202);
   {
@@ -271,8 +271,8 @@ TEST_F(GrowattWitCanInverterTest, WorkingStatusByteFaultChargeDischarge) {
 TEST_F(GrowattWitCanInverterTest, TemperatureEncodingWithOffsetIn1ACC) {
   // Max temp = 25.0 °C = 250 dC → raw = 250 + 400 = 650
   // Min temp = -5.0 °C = -50 dC → raw: clamped to 0 (< 0)
-  datalayer.battery.status.temperature_max_dC = 250;
-  datalayer.battery.status.temperature_min_dC = static_cast<int16_t>(-50);
+  datalayer.aggregate.temperature_max_dC = 250;
+  datalayer.aggregate.temperature_min_dC = static_cast<int16_t>(-50);
   gw->update_values();
 
   wake_inverter();
@@ -289,7 +289,7 @@ TEST_F(GrowattWitCanInverterTest, MinTempBelowOffsetClampedToZeroIn1ACD) {
   // TEMP_OFFSET_DC = 400 (represents +40 °C). calc = temp_dC + 400.
   // Clamp to 0 only fires when temp_dC < -400 (i.e., below -40.0 °C).
   // Using -500 dC (-50.0 °C): calc = -500 + 400 = -100 < 0 → clamped to 0.
-  datalayer.battery.status.temperature_min_dC = static_cast<int16_t>(-500);
+  datalayer.aggregate.temperature_min_dC = static_cast<int16_t>(-500);
   gw->update_values();
 
   wake_inverter();
@@ -301,11 +301,11 @@ TEST_F(GrowattWitCanInverterTest, MinTempBelowOffsetClampedToZeroIn1ACD) {
 }
 
 TEST_F(GrowattWitCanInverterTest, ChargeForbiddenFlagIn1AC5) {
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.max_discharge_current_dA = 100;
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.max_discharge_current_dA = 100;
   // reported_soc must be non-zero to not also trigger the discharge-forbidden path
   // (which fires when reported_soc == 0, see GROWATT-WIT-CAN.cpp).
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.aggregate.reported_soc = 5000;
   gw->update_values();
 
   wake_inverter();

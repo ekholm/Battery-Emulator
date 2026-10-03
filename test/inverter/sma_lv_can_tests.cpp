@@ -75,10 +75,10 @@ TEST_F(SmaLvInverterTest, PeriodicCadenceSendsSevenFramesAt100ms) {
 
 TEST_F(SmaLvInverterTest, LimitsFrameEncodesChargeVoltageWithOffset) {
   // 0x351 — big-endian; charge voltage = max_design - 40 dV
-  datalayer.battery.info.max_design_voltage_dV = 580;  // -> 540
-  datalayer.battery.status.max_discharge_current_dA = 500;
-  datalayer.battery.status.max_charge_current_dA = 125;
-  datalayer.battery.info.min_design_voltage_dV = 420;  // -> 460 (420+40)
+  datalayer.aggregate.max_design_voltage_dV = 580;  // -> 540
+  datalayer.aggregate.max_discharge_current_dA = 500;
+  datalayer.aggregate.max_charge_current_dA = 125;
+  datalayer.aggregate.min_design_voltage_dV = 420;  // -> 460 (420+40)
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -94,7 +94,7 @@ TEST_F(SmaLvInverterTest, LimitsFrameEncodesChargeVoltageWithOffset) {
 
 TEST_F(SmaLvInverterTest, LimitsFrameCapsChargeVoltageAtMax630) {
   // max_design > 630 -> capped at 630 (MAX_VOLTAGE_DV)
-  datalayer.battery.info.max_design_voltage_dV = 700;
+  datalayer.aggregate.max_design_voltage_dV = 700;
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -106,7 +106,7 @@ TEST_F(SmaLvInverterTest, LimitsFrameCapsChargeVoltageAtMax630) {
 
 TEST_F(SmaLvInverterTest, LimitsFrameFloorsDischargeVoltageAtMin41) {
   // min_design < 41 -> floored at 41 (MIN_VOLTAGE_DV) after the +40 offset
-  datalayer.battery.info.min_design_voltage_dV = 0;
+  datalayer.aggregate.min_design_voltage_dV = 0;
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -118,8 +118,8 @@ TEST_F(SmaLvInverterTest, LimitsFrameFloorsDischargeVoltageAtMin41) {
 
 TEST_F(SmaLvInverterTest, SocSohFrameEncodesSocSohAndHighResSoc) {
   // 0x355 — big-endian; SOC and SOH in whole percent; HiRes = raw pptt
-  datalayer.battery.status.reported_soc = 7550;  // 75.50 %
-  datalayer.battery.status.soh_pptt = 9800;      // 98.00 %
+  datalayer.aggregate.reported_soc = 7550;  // 75.50 %
+  datalayer.aggregate.soh_pptt = 9800;      // 98.00 %
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -133,10 +133,10 @@ TEST_F(SmaLvInverterTest, SocSohFrameEncodesSocSohAndHighResSoc) {
 
 TEST_F(SmaLvInverterTest, VoltageCurrentTempFrameEncodesValues) {
   // 0x356 — voltage in mV (dV * 10), current signed dA, average temperature dC
-  datalayer.battery.status.voltage_dV = 520;                                  // 52.0 V -> raw 5200
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-300);  // -30.0 A
-  datalayer.battery.status.temperature_max_dC = 250;
-  datalayer.battery.status.temperature_min_dC = 150;  // average = 200
+  datalayer.aggregate.voltage_dV = 520;                         // 52.0 V -> raw 5200
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-300);  // -30.0 A
+  datalayer.aggregate.temperature_max_dC = 250;
+  datalayer.aggregate.temperature_min_dC = 150;  // average = 200
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);

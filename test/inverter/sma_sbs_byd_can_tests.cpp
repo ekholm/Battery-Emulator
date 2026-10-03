@@ -127,10 +127,10 @@ TEST_F(SmaSbsBydCanInverterTest, HundredMsCadenceBlockedWithContactorsOpen) {
 // ── TX payload – frame 0x358 (limits) ────────────────────────────────────────
 
 TEST_F(SmaSbsBydCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
-  datalayer.battery.info.max_design_voltage_dV = 4300;
-  datalayer.battery.info.min_design_voltage_dV = 3100;
-  datalayer.battery.status.max_discharge_current_dA = 600;
-  datalayer.battery.status.max_charge_current_dA = 200;
+  datalayer.aggregate.max_design_voltage_dV = 4300;
+  datalayer.aggregate.min_design_voltage_dV = 3100;
+  datalayer.aggregate.max_discharge_current_dA = 600;
+  datalayer.aggregate.max_charge_current_dA = 200;
 
   sbs->update_values();
   send_pairing_frame();
@@ -147,11 +147,11 @@ TEST_F(SmaSbsBydCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
 // ── TX payload – frame 0x3D8 (SoC / SoH / Ah remaining) ─────────────────────
 
 TEST_F(SmaSbsBydCanInverterTest, SocSohAhFrameEncodesCorrectly) {
-  datalayer.battery.status.reported_soc = 6000;  // 60.00 %
-  datalayer.battery.status.soh_pptt = 9500;      // 95.00 %
+  datalayer.aggregate.reported_soc = 6000;  // 60.00 %
+  datalayer.aggregate.soh_pptt = 9500;      // 95.00 %
   // Ah = (18000 / 3600) * 100 = 500
-  datalayer.battery.status.reported_remaining_capacity_Wh = 18000;
-  datalayer.battery.status.voltage_dV = 3600;
+  datalayer.aggregate.reported_remaining_capacity_Wh = 18000;
+  datalayer.aggregate.voltage_dV = 3600;
 
   sbs->update_values();
   send_pairing_frame();
@@ -174,12 +174,12 @@ TEST_F(SmaSbsBydCanInverterTest, SocSohAhFrameEncodesCorrectly) {
 // by accident on a single-battery configuration, where they are equal.
 
 TEST_F(SmaSbsBydCanInverterTest, BatteryInfoFrameEncodesTheSystemCurrentNotBatteryOneAlone) {
-  datalayer.battery.status.voltage_dV = 3900;
+  datalayer.aggregate.voltage_dV = 3900;
   // Set both fields to different values so we can distinguish which one is sent.
-  datalayer.battery.status.current_dA = static_cast<int16_t>(-300);
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-400);
-  datalayer.battery.status.temperature_max_dC = 260;
-  datalayer.battery.status.temperature_min_dC = 240;  // avg = 250
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-300);
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-400);
+  datalayer.aggregate.temperature_max_dC = 260;
+  datalayer.aggregate.temperature_min_dC = 240;  // avg = 250
 
   sbs->update_values();
   send_pairing_frame();
@@ -219,11 +219,11 @@ TEST_F(SmaSbsBydCanInverterTest, NormalStatusSetsByte6ToReadyState) {
 // ── TX payload – frame 0x518 (temperatures / voltage / cell voltages) ─────────
 
 TEST_F(SmaSbsBydCanInverterTest, TemperatureFrameEncodesMinMaxCellsAndVoltage) {
-  datalayer.battery.status.temperature_max_dC = 290;
-  datalayer.battery.status.temperature_min_dC = -80;  // signed negative
-  datalayer.battery.status.voltage_dV = 4000;
-  datalayer.battery.status.cell_min_voltage_mV = 3750;  // 3750 / 25 = 150
-  datalayer.battery.status.cell_max_voltage_mV = 3900;  // 3900 / 25 = 156
+  datalayer.aggregate.temperature_max_dC = 290;
+  datalayer.aggregate.temperature_min_dC = -80;  // signed negative
+  datalayer.aggregate.voltage_dV = 4000;
+  datalayer.aggregate.cell_min_voltage_mV = 3750;  // 3750 / 25 = 150
+  datalayer.aggregate.cell_max_voltage_mV = 3900;  // 3900 / 25 = 156
 
   sbs->update_values();
   send_pairing_frame();
@@ -241,8 +241,8 @@ TEST_F(SmaSbsBydCanInverterTest, TemperatureFrameEncodesMinMaxCellsAndVoltage) {
 // ── TX payload – frame 0x458 (lifetime energy counters) ──────────────────────
 
 TEST_F(SmaSbsBydCanInverterTest, EnergyCounterFrameEncodesChargedAndDischarged) {
-  datalayer.battery.status.total_charged_battery_Wh = 0x00FEDCBA;
-  datalayer.battery.status.total_discharged_battery_Wh = 0x00009876;
+  datalayer.aggregate.total_charged_battery_Wh = 0x00FEDCBA;
+  datalayer.aggregate.total_discharged_battery_Wh = 0x00009876;
 
   sbs->update_values();
   send_pairing_frame();

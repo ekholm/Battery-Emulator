@@ -64,11 +64,11 @@ TEST_F(SolArkLvInverterTest, PeriodicCadenceSendsSixFramesAt1s) {
 
 TEST_F(SolArkLvInverterTest, LimitsFrameEncodesDesignVoltagesAndCurrents) {
   // 0x351 — little-endian; charge voltage = max_design (no user limit)
-  datalayer.battery.info.max_design_voltage_dV = 5000;
-  datalayer.battery.status.max_charge_current_dA = 300;
-  datalayer.battery.status.max_discharge_current_dA = 500;
-  datalayer.battery.info.min_design_voltage_dV = 4000;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_design_voltage_dV = 5000;
+  datalayer.aggregate.max_charge_current_dA = 300;
+  datalayer.aggregate.max_discharge_current_dA = 500;
+  datalayer.aggregate.min_design_voltage_dV = 4000;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -83,9 +83,9 @@ TEST_F(SolArkLvInverterTest, LimitsFrameEncodesDesignVoltagesAndCurrents) {
 
 TEST_F(SolArkLvInverterTest, LimitsFrameHonoursUserChargeVoltage) {
   // When user_set_voltage_limits_active, charge voltage comes from user setting
-  datalayer.battery.info.max_design_voltage_dV = 5000;
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 4800;
+  datalayer.aggregate.max_design_voltage_dV = 5000;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 4800;
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -97,9 +97,9 @@ TEST_F(SolArkLvInverterTest, LimitsFrameHonoursUserChargeVoltage) {
 
 TEST_F(SolArkLvInverterTest, LimitsFrameCapsUserVoltageAtDesignMax) {
   // User-set voltage above max_design must be clamped to max_design
-  datalayer.battery.info.max_design_voltage_dV = 5000;
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 5200;  // exceeds design
+  datalayer.aggregate.max_design_voltage_dV = 5000;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 5200;  // exceeds design
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -111,8 +111,8 @@ TEST_F(SolArkLvInverterTest, LimitsFrameCapsUserVoltageAtDesignMax) {
 
 TEST_F(SolArkLvInverterTest, SocSohFrameEncodesWholePercent) {
   // 0x355 — LE; SOC and SOH in whole percent (pptt / 100)
-  datalayer.battery.status.reported_soc = 7500;  // 75.00 %
-  datalayer.battery.status.soh_pptt = 9800;      // 98.00 %
+  datalayer.aggregate.reported_soc = 7500;  // 75.00 %
+  datalayer.aggregate.soh_pptt = 9800;      // 98.00 %
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -125,10 +125,10 @@ TEST_F(SolArkLvInverterTest, SocSohFrameEncodesWholePercent) {
 
 TEST_F(SolArkLvInverterTest, VoltageCurrentTempFrameEncodesSignedValues) {
   // 0x356 — LE; voltage dV, current signed dA, average temperature signed dC
-  datalayer.battery.status.voltage_dV = 4800;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);  // charging
-  datalayer.battery.status.temperature_min_dC = 150;
-  datalayer.battery.status.temperature_max_dC = 250;  // avg = 200
+  datalayer.aggregate.voltage_dV = 4800;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-100);  // charging
+  datalayer.aggregate.temperature_min_dC = 150;
+  datalayer.aggregate.temperature_max_dC = 250;  // avg = 200
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -156,9 +156,9 @@ TEST_F(SolArkLvInverterTest, StatusFrameCarriesModuleNumberAndPN) {
 TEST_F(SolArkLvInverterTest, ControlFrameIsC0InNormalOperation) {
   // 0x35C byte 0 == 0xC0: both charge and discharge enabled
   datalayer.system.status.system_status = ACTIVE;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
   // real_soc between min and max percentages (defaults 2000–8000 in pptt units)
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.aggregate.real_soc = 5000;
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -181,9 +181,9 @@ TEST_F(SolArkLvInverterTest, ControlFrameIs00OnFault) {
 
 TEST_F(SolArkLvInverterTest, ControlFrameIs40WhenVoltageAboveUserChargeLimit) {
   // Only discharge allowed when pack voltage exceeds user charge voltage
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 4800;
-  datalayer.battery.status.voltage_dV = 4900;  // above limit
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 4800;
+  datalayer.aggregate.voltage_dV = 4900;  // above limit
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -195,10 +195,10 @@ TEST_F(SolArkLvInverterTest, ControlFrameIs40WhenVoltageAboveUserChargeLimit) {
 
 TEST_F(SolArkLvInverterTest, ControlFrameIsA0WhenVoltageUnderUserDischargeLimit) {
   // Charge forced when voltage is below user discharge voltage
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 5000;  // high enough not to trigger charge-overvolt
-  datalayer.battery.settings.max_user_set_discharge_voltage_dV = 4500;
-  datalayer.battery.status.voltage_dV = 4400;  // below discharge limit
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 5000;  // high enough not to trigger charge-overvolt
+  datalayer.battery_settings.max_user_set_discharge_voltage_dV = 4500;
+  datalayer.aggregate.voltage_dV = 4400;  // below discharge limit
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -210,8 +210,8 @@ TEST_F(SolArkLvInverterTest, ControlFrameIsA0WhenVoltageUnderUserDischargeLimit)
 
 TEST_F(SolArkLvInverterTest, ControlFrameIsA0WhenSocAtMin) {
   // Charge forced when real_soc reaches min_percentage (default 2000 pptt = 20%)
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
-  datalayer.battery.status.real_soc = 1000;  // below min_percentage (2000)
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.real_soc = 1000;  // below min_percentage (2000)
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -223,8 +223,8 @@ TEST_F(SolArkLvInverterTest, ControlFrameIsA0WhenSocAtMin) {
 
 TEST_F(SolArkLvInverterTest, ControlFrameIs40WhenSocAtMax) {
   // Only discharge when real_soc >= max_percentage (default 8000 pptt = 80%)
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
-  datalayer.battery.status.real_soc = 9000;  // above max_percentage (8000)
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.real_soc = 9000;  // above max_percentage (8000)
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);
@@ -261,8 +261,8 @@ TEST_F(SolArkLvInverterTest, ProtectionByte1OvercurrentBitSet) {
   // test pinning it now asserts the opposite of SolArkLvOverCurrent.HeavyChargingDoesNotClaim-
   // DischargeOverCurrent, which feeds +1500 inside the charge limit and requires this bit clear.
   // What this test is for is the 0x359 assembly path, not the threshold, which that suite owns.
-  datalayer.battery.status.max_discharge_current_dA = 500;
-  datalayer.battery.status.reported_current_dA = -551;  // one dA past -(500 + 50)
+  datalayer.aggregate.max_discharge_current_dA = 500;
+  datalayer.aggregate.current_dA = -551;  // one dA past -(500 + 50)
 
   solark->update_values();
   solark->transmit_can(INTERVAL_1_S + 1);

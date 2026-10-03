@@ -95,8 +95,8 @@ TEST_F(SchneiderCanInverterTest, UnknownRxFrameDoesNotRefreshAliveness) {
 // ---- Payload: SE_321 (max/min design voltage as 32-bit ×10 BE) --------------
 
 TEST_F(SchneiderCanInverterTest, Se321EncodesDesignVoltagesAs32BitTimes10BE) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;  // × 10 = 40000
-  datalayer.battery.info.min_design_voltage_dV = 3000;  // × 10 = 30000
+  datalayer.aggregate.max_design_voltage_dV = 4000;  // × 10 = 40000
+  datalayer.aggregate.min_design_voltage_dV = 3000;  // × 10 = 30000
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_500_MS + 1);
@@ -112,8 +112,8 @@ TEST_F(SchneiderCanInverterTest, Se321EncodesDesignVoltagesAs32BitTimes10BE) {
 // ---- Payload: SE_322 (charge/discharge current limits as 32-bit ×10 BE) ----
 
 TEST_F(SchneiderCanInverterTest, Se322EncodesCurrentLimitsAs32BitTimes10BE) {
-  datalayer.battery.status.max_charge_current_dA = 250;     // × 10 = 2500
-  datalayer.battery.status.max_discharge_current_dA = 300;  // × 10 = 3000
+  datalayer.aggregate.max_charge_current_dA = 250;     // × 10 = 2500
+  datalayer.aggregate.max_discharge_current_dA = 300;  // × 10 = 3000
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_500_MS + 1);
@@ -127,7 +127,7 @@ TEST_F(SchneiderCanInverterTest, Se322EncodesCurrentLimitsAs32BitTimes10BE) {
 // ---- Payload: SE_323 (pack voltage and current as 32-bit ×10 BE) -----------
 
 TEST_F(SchneiderCanInverterTest, Se323EncodesVoltageAs32BitTimes10BE) {
-  datalayer.battery.status.voltage_dV = 3700;  // × 10 = 37000 = 0x9088
+  datalayer.aggregate.voltage_dV = 3700;  // × 10 = 37000 = 0x9088
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_500_MS + 1);
@@ -139,7 +139,7 @@ TEST_F(SchneiderCanInverterTest, Se323EncodesVoltageAs32BitTimes10BE) {
 
 TEST_F(SchneiderCanInverterTest, Se323EncodesSignedCurrentAs32BitTimes10BE) {
   // Positive current in 0.01A units: 100 dA × 10 = 1000 centAmps
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(100);
+  datalayer.aggregate.current_dA = static_cast<int16_t>(100);
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_500_MS + 1);
@@ -152,9 +152,9 @@ TEST_F(SchneiderCanInverterTest, Se323EncodesSignedCurrentAs32BitTimes10BE) {
 // ---- Payload: SE_324 (avg temp BE, SOC÷10 BE) ------------------------------
 
 TEST_F(SchneiderCanInverterTest, Se324EncodesAvgTempAndSocBE) {
-  datalayer.battery.status.temperature_max_dC = 250;
-  datalayer.battery.status.temperature_min_dC = 150;  // avg = (250+150)/2 = 200
-  datalayer.battery.status.reported_soc = 7550;       // / 10 = 755 = 0x02F3
+  datalayer.aggregate.temperature_max_dC = 250;
+  datalayer.aggregate.temperature_min_dC = 150;  // avg = (250+150)/2 = 200
+  datalayer.aggregate.reported_soc = 7550;       // / 10 = 755 = 0x02F3
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_500_MS + 1);
@@ -169,7 +169,7 @@ TEST_F(SchneiderCanInverterTest, Se324EncodesAvgTempAndSocBE) {
 
 TEST_F(SchneiderCanInverterTest, Se325CommandsAllowBothDirectionsAtMidSoc) {
   // STATE_ONLINE, soc not 0 or 10000 → COMMAND_CHARGE_AND_DISCHARGE_ALLOWED = 6
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.aggregate.reported_soc = 5000;
   datalayer.system.status.system_status = ACTIVE;
 
   schneider->update_values();
@@ -181,7 +181,7 @@ TEST_F(SchneiderCanInverterTest, Se325CommandsAllowBothDirectionsAtMidSoc) {
 }
 
 TEST_F(SchneiderCanInverterTest, Se325CommandsOnlyDischargeWhenSocFull) {
-  datalayer.battery.status.reported_soc = 10000;  // 100% → discharge only
+  datalayer.aggregate.reported_soc = 10000;  // 100% → discharge only
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_500_MS + 1);
@@ -192,7 +192,7 @@ TEST_F(SchneiderCanInverterTest, Se325CommandsOnlyDischargeWhenSocFull) {
 }
 
 TEST_F(SchneiderCanInverterTest, Se325CommandsOnlyChargeWhenSocEmpty) {
-  datalayer.battery.status.reported_soc = 0;  // 0% → charge only
+  datalayer.aggregate.reported_soc = 0;  // 0% → charge only
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_500_MS + 1);
@@ -218,7 +218,7 @@ TEST_F(SchneiderCanInverterTest, Se325CommandsStopOnFault) {
 TEST_F(SchneiderCanInverterTest, Se326EncodesOnlineStateAndSoh) {
   // STATE_ONLINE = 3
   datalayer.system.status.system_status = ACTIVE;
-  datalayer.battery.status.soh_pptt = 9900;  // 99 integer
+  datalayer.aggregate.soh_pptt = 9900;  // 99 integer
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_2_S + 1);
@@ -245,8 +245,8 @@ TEST_F(SchneiderCanInverterTest, Se326StateIsFaultedOnSystemFault) {
 TEST_F(SchneiderCanInverterTest, Se326EncodesFullCapacityInAh) {
   // fully_charged_capacity_ah = (total_Wh / voltage_dV) * 100
   // = (37000 / 3700) * 100 = 10 * 100 = 1000
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.info.reported_total_capacity_Wh = 37000;
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.reported_total_capacity_Wh = 37000;
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_2_S + 1);
@@ -259,10 +259,10 @@ TEST_F(SchneiderCanInverterTest, Se326EncodesFullCapacityInAh) {
 // ---- Payload: SE_327 (temperature extremes and cell voltages) ---------------
 
 TEST_F(SchneiderCanInverterTest, Se327EncodesTemperaturesAndCellVoltages) {
-  datalayer.battery.status.temperature_max_dC = 320;
-  datalayer.battery.status.temperature_min_dC = -50;  // signed
-  datalayer.battery.status.cell_max_voltage_mV = 4200;
-  datalayer.battery.status.cell_min_voltage_mV = 3600;
+  datalayer.aggregate.temperature_max_dC = 320;
+  datalayer.aggregate.temperature_min_dC = -50;  // signed
+  datalayer.aggregate.cell_max_voltage_mV = 4200;
+  datalayer.aggregate.cell_min_voltage_mV = 3600;
 
   schneider->update_values();
   schneider->transmit_can(INTERVAL_2_S + 1);

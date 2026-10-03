@@ -161,10 +161,10 @@ TEST_F(SofarCanInverterTest, FramesNotSentBeforeOneSecond) {
 // ── TX payload – frame 0x351 (limits, little-endian) ─────────────────────────
 
 TEST_F(SofarCanInverterTest, LimitsFrameEncodesVoltagesAndCurrentsLittleEndian) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;      // 400.0 V
-  datalayer.battery.info.min_design_voltage_dV = 3000;      // 300.0 V
-  datalayer.battery.status.max_charge_current_dA = 250;     // 25.0 A
-  datalayer.battery.status.max_discharge_current_dA = 500;  // 50.0 A
+  datalayer.aggregate.max_design_voltage_dV = 4000;    // 400.0 V
+  datalayer.aggregate.min_design_voltage_dV = 3000;    // 300.0 V
+  datalayer.aggregate.max_charge_current_dA = 250;     // 25.0 A
+  datalayer.aggregate.max_discharge_current_dA = 500;  // 50.0 A
 
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
@@ -185,8 +185,8 @@ TEST_F(SofarCanInverterTest, LimitsFrameEncodesVoltagesAndCurrentsLittleEndian) 
 // ── TX payload – frame 0x355 (SoC / SoH as integer percent) ──────────────────
 
 TEST_F(SofarCanInverterTest, SocReportedAsIntegerPercent) {
-  datalayer.battery.status.reported_soc = 7500;  // 75.00 % → byte 0 = 75
-  datalayer.battery.status.soh_pptt = 9800;      // 98.00 % → byte 2 = 98
+  datalayer.aggregate.reported_soc = 7500;  // 75.00 % → byte 0 = 75
+  datalayer.aggregate.soh_pptt = 9800;      // 98.00 % → byte 2 = 98
 
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
@@ -199,7 +199,7 @@ TEST_F(SofarCanInverterTest, SocReportedAsIntegerPercent) {
 
 TEST_F(SofarCanInverterTest, SocCappedAt99PercentWhenReportedIs100) {
   // 10000 pptt = exactly 100%; driver caps spoofed_soc at 9900 → byte0 = 99.
-  datalayer.battery.status.reported_soc = 10000;
+  datalayer.aggregate.reported_soc = 10000;
 
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
@@ -212,10 +212,10 @@ TEST_F(SofarCanInverterTest, SocCappedAt99PercentWhenReportedIs100) {
 // ── TX payload – frame 0x356 (voltage / current / temp, little-endian) ────────
 
 TEST_F(SofarCanInverterTest, PackFrameEncodesVoltageSignedCurrentAndTemp) {
-  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.aggregate.voltage_dV = 3700;
   // Signed discharge current: -810 = 0xFCCA
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-810);
-  datalayer.battery.status.temperature_max_dC = 330;  // 33.0 °C
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-810);
+  datalayer.aggregate.temperature_max_dC = 330;  // 33.0 °C
 
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
@@ -234,8 +234,8 @@ TEST_F(SofarCanInverterTest, PackFrameEncodesVoltageSignedCurrentAndTemp) {
 TEST_F(SofarCanInverterTest, CapacityFrameEncodesAhFromWh) {
   // AH = total_capacity_Wh / (max_design_voltage_dV * 0.1)
   //    = 40000 / (4000 * 0.1) = 40000 / 400 = 100
-  datalayer.battery.info.reported_total_capacity_Wh = 40000;
-  datalayer.battery.info.max_design_voltage_dV = 4000;
+  datalayer.aggregate.reported_total_capacity_Wh = 40000;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
 
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
@@ -247,8 +247,8 @@ TEST_F(SofarCanInverterTest, CapacityFrameEncodesAhFromWh) {
 }
 
 TEST_F(SofarCanInverterTest, CapacityNotUpdatedWhenMaxVoltageAtOrBelowTwenty) {
-  datalayer.battery.info.max_design_voltage_dV = 10;
-  datalayer.battery.info.reported_total_capacity_Wh = 30000;
+  datalayer.aggregate.max_design_voltage_dV = 10;
+  datalayer.aggregate.reported_total_capacity_Wh = 30000;
 
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
@@ -264,14 +264,14 @@ TEST_F(SofarCanInverterTest, CapacityNotUpdatedWhenMaxVoltageAtOrBelowTwenty) {
 TEST_F(SofarCanInverterTest, RemoteCommandFrameSentWhenEnableFlagsNonZero) {
   // At normal SoC (0 < soc_percent < 100), enable_flags = 0x03 → byte1 ≠ 0
   // → remote_cmd_active = true → 0x30F fires at 1s.
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.aggregate.reported_soc = 5000;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
   EXPECT_EQ(count_frames_with_id(0x30F), 1u) << "0x30F must be sent at 1s when enable flags are non-zero";
 }
 
 TEST_F(SofarCanInverterTest, RemoteCommandByte1IsThreeForNormalSoc) {
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.aggregate.reported_soc = 5000;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
 
@@ -283,7 +283,7 @@ TEST_F(SofarCanInverterTest, RemoteCommandByte1IsThreeForNormalSoc) {
 
 TEST_F(SofarCanInverterTest, RemoteCommandByte1IsTwoWhenSocAtZero) {
   // soc_percent <= 1 → only charging allowed (enable_flags = 0x02)
-  datalayer.battery.status.reported_soc = 0;
+  datalayer.aggregate.reported_soc = 0;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
 
@@ -300,7 +300,7 @@ TEST_F(SofarCanInverterTest, RemoteCommandByte1IsTwoWhenSocAtZero) {
 // against SOFAR_MAX_REPORTED_SOC_PPTT and cannot drift apart again.
 
 TEST_F(SofarCanInverterTest, RemoteCommandByte1IsOneWhenTheReportedSocIsFull) {
-  datalayer.battery.status.reported_soc = 10000;  // real 100%, reported as 99
+  datalayer.aggregate.reported_soc = 10000;  // real 100%, reported as 99
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
 
@@ -312,7 +312,7 @@ TEST_F(SofarCanInverterTest, RemoteCommandByte1IsOneWhenTheReportedSocIsFull) {
 TEST_F(SofarCanInverterTest, TheFullThresholdIsTheReportingCapNotOneHundred) {
   // The bug in one assertion: the reported SoC can never exceed the cap, so a
   // threshold above it can never be met. Pin them equal.
-  datalayer.battery.status.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT;
+  datalayer.aggregate.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
 
@@ -341,9 +341,9 @@ TEST_F(SofarCanInverterTest, TheChargeLimitStillPermitsChargeAtTheSocTheConsentC
   // (judge consent on the UNCAPPED reported_soc, keeping the cap for 0x355
   // only) would make the two agree. Whichever way it is resolved, this test
   // must be looked at, which is the point of writing it down.
-  datalayer.battery.status.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT;  // 99.00%, below the system full cutoff
-  datalayer.battery.status.max_charge_current_dA = 500;
-  datalayer.battery.status.max_discharge_current_dA = 500;
+  datalayer.aggregate.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT;  // 99.00%, below the system full cutoff
+  datalayer.aggregate.max_charge_current_dA = 500;
+  datalayer.aggregate.max_discharge_current_dA = 500;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
 
@@ -361,7 +361,7 @@ TEST_F(SofarCanInverterTest, TheChargeOnlyThresholdIsOnePercentNotTwo) {
   // boundary is untested in both directions, which is how the top branch came
   // to be wrong for a year - nobody pinned where it changed. 1.99% is still
   // charge-only; 2.00% is not.
-  datalayer.battery.status.reported_soc = 199;
+  datalayer.aggregate.reported_soc = 199;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
   const CAN_frame* low = find_frame_with_id(0x30F);
@@ -369,7 +369,7 @@ TEST_F(SofarCanInverterTest, TheChargeOnlyThresholdIsOnePercentNotTwo) {
   EXPECT_EQ(low->data.u8[1], 0x02u) << "1.99% must still be charge-only";
 
   clear_transmitted_frames();
-  datalayer.battery.status.reported_soc = 200;
+  datalayer.aggregate.reported_soc = 200;
   sofar->update_values();
   sofar->transmit_can(2 * INTERVAL_1_S + 2);
   const CAN_frame* mid = find_frame_with_id(0x30F);
@@ -378,7 +378,7 @@ TEST_F(SofarCanInverterTest, TheChargeOnlyThresholdIsOnePercentNotTwo) {
 }
 
 TEST_F(SofarCanInverterTest, JustBelowFullStillAllowsCharging) {
-  datalayer.battery.status.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT - 100;
+  datalayer.aggregate.reported_soc = SOFAR_MAX_REPORTED_SOC_PPTT - 100;
   sofar->update_values();
   sofar->transmit_can(INTERVAL_1_S + 1);
 
@@ -393,7 +393,7 @@ TEST_F(SofarCanInverterTest, KnownRxFrames605And705SetAliveness) {
   for (uint32_t id : {0x605u, 0x705u}) {
     datalayer.system.status.CAN_inverter_still_alive = 0;
     // Address frame to battery ID 0 (default).
-    uint8_t tid = datalayer.battery.settings.sofar_user_specified_battery_id;
+    uint8_t tid = datalayer.battery_settings.sofar_user_specified_battery_id;
     CAN_frame f = {.FD = false, .ext_ID = true, .DLC = 8, .ID = id, .data = {tid, 0, 0, 0, 0, 0, 0, 0}};
     sofar->map_can_frame_to_variable(f);
     EXPECT_EQ(datalayer.system.status.CAN_inverter_still_alive, CAN_STILL_ALIVE * 2u)
@@ -411,7 +411,7 @@ TEST_F(SofarCanInverterTest, UnknownRxFrameDoesNotRefreshAliveness) {
 // ── RX – 0x605 query-response routing ────────────────────────────────────────
 
 TEST_F(SofarCanInverterTest, Query605Inquiry0ResponseIs670) {
-  datalayer.battery.settings.sofar_user_specified_battery_id = 0;
+  datalayer.battery_settings.sofar_user_specified_battery_id = 0;
   send_605(0, 0x00);
   EXPECT_EQ(count_frames_with_id(0x670), 1u);
 }
@@ -437,7 +437,7 @@ TEST_F(SofarCanInverterTest, Query605Inquiry0EResponseIs6C0) {
 }
 
 TEST_F(SofarCanInverterTest, Query605WrongBatteryIdIgnored) {
-  datalayer.battery.settings.sofar_user_specified_battery_id = 0;
+  datalayer.battery_settings.sofar_user_specified_battery_id = 0;
   send_605(1 /*wrong id*/, 0x00);
   EXPECT_EQ(count_frames_with_id(0x670), 0u) << "Query addressed to wrong battery ID must produce no reply";
 }
@@ -461,7 +461,7 @@ TEST_F(SofarCanInverterTest, Query705Inquiry4ResponseIs780) {
 }
 
 TEST_F(SofarCanInverterTest, Query705WrongBatteryIdIgnored) {
-  datalayer.battery.settings.sofar_user_specified_battery_id = 2;
+  datalayer.battery_settings.sofar_user_specified_battery_id = 2;
   send_705(3 /*wrong id*/, 0x00);
   EXPECT_EQ(count_frames_with_id(0x770), 0u);
 }
@@ -469,7 +469,7 @@ TEST_F(SofarCanInverterTest, Query705WrongBatteryIdIgnored) {
 // ── Battery ID / setup() – CAN ID offset ─────────────────────────────────────
 
 TEST_F(SofarCanInverterTest, BatteryIdZeroUsesBaseCanIds) {
-  datalayer.battery.settings.sofar_user_specified_battery_id = 0;
+  datalayer.battery_settings.sofar_user_specified_battery_id = 0;
   // setup_inverter() was already called in SetUp().  Re-call with id=0
   // (default) to verify base IDs are applied.
   sofar->update_values();
@@ -481,7 +481,7 @@ TEST_F(SofarCanInverterTest, BatteryIdZeroUsesBaseCanIds) {
 
 TEST_F(SofarCanInverterTest, BatteryIdOneShiftsCanIdBy0x1000) {
   // Recreate driver with battery_id=1 so setup() applies the offset.
-  datalayer.battery.settings.sofar_user_specified_battery_id = 1;
+  datalayer.battery_settings.sofar_user_specified_battery_id = 1;
   delete inverter;
   inverter = nullptr;
   user_selected_inverter_protocol = InverterProtocolType::Sofar;
@@ -498,13 +498,13 @@ TEST_F(SofarCanInverterTest, BatteryIdOneShiftsCanIdBy0x1000) {
   EXPECT_EQ(count_frames_with_id(0x351), 0u) << "Base ID 0x351 must not appear when offset is applied";
 
   // Restore to default battery_id for other tests.
-  datalayer.battery.settings.sofar_user_specified_battery_id = 0;
+  datalayer.battery_settings.sofar_user_specified_battery_id = 0;
 }
 
 // ── Response stamp: payload carries PACK ID in byte 0 ────────────────────────
 
 TEST_F(SofarCanInverterTest, Query605ResponseStampsBatteryIdInByte0) {
-  datalayer.battery.settings.sofar_user_specified_battery_id = 0;
+  datalayer.battery_settings.sofar_user_specified_battery_id = 0;
   send_605(0, 0x00);
   const CAN_frame* f = find_frame_with_id(0x670);
   ASSERT_NE(f, nullptr);
