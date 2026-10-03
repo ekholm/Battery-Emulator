@@ -36,6 +36,7 @@ class CanSilenceBoundTest : public ::testing::Test {
     datalayer.system.status.system_status = ACTIVE;
     // A healthy pack, so no other check touches the limits or raises an error of its own.
     datalayer.battery.status.reported_soc = 5000;
+    datalayer.aggregate.reported_soc = 5000;  // the full/empty checks read the aggregate view
     datalayer.battery.status.real_soc = 5000;
     datalayer.battery.status.soh_pptt = 9900;
     datalayer.battery.status.voltage_dV = 4000;
