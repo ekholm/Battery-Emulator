@@ -10,12 +10,14 @@ class BoltAmperaBattery : public UdsCanBattery {
   BoltAmperaBattery() : UdsCanBattery() {
     datalayer_battery = &datalayer.battery;
     dtc = &datalayer_battery->dtc;
+    allows_contactor_closing = &datalayer.system.status.battery_allows_contactor_closing;
   }
 
   // Second battery constructor
   BoltAmperaBattery(DATALAYER_BATTERY_TYPE* datalayer_ptr, CAN_Interface targetCan) : UdsCanBattery(targetCan) {
     datalayer_battery = datalayer_ptr;
     dtc = &datalayer_battery->dtc;
+    allows_contactor_closing = nullptr;  // the primary battery's grant decides
   }
 
   virtual void setup(void);
@@ -34,6 +36,7 @@ class BoltAmperaBattery : public UdsCanBattery {
 
  private:
   DATALAYER_BATTERY_TYPE* datalayer_battery;
+  bool* allows_contactor_closing;
 
   static const int MAX_PACK_VOLTAGE_DV = 4040;  //5000 = 500.0V
   static const int MIN_PACK_VOLTAGE_DV = 2510;

@@ -482,6 +482,11 @@ void BoltAmperaBattery::setup(void) {  // Performs one time setup at startup
   datalayer_battery->info.max_cell_voltage_mV = MAX_CELL_VOLTAGE_MV;
   datalayer_battery->info.min_cell_voltage_mV = MIN_CELL_VOLTAGE_MV;
   datalayer_battery->info.max_cell_voltage_deviation_mV = MAX_CELL_DEVIATION_MV;
+  // The Bolt has no contactor handshake of its own, so it grants the battery-side veto at setup, as
+  // it did before the UDS conversion; the second battery's grant is the primary's.
+  if (allows_contactor_closing) {
+    *allows_contactor_closing = true;
+  }
   // UDS: send requests to 0x7E7, accept replies from the BMS on 07EF.
   // This battery should technically have nother BMS (7E4-7EC), but this poll does not work
   setup_uds(0x7E7, 0x7EF);
