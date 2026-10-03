@@ -145,7 +145,7 @@ TEST_F(KostalShuntTest, AShuntThatIsSeenDecidesTheCurrentTheInverterIsTold) {
   datalayer.shunt.available = true;
   datalayer.shunt.measured_amperage_mA = 12300;       // 12.3 A
   datalayer.shunt.measured_avg1S_amperage_mA = 9800;  // 9.8 A
-  datalayer.battery.status.reported_current_dA = -500;
+  datalayer.aggregate.current_dA = -500;
 
   const std::vector<uint8_t> frame = poll_cyclic_frame();
 
@@ -157,7 +157,7 @@ TEST_F(KostalShuntTest, AShuntThatHasGoneQuietStopsBeingQuotedToTheInverter) {
   datalayer.shunt.available = false;
   datalayer.shunt.measured_amperage_mA = 12300;  // the last reading before it went silent
   datalayer.shunt.measured_avg1S_amperage_mA = 9800;
-  datalayer.battery.status.reported_current_dA = -500;  // -50.0 A, and moving
+  datalayer.aggregate.current_dA = -500;  // -50.0 A, and moving
 
   const std::vector<uint8_t> frame = poll_cyclic_frame();
 
@@ -170,10 +170,10 @@ TEST_F(KostalShuntTest, AShuntThatHasGoneQuietStopsBeingQuotedToTheInverter) {
 TEST_F(KostalShuntTest, TheFallbackTracksTheBatteryRatherThanFreezing) {
   datalayer.shunt.available = false;
   datalayer.shunt.measured_amperage_mA = 12300;
-  datalayer.battery.status.reported_current_dA = -500;
+  datalayer.aggregate.current_dA = -500;
   EXPECT_FLOAT_EQ(frame_float_at(poll_cyclic_frame(), kInstantCurrentOffset), -50.0f);
 
-  datalayer.battery.status.reported_current_dA = 250;
+  datalayer.aggregate.current_dA = 250;
 
   EXPECT_FLOAT_EQ(frame_float_at(poll_cyclic_frame(), kInstantCurrentOffset), 25.0f)
       << "the point of the fallback is that it is live - a frozen substitute would be the same bug";
@@ -182,7 +182,7 @@ TEST_F(KostalShuntTest, TheFallbackTracksTheBatteryRatherThanFreezing) {
 TEST_F(KostalShuntTest, TheShuntTakesOverAgainAsSoonAsItIsSeen) {
   datalayer.shunt.available = false;
   datalayer.shunt.measured_amperage_mA = 12300;
-  datalayer.battery.status.reported_current_dA = -500;
+  datalayer.aggregate.current_dA = -500;
   ASSERT_FLOAT_EQ(frame_float_at(poll_cyclic_frame(), kInstantCurrentOffset), -50.0f);
 
   datalayer.shunt.available = true;
@@ -197,7 +197,7 @@ TEST_F(KostalShuntTest, WithoutAnSboxTheShuntFlagDecidesNothing) {
   user_selected_shunt_type = ShuntType::None;
   datalayer.shunt.available = false;
   datalayer.shunt.measured_amperage_mA = 12300;
-  datalayer.battery.status.reported_current_dA = -500;
+  datalayer.aggregate.current_dA = -500;
 
   const std::vector<uint8_t> frame = poll_cyclic_frame();
 

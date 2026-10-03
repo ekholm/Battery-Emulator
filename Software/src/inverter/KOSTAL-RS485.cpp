@@ -136,8 +136,8 @@ void KostalInverterProtocol::update_values() {
        * readings stay in the datalayer forever, so continuing to send them would tell the inverter
        * a dead shunt is a steady one, with no bound on how long the lie lasts.
        *
-       * The fallback is the battery's own reported current, which is what the else branch below
-       * already sends into these two byte offsets for every installation without an S-BOX. So this
+       * The fallback is the installation's current (datalayer.aggregate.current_dA), which is what the else branch
+       * below already sends into these two byte offsets for every installation without an S-BOX. So this
        * is not a new mapping being invented for an error path: it is the value the protocol already
        * uses when no shunt is measuring, which is exactly the situation. It is also live rather
        * than frozen, and it returns to the shunt's own reading the moment frames resume.
@@ -145,8 +145,8 @@ void KostalInverterProtocol::update_values() {
        * Sending 0.0 A was the alternative and is worse: it is equally untrue and it reads as a
        * healthy idle battery, which is the one state that invites the inverter to act.
        */
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 18);
-      float2frame(CYCLIC_DATA, (float)datalayer.battery.status.reported_current_dA / 10, 22);
+      float2frame(CYCLIC_DATA, (float)datalayer.aggregate.current_dA / 10, 18);
+      float2frame(CYCLIC_DATA, (float)datalayer.aggregate.current_dA / 10, 22);
     }
 
     if (datalayer.shunt.contactors_engaged) {
