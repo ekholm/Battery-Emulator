@@ -828,3 +828,99 @@ TEST_F(CommCanTest, ABufferTooSmallForTheLineIsLeftEmptyRatherThanOverrun) {
   EXPECT_EQ(written, 0u);
   EXPECT_EQ(buffer[0], '\0');
 }
+
+// External review B2. A native controller whose begin() fails at boot is taken out of service and
+// its receivers are erased. restart_can() - the resume after a pause - retries begin(), and a
+// retry that succeeds puts the interface back into service. The driver that registered on it must
+// then hear its frames again; with its registration erased they reach no one.
+TEST_F(CommCanTest, ANativeInterfaceRecoveredOnResumeDeliversToItsDriverAgain) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_begin_error(Chip::Native, 0x1234);
+  RecordingReceiver on_native;
+  register_can_receiver(&on_native, CAN_NATIVE);
+  emul_can_init_on_full_board();
+  ASSERT_FALSE(emul_can::is_running(Chip::Native)) << "the boot-time begin() was meant to fail";
+
+  emul_can::set_begin_error(Chip::Native, 0);  // a transient failure: the controller would start now
+  stop_can();
+  restart_can();
+  ASSERT_TRUE(emul_can::is_running(Chip::Native)) << "the resume did not bring the controller back";
+
+  emul_can::queue_received(Chip::Native, make_frame(0x111, 3));
+  receive_can();
+  EXPECT_EQ(on_native.received.size(), 1u)
+      << "native CAN is back in service after the resume, but its driver's registration was erased at boot, "
+         "so the battery's frames are received and dropped";
+}
+
+// The other way back into service: a battery driver's speed change retries begin() on the native
+// interface too, and a change that takes must also bring its registration back.
+TEST_F(CommCanTest, ANativeInterfaceRecoveredByASpeedChangeDeliversToItsDriverAgain) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_begin_error(Chip::Native, 0x1234);
+  RecordingReceiver on_native;
+  register_can_receiver(&on_native, CAN_NATIVE);
+  emul_can_init_on_full_board();
+  ASSERT_FALSE(emul_can::is_running(Chip::Native)) << "the boot-time begin() was meant to fail";
+
+  emul_can::set_begin_error(Chip::Native, 0);
+  ASSERT_TRUE(change_can_speed(CAN_NATIVE, CAN_Speed::CAN_SPEED_250KBPS));
+  ASSERT_TRUE(emul_can::is_running(Chip::Native));
+
+  emul_can::queue_received(Chip::Native, make_frame(0x222, 2));
+  receive_can();
+  EXPECT_EQ(on_native.received.size(), 1u) << "the speed change brought the controller back but not its driver";
+}
+
+// A retry that FAILS again keeps the interface out of service: nothing is restored, the native flag
+// stays down, and a second, successful retry still finds the registration parked.
+TEST_F(CommCanTest, AFailedRetryLeavesTheRegistrationParkedForTheNextOne) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_begin_error(Chip::Native, 0x1234);
+  RecordingReceiver on_native;
+  register_can_receiver(&on_native, CAN_NATIVE);
+  emul_can_init_on_full_board();
+
+  stop_can();
+  restart_can();  // still failing
+  ASSERT_FALSE(emul_can::is_running(Chip::Native));
+  emul_can::queue_received(Chip::Native, make_frame(0x333, 1));
+  receive_can();
+  EXPECT_EQ(on_native.received.size(), 0u) << "an interface still out of service delivers nothing";
+
+  emul_can::set_begin_error(Chip::Native, 0);
+  stop_can();
+  restart_can();
+  ASSERT_TRUE(emul_can::is_running(Chip::Native));
+  emul_can::queue_received(Chip::Native, make_frame(0x444, 1));
+  receive_can();
+  // The emulator keeps the 0x333 queued while the controller was down; the real ACAN_ESP32::begin()
+  // re-initialises its receive buffer and drops it. So count only the frame sent after the recovery.
+  size_t after = 0;
+  for (const auto& f : on_native.received) {
+    after += (f.ID == 0x444u) ? 1 : 0;
+  }
+  EXPECT_EQ(after, 1u) << "the registration survived the failed retry";
+}
+
+// Bringing an interface back must not duplicate a driver that is already registered: one frame,
+// one delivery, however many pause/resume cycles follow.
+TEST_F(CommCanTest, RepeatedResumesAfterARecoveryDeliverEachFrameOnce) {
+  emul_can_tear_down_all_interfaces();
+  emul_can::reset();
+  emul_can::set_begin_error(Chip::Native, 0x1234);
+  RecordingReceiver on_native;
+  register_can_receiver(&on_native, CAN_NATIVE);
+  emul_can_init_on_full_board();
+  emul_can::set_begin_error(Chip::Native, 0);
+  for (int i = 0; i < 3; i++) {
+    stop_can();
+    restart_can();
+  }
+  emul_can::queue_received(Chip::Native, make_frame(0x555, 1));
+  receive_can();
+  EXPECT_EQ(on_native.received.size(), 1u);
+}
