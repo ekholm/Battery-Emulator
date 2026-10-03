@@ -267,6 +267,7 @@ struct SettingDesc {
   /* setting explicitly taken into use WITHOUT a reboot, so it carries SF_NONE.                  */                    \
   S_INT(CHGSTARQ,       "CHGSTARQ",       "CHGSTARQ",       U32,    SF_NONE,                        0, 0, 2)           \
   S_INT(INVACCREB,      "INVACCREB",      "INVACCREB",      BoolU8, SF_REBOOT_REQUIRED,             0, 0, 1)           \
+  S_INT(LEAFAUTOOFS,    "LEAFAUTOOFS",    "LEAFAUTOOFS",    BoolU8, SF_REBOOT_REQUIRED,             1, 0, 1)           \
   /* Not user-editable: the inverter declares it in Modbus register 402 and it is persisted only  */                   \
   /* so it survives a reboot. Bounds are the driver's own WATCHDOG_TIMEOUT_MIN_S/MAX_S; it renders */                  \
   /* read-only under %INVWDT%, which is not this key's name, so it has no placeholder here.       */                   \
