@@ -58,6 +58,9 @@ struct CanReceiverRegistration {
 };
 
 static std::multimap<CAN_Interface, CanReceiverRegistration> can_receivers;
+// Registrations interface_unavailable() took out of can_receivers, kept so that an interface that comes
+// back later (a native retry on resume or on a speed change) delivers to its drivers again.
+static std::multimap<CAN_Interface, CanReceiverRegistration> parked_receivers;
 
 static void receive_frame_can_native();
 static void receive_frame_can_addon();
@@ -197,7 +200,7 @@ static comm_interface comm_interface_for(CAN_Interface interface) {
   }
 }
 
-/* An interface that failed to start is also removed from the receiver map.
+/* An interface that failed to start is also removed from the receiver map - and PARKED, not discarded.
  *
  * Leaving the pointer null (or the native flag false) is what keeps the rest of
  * this file from talking to a chip that is not there, and that alone was the
@@ -210,11 +213,34 @@ static comm_interface comm_interface_for(CAN_Interface interface) {
  * It is deliberately NOT an abort. The caller discards init_CAN()'s outcome
  * (Software.cpp), so ending the function here would only skip the interfaces
  * declared after this one, silently.
+ *
+ * The native interface can come back: restart_can() (the resume after a pause) and
+ * change_can_speed() both retry begin(), and a retry that succeeds puts the
+ * controller back in service. Its drivers registered once, before init_CAN(), and
+ * never register again, so an erase that discarded them left a running controller
+ * whose frames reached no one - the battery read missing while the emulator kept
+ * sending. The registrations are parked here and return_to_service() puts them back.
+ * The MCP2515 and CAN-FD chips never retry (their pointers are nulled on failure),
+ * so for them the parking is never undone.
  */
 static void interface_unavailable(CAN_Interface interface) {
   set_event(EVENT_INTERFACE_MISSING, (uint8_t)interface);
   logging.printf("CAN interface %s did not initialize - continuing without it\n", getCANInterfaceName(interface));
-  can_receivers.erase(interface);
+  auto range = can_receivers.equal_range(interface);
+  parked_receivers.insert(range.first, range.second);
+  can_receivers.erase(range.first, range.second);
+}
+
+// An interface that interface_unavailable() took out of service has started after all: its drivers'
+// registrations go back into the receiver map, so its frames are dispatched again.
+static void return_to_service(CAN_Interface interface) {
+  auto range = parked_receivers.equal_range(interface);
+  if (range.first == range.second) {
+    return;
+  }
+  can_receivers.insert(range.first, range.second);
+  parked_receivers.erase(range.first, range.second);
+  logging.printf("CAN interface %s started on a retry - back in service\n", getCANInterfaceName(interface));
 }
 
 #ifdef UNIT_TEST
@@ -224,6 +250,7 @@ static void interface_unavailable(CAN_Interface interface) {
 // sees.
 void comm_can_reset_for_test() {
   can_receivers.clear();
+  parked_receivers.clear();
   settingsespcan = nullptr;
   native_can_initialized = false;
   // The 2515's counterpart to native_can_initialized, added on this lane after
@@ -1221,6 +1248,9 @@ void restart_can() {
   if (settingsespcan != nullptr) {
     const uint32_t errorCode = ACAN_ESP32::can.begin(*settingsespcan);
     native_can_initialized = (errorCode == 0);
+    if (native_can_initialized) {
+      return_to_service(CAN_NATIVE);
+    }
     if (errorCode != 0) {
       logging.print("Error Native Can: 0x");
       logging.println(errorCode, HEX);
@@ -1295,6 +1325,7 @@ bool change_can_speed(CAN_Interface interface, CAN_Speed speed) {
       return false;
     }
     native_can_initialized = true;
+    return_to_service(CAN_NATIVE);  // a native interface that failed at boot and starts now
     return true;
   } else if (interface == CAN_Interface::CAN_ADDON_MCP2515 && can2515) {
     /* true here means the request was accepted, not that the speed changed:
