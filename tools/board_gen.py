@@ -873,7 +873,7 @@ def _style(getter, base):
     return 'virtual ' if (not base or getter in base) else ''
 
 
-def _pin_line(getter, value, comments, base=None):
+def _pin_line(getter, value, comments, base=None, notes=None):
     if value is None or str(value) in LATE_BOUND or candidate_pads(value):
         # Not declared, chosen at runtime, or placed on a candidate set the
         # runtime picks from: the getter is hand-written, not generated.
@@ -882,7 +882,11 @@ def _pin_line(getter, value, comments, base=None):
     line = f'  {_style(getter, base)}gpio_num_t {getter}() {{ return GPIO_NUM_{num}; }}'
     if getter in comments:
         line += '  ' + comments[getter]
-    return line
+    # `notes:` are whole comment lines set above the getter, for text too long to trail it (a
+    # declaration is the only place generated text can come from, so a header comment kept
+    # anywhere else is overwritten on the next run).
+    lines = [f'  // {n.strip().strip(chr(34))}' for n in (notes or {}).get(getter, [])]
+    return '\n'.join(lines + [line])
 
 
 def _scalar_line(sspec, value, base=None):
@@ -903,6 +907,7 @@ def block(board, data, base=None):
     if base is None:
         base = base_members(HEADERS)
     comments = data.get('comments', {})
+    notes = data.get('notes', {})
     lines = [BEGIN.format(board=board), NOTE, '',
              f'  const char* name() {{ return "{data["name"]}"; }}']
     for feature in FEATURE_ORDER:
@@ -923,11 +928,11 @@ def block(board, data, base=None):
                             first_bus = inst2.get('bus')
                 if index == 0 or inst.get('bus') != first_bus:
                     for name, getter in spec['bus'][index].items():
-                        line = _pin_line(getter, bus.get(name), comments, base)
+                        line = _pin_line(getter, bus.get(name), comments, base, notes)
                         if line:
                             emitted.append(line)
             for name, getter in fields.items():
-                line = _pin_line(getter, inst.get(name), comments, base)
+                line = _pin_line(getter, inst.get(name), comments, base, notes)
                 if line:
                     emitted.append(line)
             for name, sspec in (spec.get('scalars', [{}] * (index + 1))[index]

@@ -33,3 +33,7 @@ equipment_stop:
   - {pin: 35}
 battery_wakeup:
   - {wup1: 25, wup2: 32}
+comments:
+  CHADEMO_CT_PIN: "// ADC2_CH8"
+notes:
+  CHADEMO_CT_PIN: ["CT clamp input ("Custom Clamp" shunt type). GPIO25 is ADC2_CH8: on the classic ESP32, ADC2", "cannot be sampled while Wi-Fi is running, so analogReadMilliVolts() fails and the current reads", "0 A whenever Wi-Fi (STA or AP) is up. GPIO25 is also shared with the precharge, HIA4V1 and", "WUP_PIN1 outputs."]
