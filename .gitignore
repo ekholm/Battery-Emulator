@@ -44,3 +44,6 @@ Software/src/devboard/utils/version_autogen.h
 
 # Python bytecode from the tools/ scripts (board_gen is imported by the others)
 __pycache__/
+
+# Ignore the embedded help texts (produced by tools/embed_help_json.py)
+Software/src/devboard/webserver/help_json_autogen.h

@@ -485,8 +485,7 @@ void setup_battery() {
     } else {
       switch (user_selected_battery_type) {
         case BatteryType::BoltAmpera:
-          battery2 =
-              new BoltAmperaBattery(&datalayer.battery2, &datalayer_extended.boltampera_2, can_config.battery_double);
+          battery2 = new BoltAmperaBattery(&datalayer.battery2, can_config.battery_double);
           break;
         case BatteryType::BydAtto3:
           battery2 = new BydAttoBattery(&datalayer.battery2, &datalayer_extended.bydAtto3_2, can_config.battery_double);
@@ -544,7 +543,7 @@ void setup_battery() {
           break;
         case BatteryType::TeslaModel3Y:
         case BatteryType::TeslaModelSX:
-          battery2 = new TeslaBattery(&datalayer.battery2, can_config.battery_double);
+          battery2 = new TeslaBattery(&datalayer.battery2, &datalayer_extended.tesla_2, can_config.battery_double);
           break;
         default:
           break;
@@ -602,6 +601,7 @@ void setup_battery() {
 /* User-selected Nissan LEAF settings */
 bool user_selected_LEAF_interlock_mandatory = false;
 uint8_t user_selected_LEAF_chg_sta_rq = 0;
+bool user_selected_LEAF_auto_current_offset = true;
 /* User-selected Tesla settings */
 bool user_selected_tesla_digital_HVIL = false;
 uint16_t user_selected_tesla_GTW_country = 17477;
