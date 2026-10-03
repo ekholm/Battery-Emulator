@@ -20,7 +20,7 @@ namespace {
 String render_with_tesla_state(const std::function<void(DATALAYER_INFO_TESLA&)>& set_fields) {
   datalayer_extended.tesla = DATALAYER_INFO_TESLA{};
   set_fields(datalayer_extended.tesla);
-  TeslaHtmlRenderer renderer;
+  TeslaHtmlRenderer renderer(&datalayer_extended.tesla, &datalayer.battery);
   return renderer.get_status_html();
 }
 

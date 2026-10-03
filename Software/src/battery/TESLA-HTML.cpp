@@ -1,33 +1,5 @@
 #include "TESLA-HTML.h"
-#include <cstdio>
 #include <cstring>
-
-// Names a code out of one of the renderer's lookup tables, without reading past its end.
-//
-// Every table below is selected by a datalayer_extended field the CAN parser fills from a raw bit
-// slice of a frame, and several of those slices are wider than the table they select from: a 5-bit
-// PCS sub-state picks from 18 entries, a 4-bit BMS state from 10, a 2-bit contactor request status
-// from 3. A pack reporting a code the table has no entry for used to hand String() whatever
-// pointer-shaped bytes followed the table - a wild dereference on the ESP32, and a segfault on the
-// host. Out of range now renders as UNKNOWN(n), which is both safe and more useful than a name:
-// it shows the code the pack actually sent. UNKNOWN(n) is this file's own spelling for a code with
-// no name - the tables above pad their tails with exactly those strings - and the same battery's
-// serial-logging twins (getContactorText() and friends in TESLA-BATTERY.cpp) have always had a
-// switch default for the same reason. Their default returns a bare "UNKNOWN" rather than the code;
-// carrying the number is the one deliberate difference, because a page that says which value the
-// pack sent is diagnosable and one that says "UNKNOWN" is not.
-//
-// Taking the table by reference is what makes the bound automatic - the length comes from the
-// array's own type, so a table that gains or loses an entry cannot leave a hardcoded limit behind.
-template <size_t N>
-static String lookupName(const char* const (&table)[N], uint8_t index) {
-  if (index < N) {
-    return String(table[index]);
-  }
-  char unknown[sizeof("UNKNOWN(255)")];  // The widest a uint8_t code can render
-  snprintf(unknown, sizeof(unknown), "UNKNOWN(%u)", static_cast<unsigned>(index));
-  return String(unknown);
-}
 
 static void appendFault(String& string, const char* name, bool faultActive) {
   if (!faultActive) {
@@ -137,56 +109,56 @@ String TeslaHtmlRenderer::get_status_html() {
   //float HVP_shuntAsicTempDbg = static_cast<float>(tesla.HVP_shuntAsicTempDbg) * 0.01f;
 
   static const char* const contactorText[] = {"UNKNOWN(0)",  "OPEN",        "CLOSING",    "BLOCKED", "OPENING",
-                                        "CLOSED",      "UNKNOWN(6)",  "WELDED",     "POS_CL",  "NEG_CL",
-                                        "UNKNOWN(10)", "UNKNOWN(11)", "UNKNOWN(12)"};
+                                              "CLOSED",      "UNKNOWN(6)",  "WELDED",     "POS_CL",  "NEG_CL",
+                                              "UNKNOWN(10)", "UNKNOWN(11)", "UNKNOWN(12)"};
   static const char* const hvilStatusState[] = {"UNKNOWN or CONTACTORS OPEN",
-                                          "STATUS_OK",
-                                          "CURRENT_SOURCE_FAULT",
-                                          "INTERNAL_OPEN_FAULT",
-                                          "VEHICLE_OPEN_FAULT",
-                                          "PENTHOUSE_LID_OPEN_FAULT",
-                                          "UNKNOWN_LOCATION_OPEN_FAULT",
-                                          "VEHICLE_NODE_FAULT",
-                                          "NO_12V_SUPPLY",
-                                          "VEHICLE_OR_PENTHOUSE_LID_OPENFAULT",
-                                          "UNKNOWN(10)",
-                                          "UNKNOWN(11)",
-                                          "UNKNOWN(12)",
-                                          "UNKNOWN(13)",
-                                          "UNKNOWN(14)",
-                                          "UNKNOWN(15)"};
+                                                "STATUS_OK",
+                                                "CURRENT_SOURCE_FAULT",
+                                                "INTERNAL_OPEN_FAULT",
+                                                "VEHICLE_OPEN_FAULT",
+                                                "PENTHOUSE_LID_OPEN_FAULT",
+                                                "UNKNOWN_LOCATION_OPEN_FAULT",
+                                                "VEHICLE_NODE_FAULT",
+                                                "NO_12V_SUPPLY",
+                                                "VEHICLE_OR_PENTHOUSE_LID_OPENFAULT",
+                                                "UNKNOWN(10)",
+                                                "UNKNOWN(11)",
+                                                "UNKNOWN(12)",
+                                                "UNKNOWN(13)",
+                                                "UNKNOWN(14)",
+                                                "UNKNOWN(15)"};
   static const char* const contactorState[] = {"SNA",        "OPEN",       "PRECHARGE",   "BLOCKED",
-                                         "PULLED_IN",  "OPENING",    "ECONOMIZED",  "WELDED",
-                                         "UNKNOWN(8)", "UNKNOWN(9)", "UNKNOWN(10)", "UNKNOWN(11)"};
+                                               "PULLED_IN",  "OPENING",    "ECONOMIZED",  "WELDED",
+                                               "UNKNOWN(8)", "UNKNOWN(9)", "UNKNOWN(10)", "UNKNOWN(11)"};
   static const char* const BMS_state[] = {"STANDBY",     "DRIVE", "SUPPORT", "CHARGE", "FEIM",
-                                    "CLEAR_FAULT", "FAULT", "WELD",    "TEST",   "SNA"};
+                                          "CLEAR_FAULT", "FAULT", "WELD",    "TEST",   "SNA"};
   static const char* const BMS_contactorState[] = {"SNA", "OPEN", "OPENING", "CLOSING", "CLOSED", "WELDED", "BLOCKED"};
   static const char* const BMS_hvState[] = {"DOWN",          "COMING_UP",        "GOING_DOWN", "UP_FOR_DRIVE",
-                                      "UP_FOR_CHARGE", "UP_FOR_DC_CHARGE", "UP"};
+                                            "UP_FOR_CHARGE", "UP_FOR_DC_CHARGE", "UP"};
   static const char* const BMS_uiChargeStatus[] = {"DISCONNECTED", "NO_POWER",        "ABOUT_TO_CHARGE",
-                                             "CHARGING",     "CHARGE_COMPLETE", "CHARGE_STOPPED"};
+                                                   "CHARGING",     "CHARGE_COMPLETE", "CHARGE_STOPPED"};
   static const char* const PCS_dcdcStatus[] = {"IDLE", "ACTIVE", "FAULTED"};
   static const char* const PCS_dcdcMainState[] = {"STANDBY",          "12V_SUPPORT_ACTIVE", "PRECHARGE_STARTUP",
-                                            "PRECHARGE_ACTIVE", "DIS_HVBUS_ACTIVE",   "SHUTDOWN",
-                                            "FAULTED"};
+                                                  "PRECHARGE_ACTIVE", "DIS_HVBUS_ACTIVE",   "SHUTDOWN",
+                                                  "FAULTED"};
   static const char* const PCS_dcdcSubState[] = {"PWR_UP_INIT",
-                                           "STANDBY",
-                                           "12V_SUPPORT_ACTIVE",
-                                           "DIS_HVBUS",
-                                           "PCHG_FAST_DIS_HVBUS",
-                                           "PCHG_SLOW_DIS_HVBUS",
-                                           "PCHG_DWELL_CHARGE",
-                                           "PCHG_DWELL_WAIT",
-                                           "PCHG_DI_RECOVERY_WAIT",
-                                           "PCHG_ACTIVE",
-                                           "PCHG_FLT_FAST_DIS_HVBUS",
-                                           "SHUTDOWN",
-                                           "12V_SUPPORT_FAULTED",
-                                           "DIS_HVBUS_FAULTED",
-                                           "PCHG_FAULTED",
-                                           "CLEAR_FAULTS",
-                                           "FAULTED",
-                                           "NUM"};
+                                                 "STANDBY",
+                                                 "12V_SUPPORT_ACTIVE",
+                                                 "DIS_HVBUS",
+                                                 "PCHG_FAST_DIS_HVBUS",
+                                                 "PCHG_SLOW_DIS_HVBUS",
+                                                 "PCHG_DWELL_CHARGE",
+                                                 "PCHG_DWELL_WAIT",
+                                                 "PCHG_DI_RECOVERY_WAIT",
+                                                 "PCHG_ACTIVE",
+                                                 "PCHG_FLT_FAST_DIS_HVBUS",
+                                                 "SHUTDOWN",
+                                                 "12V_SUPPORT_FAULTED",
+                                                 "DIS_HVBUS_FAULTED",
+                                                 "PCHG_FAULTED",
+                                                 "CLEAR_FAULTS",
+                                                 "FAULTED",
+                                                 "NUM"};
   static const char* const BMS_powerLimitState[] = {"NOT_CALCULATED_FOR_DRIVE", "CALCULATED_FOR_DRIVE"};
   //static const char* const HVP_status[] = {"INVALID", "NOT_AVAILABLE", "STALE", "VALID"};
   static const char* const HVP_contactor[] = {"NOT_ACTIVE", "ACTIVE", "COMPLETED"};
@@ -224,11 +196,13 @@ String TeslaHtmlRenderer::get_status_html() {
     content += "<h4>Closing blocked: " + lookupName(noYes, tesla.packCtrsClosingBlocked) + "</h4>";
   }
   content += "<h4>Pyrotest in progress: " + lookupName(noYes, tesla.pyroTestInProgress) + "</h4>";
-  content += "<h4>Contactors Open Now Requested: " + lookupName(noYes, tesla.battery_packCtrsOpenNowRequested) + "</h4>";
-  content += "<h4>Contactors Open Requested: " + lookupName(noYes, tesla.battery_packCtrsOpenRequested) + "</h4>";
-  content += "<h4>Contactors Request Status: " + lookupName(HVP_contactor, tesla.battery_packCtrsRequestStatus) + "</h4>";
   content +=
-      "<h4>Contactors Reset Request Required: " + lookupName(noYes, tesla.battery_packCtrsResetRequestRequired) + "</h4>";
+      "<h4>Contactors Open Now Requested: " + lookupName(noYes, tesla.battery_packCtrsOpenNowRequested) + "</h4>";
+  content += "<h4>Contactors Open Requested: " + lookupName(noYes, tesla.battery_packCtrsOpenRequested) + "</h4>";
+  content +=
+      "<h4>Contactors Request Status: " + lookupName(HVP_contactor, tesla.battery_packCtrsRequestStatus) + "</h4>";
+  content += "<h4>Contactors Reset Request Required: " + lookupName(noYes, tesla.battery_packCtrsResetRequestRequired) +
+             "</h4>";
   content += "<h4>DC Link Allowed to Energize: " + lookupName(noYes, tesla.battery_dcLinkAllowedToEnergize) + "</h4>";
   // Comment what data you would like to display, order can be changed.
   //0x352 850 BMS_energyStatus
@@ -331,8 +305,8 @@ String TeslaHtmlRenderer::get_status_html() {
   appendFault(content, "PWM Enable Line", tesla.PCS_dcdcPwmEnableLine);
   appendFault(content, "Supporting Fixed LV Target", tesla.PCS_dcdcSupportingFixedLvTarget);
   content += "<h4>Precharge Restart Cnt: " + String(tesla.PCS_dcdcPrechargeRestartCnt) + "</h4>";
-  content +=
-      "<h4>Initial Precharge Substate: " + lookupName(PCS_dcdcSubState, tesla.PCS_dcdcInitialPrechargeSubState) + "</h4>";
+  content += "<h4>Initial Precharge Substate: " + lookupName(PCS_dcdcSubState, tesla.PCS_dcdcInitialPrechargeSubState) +
+             "</h4>";
   //0x3C4 PCS_info
   content += "<h4>PCS_buildConfigId: " + String(tesla.PCS_info_buildConfigId) + "</h4>";
   content += "<h4>PCS_hardwareId: " + String(tesla.PCS_info_hardwareId) + "</h4>";
