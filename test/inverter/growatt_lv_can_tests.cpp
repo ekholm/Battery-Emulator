@@ -86,7 +86,7 @@ TEST_F(GrowattLvCanInverterTest, Poll0x301SendsAllDataFrames) {
 // ---- Payload: 0x311 (charge voltage, charge/discharge limits, status bits) --
 
 TEST_F(GrowattLvCanInverterTest, Frame311EncodesChargeVoltageMinus40Offset) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;  // charge voltage = 4000 - 40 = 3960
+  datalayer.aggregate.max_design_voltage_dV = 4000;  // charge voltage = 4000 - 40 = 3960
 
   growatt_lv->update_values();
   inverter_poll();
@@ -98,8 +98,8 @@ TEST_F(GrowattLvCanInverterTest, Frame311EncodesChargeVoltageMinus40Offset) {
 }
 
 TEST_F(GrowattLvCanInverterTest, Frame311EncodesChargeAndDischargeCurrentLimitsBE) {
-  datalayer.battery.status.max_charge_current_dA = 150;
-  datalayer.battery.status.max_discharge_current_dA = 250;
+  datalayer.aggregate.max_charge_current_dA = 150;
+  datalayer.aggregate.max_discharge_current_dA = 250;
 
   growatt_lv->update_values();
   inverter_poll();
@@ -121,7 +121,7 @@ TEST_F(GrowattLvCanInverterTest, Frame311StatusBitsReflectActivePower) {
   EXPECT_EQ(f->data.u8[7], 0x01u);  // 0b01 idle on bit0-1
 
   clear_transmitted_frames();
-  datalayer.battery.status.active_power_W = -1000;  // Discharging
+  datalayer.aggregate.active_power_W = -1000;  // Discharging
   growatt_lv->update_values();
   inverter_poll();
   f = find_frame_with_id(0x311);
@@ -130,7 +130,7 @@ TEST_F(GrowattLvCanInverterTest, Frame311StatusBitsReflectActivePower) {
   EXPECT_EQ(f->data.u8[7], 0x03u);
 
   clear_transmitted_frames();
-  datalayer.battery.status.active_power_W = 1000;  // Charging
+  datalayer.aggregate.active_power_W = 1000;  // Charging
   growatt_lv->update_values();
   inverter_poll();
   f = find_frame_with_id(0x311);
@@ -142,7 +142,7 @@ TEST_F(GrowattLvCanInverterTest, Frame311StatusBitsReflectActivePower) {
 // ---- Payload: 0x313 (voltage ×10, current, temp, SOC, SOH) -----------------
 
 TEST_F(GrowattLvCanInverterTest, Frame313EncodesVoltageTimes10InBE) {
-  datalayer.battery.status.voltage_dV = 3700;  // * 10 = 37000 = 0x9088
+  datalayer.aggregate.voltage_dV = 3700;  // * 10 = 37000 = 0x9088
 
   growatt_lv->update_values();
   inverter_poll();
@@ -153,7 +153,7 @@ TEST_F(GrowattLvCanInverterTest, Frame313EncodesVoltageTimes10InBE) {
 }
 
 TEST_F(GrowattLvCanInverterTest, Frame313EncodesSignedCurrentBE) {
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-200);  // -20.0 A
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-200);  // -20.0 A
 
   growatt_lv->update_values();
   inverter_poll();
@@ -164,8 +164,8 @@ TEST_F(GrowattLvCanInverterTest, Frame313EncodesSignedCurrentBE) {
 }
 
 TEST_F(GrowattLvCanInverterTest, Frame313EncodesSocAndSohAsIntegerPercent) {
-  datalayer.battery.status.reported_soc = 8000;  // 80.00% → 80
-  datalayer.battery.status.soh_pptt = 9500;      // 95.00% → 95
+  datalayer.aggregate.reported_soc = 8000;  // 80.00% → 80
+  datalayer.aggregate.soh_pptt = 9500;      // 95.00% → 95
 
   growatt_lv->update_values();
   inverter_poll();
@@ -181,9 +181,9 @@ TEST_F(GrowattLvCanInverterTest, Frame313EncodesSocAndSohAsIntegerPercent) {
 TEST_F(GrowattLvCanInverterTest, Frame314EncodesCapacityIn10mAhUnits) {
   // Post-fix: ampere_hours = 100 * Wh / voltage_dV, packed * 10.
   // 3600 Wh at 360.0 V is 10.0 Ah -> 1000 in the 10 mAh field.
-  datalayer.battery.status.voltage_dV = 3600;  // must be >10 to update
-  datalayer.battery.status.reported_remaining_capacity_Wh = 3600;
-  datalayer.battery.info.reported_total_capacity_Wh = 3600;
+  datalayer.aggregate.voltage_dV = 3600;  // must be >10 to update
+  datalayer.aggregate.reported_remaining_capacity_Wh = 3600;
+  datalayer.aggregate.reported_total_capacity_Wh = 3600;
 
   growatt_lv->update_values();
   inverter_poll();
@@ -195,8 +195,8 @@ TEST_F(GrowattLvCanInverterTest, Frame314EncodesCapacityIn10mAhUnits) {
 }
 
 TEST_F(GrowattLvCanInverterTest, Frame314EncodesCellDeltaVoltage) {
-  datalayer.battery.status.cell_max_voltage_mV = 4100;
-  datalayer.battery.status.cell_min_voltage_mV = 3900;  // delta = 200 mV
+  datalayer.aggregate.cell_max_voltage_mV = 4100;
+  datalayer.aggregate.cell_min_voltage_mV = 3900;  // delta = 200 mV
 
   growatt_lv->update_values();
   inverter_poll();

@@ -112,8 +112,8 @@ TEST_F(VcuCanInverterTest, FiveHundredMsGroupSends59EAnd5C0) {
 TEST_F(VcuCanInverterTest, DischargePowerEncodedIn1DCBytes0To1) {
   // dislimit_raw = max_discharge_power_W / 250 (10-bit)
   // byte 0 = raw >> 2; byte 1 bits 7:6 = raw & 0x03
-  datalayer.battery.status.max_discharge_power_W = 50000;  // raw = 200 = 0xC8
-  datalayer.battery.status.max_charge_power_W = 0;
+  datalayer.aggregate.max_discharge_power_W = 50000;  // raw = 200 = 0xC8
+  datalayer.aggregate.max_charge_power_W = 0;
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_10_MS + 1);
@@ -128,8 +128,8 @@ TEST_F(VcuCanInverterTest, DischargePowerEncodedIn1DCBytes0To1) {
 TEST_F(VcuCanInverterTest, ChargePowerEncodedIn1DCBytes1To2) {
   // chglimit_raw = max_charge_power_W / 250 (10-bit)
   // byte 1 bits 5:0 = chglimit >> 4; byte 2 bits 7:4 = chglimit & 0x0F
-  datalayer.battery.status.max_discharge_power_W = 0;
-  datalayer.battery.status.max_charge_power_W = 25000;  // raw = 100 = 0x64
+  datalayer.aggregate.max_discharge_power_W = 0;
+  datalayer.aggregate.max_charge_power_W = 25000;  // raw = 100 = 0x64
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_10_MS + 1);
@@ -144,7 +144,7 @@ TEST_F(VcuCanInverterTest, ChargePowerEncodedIn1DCBytes1To2) {
 TEST_F(VcuCanInverterTest, SocEncodedIn55BBytes0To1) {
   // soc_raw = real_soc / 10 (10-bit, 0.1%-per-bit)
   // byte 0 = raw >> 2; byte 1 bits 7:6 = raw & 0x03
-  datalayer.battery.status.real_soc = 7550;  // 75.50% -> soc_raw = 755 = 0x2F3
+  datalayer.aggregate.real_soc = 7550;  // 75.50% -> soc_raw = 755 = 0x2F3
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_100_MS + 1);
@@ -159,7 +159,7 @@ TEST_F(VcuCanInverterTest, SocEncodedIn55BBytes0To1) {
 TEST_F(VcuCanInverterTest, PositiveCurrentEncodedIn1DBBytes0To1) {
   // Positive current (discharge): raw = (current_dA * 2) / 10; no bias
   // field is 11-bit: byte 0 = raw >> 3; byte 1 bits 7:5 = raw & 0x07
-  datalayer.battery.status.current_dA = 100;  // 10 A -> raw = (100*2)/10 = 20
+  datalayer.aggregate.current_dA = 100;  // 10 A -> raw = (100*2)/10 = 20
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_10_MS + 1);
@@ -173,7 +173,7 @@ TEST_F(VcuCanInverterTest, PositiveCurrentEncodedIn1DBBytes0To1) {
 
 TEST_F(VcuCanInverterTest, NegativeCurrentBiasedIn1DBBytes0To1) {
   // Negative current (charge): raw = (current_dA*2)/10 + 2047 & 0x7FF
-  datalayer.battery.status.current_dA = static_cast<int16_t>(-60);  // -6 A -> raw = (-60*2)/10 = -12 + 2047 = 2035
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-60);  // -6 A -> raw = (-60*2)/10 = -12 + 2047 = 2035
   vcu->update_values();
   vcu->transmit_can(INTERVAL_10_MS + 1);
 
@@ -187,7 +187,7 @@ TEST_F(VcuCanInverterTest, NegativeCurrentBiasedIn1DBBytes0To1) {
 TEST_F(VcuCanInverterTest, VoltageEncodedIn1DBBytes2To3) {
   // voltage_raw = (voltage_dV * 2) / 10 (10-bit, 0.5 V/bit)
   // byte 2 = raw >> 2; byte 3 bits 7:6 = raw & 0x03
-  datalayer.battery.status.voltage_dV = 3700;  // raw = (3700*2)/10 = 740 = 0x2E4
+  datalayer.aggregate.voltage_dV = 3700;  // raw = (3700*2)/10 = 740 = 0x2E4
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_10_MS + 1);
@@ -201,7 +201,7 @@ TEST_F(VcuCanInverterTest, VoltageEncodedIn1DBBytes2To3) {
 
 TEST_F(VcuCanInverterTest, RemainingGidsEncodedIn5BC) {
   // remaining_gids = (real_soc / 10000.0) * 281; 10-bit, packed in bytes 0-1
-  datalayer.battery.status.real_soc = 5000;  // 50.00% -> gids = 0.5 * 281 = 140
+  datalayer.aggregate.real_soc = 5000;  // 50.00% -> gids = 0.5 * 281 = 140
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_100_MS + 1);
@@ -215,7 +215,7 @@ TEST_F(VcuCanInverterTest, RemainingGidsEncodedIn5BC) {
 
 TEST_F(VcuCanInverterTest, SohEncodedIn5BCByte4) {
   // byte 4 = (soh_pptt / 100) << 1
-  datalayer.battery.status.soh_pptt = 9500;  // 95% -> 95 << 1 = 190
+  datalayer.aggregate.soh_pptt = 9500;  // 95% -> 95 << 1 = 190
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_100_MS + 1);
@@ -274,10 +274,10 @@ TEST_F(VcuCanInverterTest, FiveC0ByteCyclesOnEvery500msCall) {
 // unchecked CRC is a silent bus failure, not a cosmetic one.
 
 TEST_F(VcuCanInverterTest, TenMsFramesCarryNissanCrcInByte7) {
-  datalayer.battery.status.max_discharge_power_W = 50000;
-  datalayer.battery.status.max_charge_power_W = 25000;
-  datalayer.battery.status.current_dA = 100;
-  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.aggregate.max_discharge_power_W = 50000;
+  datalayer.aggregate.max_charge_power_W = 25000;
+  datalayer.aggregate.current_dA = 100;
+  datalayer.aggregate.voltage_dV = 3700;
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_10_MS + 1);
@@ -290,7 +290,7 @@ TEST_F(VcuCanInverterTest, TenMsFramesCarryNissanCrcInByte7) {
 }
 
 TEST_F(VcuCanInverterTest, HundredMsFrame55BCarriesNissanCrcInByte7) {
-  datalayer.battery.status.real_soc = 7550;
+  datalayer.aggregate.real_soc = 7550;
 
   vcu->update_values();
   vcu->transmit_can(INTERVAL_100_MS + 1);
@@ -328,7 +328,7 @@ TEST_F(VcuCanInverterTest, CrcTracksThePayloadNotJustTheCounter) {
   // Two 100 ms edges with a different SOC each time. Byte 6 also advances, so
   // this does not isolate the payload on its own - it is the recomputation
   // that does: an expectation matching a payload-independent CRC would fail.
-  datalayer.battery.status.real_soc = 1000;
+  datalayer.aggregate.real_soc = 1000;
   vcu->update_values();
   vcu->transmit_can(INTERVAL_100_MS + 1);
   const CAN_frame* low = find_last_frame_with_id(0x55B);
@@ -337,7 +337,7 @@ TEST_F(VcuCanInverterTest, CrcTracksThePayloadNotJustTheCounter) {
   EXPECT_EQ(low->data.u8[7], expected_nissan_crc(*low));
 
   clear_transmitted_frames();
-  datalayer.battery.status.real_soc = 9000;
+  datalayer.aggregate.real_soc = 9000;
   vcu->update_values();
   vcu->transmit_can(2 * (INTERVAL_100_MS + 1));
   const CAN_frame* high = find_last_frame_with_id(0x55B);

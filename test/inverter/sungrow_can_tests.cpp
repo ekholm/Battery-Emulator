@@ -101,10 +101,10 @@ TEST_F(SungrowCanInverterTest, RunModeDoesNotSendInitSpecificFrames) {
 // ---------------------------------------------------------------------------
 
 TEST_F(SungrowCanInverterTest, Frame701EncodesVoltageCurrentLimitsLE) {
-  datalayer.battery.info.max_design_voltage_dV = 4100;
-  datalayer.battery.info.min_design_voltage_dV = 2800;
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 300;
+  datalayer.aggregate.max_design_voltage_dV = 4100;
+  datalayer.aggregate.min_design_voltage_dV = 2800;
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 300;
   sg->update_values();
   rx_run_trigger();
   // Drive through batches to reach case 2 (batch B: 0x701).
@@ -121,10 +121,10 @@ TEST_F(SungrowCanInverterTest, Frame701EncodesVoltageCurrentLimitsLE) {
 }
 
 TEST_F(SungrowCanInverterTest, Frame702EncodesSocSohRemainingAndCapacityLE) {
-  datalayer.battery.status.reported_soc = 7500;  // 75.00 %
-  datalayer.battery.status.soh_pptt = 9500;      // 95.00 %
-  datalayer.battery.status.reported_remaining_capacity_Wh = 15000;
-  datalayer.battery.info.reported_total_capacity_Wh = 20000;
+  datalayer.aggregate.reported_soc = 7500;  // 75.00 %
+  datalayer.aggregate.soh_pptt = 9500;      // 95.00 %
+  datalayer.aggregate.reported_remaining_capacity_Wh = 15000;
+  datalayer.aggregate.reported_total_capacity_Wh = 20000;
   sg->update_values();
   rx_run_trigger();
 
@@ -141,9 +141,9 @@ TEST_F(SungrowCanInverterTest, Frame702EncodesSocSohRemainingAndCapacityLE) {
 }
 
 TEST_F(SungrowCanInverterTest, Frame704EncodesVoltageSignedCurrentAndTemperature) {
-  datalayer.battery.status.voltage_dV = 3800;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-400);  // -40.0 A
-  datalayer.battery.status.temperature_max_dC = static_cast<int16_t>(-150);   // -15.0 °C
+  datalayer.aggregate.voltage_dV = 3800;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-400);          // -40.0 A
+  datalayer.aggregate.temperature_max_dC = static_cast<int16_t>(-150);  // -15.0 °C
   sg->update_values();
   rx_run_trigger();
 
@@ -163,8 +163,8 @@ TEST_F(SungrowCanInverterTest, Frame704EncodesVoltageSignedCurrentAndTemperature
 
 TEST_F(SungrowCanInverterTest, Frame704CurrentFlippedIn504) {
   // 0x504 must carry the flipped (negated) current vs. 0x704.
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(200);
-  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(200);
+  datalayer.aggregate.voltage_dV = 3700;
   sg->update_values();
   rx_run_trigger();
 
@@ -189,8 +189,8 @@ TEST_F(SungrowCanInverterTest, Frame704CurrentFlippedIn504) {
 
 TEST_F(SungrowCanInverterTest, EndStopByteSetWhenFullOrEmpty) {
   // Full: charge limit == 0 → END_STOP_FULL
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.reported_soc = 9000;
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.reported_soc = 9000;
   sg->update_values();
   rx_run_trigger();
   sg->transmit_can(INTERVAL_1_S + 1);
@@ -205,10 +205,10 @@ TEST_F(SungrowCanInverterTest, EndStopByteSetWhenFullOrEmpty) {
 }
 
 TEST_F(SungrowCanInverterTest, Frame706EncodesTemperatureAndCellVoltagesLE) {
-  datalayer.battery.status.temperature_max_dC = 400;  // 40.0 °C
-  datalayer.battery.status.temperature_min_dC = 100;  // 10.0 °C
-  datalayer.battery.status.cell_max_voltage_mV = 3500;
-  datalayer.battery.status.cell_min_voltage_mV = 3300;
+  datalayer.aggregate.temperature_max_dC = 400;  // 40.0 °C
+  datalayer.aggregate.temperature_min_dC = 100;  // 10.0 °C
+  datalayer.aggregate.cell_max_voltage_mV = 3500;
+  datalayer.aggregate.cell_min_voltage_mV = 3300;
   sg->update_values();
   rx_run_trigger();
 
@@ -226,8 +226,8 @@ TEST_F(SungrowCanInverterTest, Frame706EncodesTemperatureAndCellVoltagesLE) {
 
 TEST_F(SungrowCanInverterTest, Frame714EncodesCell01mVValues) {
   // 0x714 uses 0.1 mV units (mV * 10).
-  datalayer.battery.status.cell_max_voltage_mV = 3450;
-  datalayer.battery.status.cell_min_voltage_mV = 3380;
+  datalayer.aggregate.cell_max_voltage_mV = 3450;
+  datalayer.aggregate.cell_min_voltage_mV = 3380;
   sg->update_values();
   rx_run_trigger();
 

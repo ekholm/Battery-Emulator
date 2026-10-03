@@ -1484,8 +1484,8 @@ static bool render_live(CheckedHtml& content) {
           content += ", bus deferrals " + String(drain.bus_deferrals);
           content += ", bus timeouts " + String(drain.bus_timeouts) + "</h4>";
           content +=
-              "<button onclick=\"if(confirm('Zero the MCP2515 drain counters?')) { send('/resetDrainCounters'); }\">Reset drain "
-              "counters</button> ";
+              "<button onclick=\"if(confirm('Zero the MCP2515 drain counters?')) { send('/resetDrainCounters'); }\">"
+              "Reset drain counters</button> ";
         } else {
           content += "<h4>MCP2515 ISR drain: not running - these counters measure nothing on this board</h4>";
         }

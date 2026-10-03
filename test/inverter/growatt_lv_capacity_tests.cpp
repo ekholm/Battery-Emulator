@@ -64,9 +64,9 @@ class GrowattLvCapacityTest : public ::testing::Test {
 // up undiluted: 5120 Wh at 51.2 V is exactly 100.00 Ah = 10000 x 10 mAh.
 // The old code transmitted this 10x too high.
 TEST_F(GrowattLvCapacityTest, Frame314Encodes100AhExactlyInTenMilliampHourUnits) {
-  datalayer.battery.status.voltage_dV = 512;  // 51.2 V
-  datalayer.battery.status.reported_remaining_capacity_Wh = 5120;
-  datalayer.battery.info.reported_total_capacity_Wh = 5120;
+  datalayer.aggregate.voltage_dV = 512;  // 51.2 V
+  datalayer.aggregate.reported_remaining_capacity_Wh = 5120;
+  datalayer.aggregate.reported_total_capacity_Wh = 5120;
 
   const CAN_frame* f = frame_314_after_poll();
   ASSERT_NE(f, nullptr);
@@ -78,9 +78,9 @@ TEST_F(GrowattLvCapacityTest, Frame314Encodes100AhExactlyInTenMilliampHourUnits)
 // Multiplying first gives (10000 * 100) / 3600 = 277 -> 2770 x 10 mAh;
 // the old divide-first order truncated 10000 / 3600 to 2 (20.0 Ah).
 TEST_F(GrowattLvCapacityTest, Frame314MultipliesBeforeDividingSoTruncationCannotBite) {
-  datalayer.battery.status.voltage_dV = 3600;  // 360.0 V
-  datalayer.battery.status.reported_remaining_capacity_Wh = 10000;
-  datalayer.battery.info.reported_total_capacity_Wh = 10000;
+  datalayer.aggregate.voltage_dV = 3600;  // 360.0 V
+  datalayer.aggregate.reported_remaining_capacity_Wh = 10000;
+  datalayer.aggregate.reported_total_capacity_Wh = 10000;
 
   const CAN_frame* f = frame_314_after_poll();
   ASSERT_NE(f, nullptr);
@@ -91,9 +91,9 @@ TEST_F(GrowattLvCapacityTest, Frame314MultipliesBeforeDividingSoTruncationCannot
 // Unit boundary of the 16-bit field: 48000 Wh at 48.0 V is 1000 Ah, above the
 // field's 655.35 Ah ceiling. It must saturate at UINT16_MAX, not wrap.
 TEST_F(GrowattLvCapacityTest, Frame314SaturatesInsteadOfWrappingAbove655Ah) {
-  datalayer.battery.status.voltage_dV = 480;  // 48.0 V
-  datalayer.battery.status.reported_remaining_capacity_Wh = 48000;
-  datalayer.battery.info.reported_total_capacity_Wh = 48000;
+  datalayer.aggregate.voltage_dV = 480;  // 48.0 V
+  datalayer.aggregate.reported_remaining_capacity_Wh = 48000;
+  datalayer.aggregate.reported_total_capacity_Wh = 48000;
 
   const CAN_frame* f = frame_314_after_poll();
   ASSERT_NE(f, nullptr);
@@ -107,9 +107,9 @@ TEST_F(GrowattLvCapacityTest, Frame314SaturatesInsteadOfWrappingAbove655Ah) {
 // field positions: 10000 Wh at 50.0 V is 200.00 Ah remaining, 20000 Wh is
 // 400.00 Ah full.
 TEST_F(GrowattLvCapacityTest, Frame314KeepsRemainingAndFullCapacityInTheirOwnBytes) {
-  datalayer.battery.status.voltage_dV = 500;  // 50.0 V
-  datalayer.battery.status.reported_remaining_capacity_Wh = 10000;
-  datalayer.battery.info.reported_total_capacity_Wh = 20000;
+  datalayer.aggregate.voltage_dV = 500;  // 50.0 V
+  datalayer.aggregate.reported_remaining_capacity_Wh = 10000;
+  datalayer.aggregate.reported_total_capacity_Wh = 20000;
 
   const CAN_frame* f = frame_314_after_poll();
   ASSERT_NE(f, nullptr);
@@ -120,9 +120,9 @@ TEST_F(GrowattLvCapacityTest, Frame314KeepsRemainingAndFullCapacityInTheirOwnByt
 // Unit boundary of the div0 guard: voltage_dV must be strictly above 10 for
 // the capacity to update. At exactly 10 the fresh instance's zeros are sent.
 TEST_F(GrowattLvCapacityTest, Frame314CapacityNotComputedAtGuardVoltage) {
-  datalayer.battery.status.voltage_dV = 10;  // 1.0 V, guard boundary
-  datalayer.battery.status.reported_remaining_capacity_Wh = 10000;
-  datalayer.battery.info.reported_total_capacity_Wh = 10000;
+  datalayer.aggregate.voltage_dV = 10;  // 1.0 V, guard boundary
+  datalayer.aggregate.reported_remaining_capacity_Wh = 10000;
+  datalayer.aggregate.reported_total_capacity_Wh = 10000;
 
   const CAN_frame* f = frame_314_after_poll();
   ASSERT_NE(f, nullptr);

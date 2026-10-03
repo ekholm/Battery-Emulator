@@ -136,10 +136,10 @@ TEST_F(FoxessCanInverterTest, Byte0Eq04TriggersCellVoltagesBatch) {
 // ---------------------------------------------------------------------------
 
 TEST_F(FoxessCanInverterTest, LimitsFrameEncodesVoltageAndCurrentLE) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.info.min_design_voltage_dV = 3200;
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 300;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.aggregate.min_design_voltage_dV = 3200;
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 300;
   foxess->update_values();
   flush_bms_info();
 
@@ -153,10 +153,10 @@ TEST_F(FoxessCanInverterTest, LimitsFrameEncodesVoltageAndCurrentLE) {
 }
 
 TEST_F(FoxessCanInverterTest, PackDataFrameEncodesVoltageCurrentSocAndRemaining) {
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-300);  // -30 A
-  datalayer.battery.status.reported_soc = 6000;                               // 60.00 % → byte 60
-  datalayer.battery.status.reported_remaining_capacity_Wh = 12000;            // /10 = 1200
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-300);  // -30 A
+  datalayer.aggregate.reported_soc = 6000;                      // 60.00 % → byte 60
+  datalayer.aggregate.reported_remaining_capacity_Wh = 12000;   // /10 = 1200
   foxess->update_values();
   flush_bms_info();
 
@@ -171,10 +171,10 @@ TEST_F(FoxessCanInverterTest, PackDataFrameEncodesVoltageCurrentSocAndRemaining)
 TEST_F(FoxessCanInverterTest, CellDataFrameEncodesTemperaturesAndTweakedVoltages) {
   // LFP chemistry: cell voltages pass through unchanged.
   datalayer.battery.info.chemistry = battery_chemistry_enum::LFP;
-  datalayer.battery.status.temperature_max_dC = 350;
-  datalayer.battery.status.temperature_min_dC = static_cast<int16_t>(-100);  // -10 °C
-  datalayer.battery.status.cell_max_voltage_mV = 3400;
-  datalayer.battery.status.cell_min_voltage_mV = 3300;
+  datalayer.aggregate.temperature_max_dC = 350;
+  datalayer.aggregate.temperature_min_dC = static_cast<int16_t>(-100);  // -10 °C
+  datalayer.aggregate.cell_max_voltage_mV = 3400;
+  datalayer.aggregate.cell_min_voltage_mV = 3300;
   foxess->update_values();
   flush_bms_info();
 
@@ -189,8 +189,8 @@ TEST_F(FoxessCanInverterTest, CellDataFrameEncodesTemperaturesAndTweakedVoltages
 TEST_F(FoxessCanInverterTest, NonLfpChemistryCellVoltagesAreRescaled) {
   // Non-LFP: [2500-4200] → [2500-3400]. Cell at 4200 should map to 3400.
   datalayer.battery.info.chemistry = battery_chemistry_enum::NCA;
-  datalayer.battery.status.cell_max_voltage_mV = 4200;
-  datalayer.battery.status.cell_min_voltage_mV = 2500;
+  datalayer.aggregate.cell_max_voltage_mV = 4200;
+  datalayer.aggregate.cell_min_voltage_mV = 2500;
   foxess->update_values();
   flush_bms_info();
 
@@ -201,8 +201,8 @@ TEST_F(FoxessCanInverterTest, NonLfpChemistryCellVoltagesAreRescaled) {
 }
 
 TEST_F(FoxessCanInverterTest, StatusFrameEncodesAverageTemperatureAndModuleCount) {
-  datalayer.battery.status.temperature_max_dC = 280;
-  datalayer.battery.status.temperature_min_dC = 220;
+  datalayer.aggregate.temperature_max_dC = 280;
+  datalayer.aggregate.temperature_min_dC = 220;
   foxess->update_values();
   flush_bms_info();
 
@@ -218,9 +218,9 @@ TEST_F(FoxessCanInverterTest, StatusFrameEncodesAverageTemperatureAndModuleCount
 
 TEST_F(FoxessCanInverterTest, PackTempsFrameChargeNotAllowedBitWhenCurrentZero) {
   // Charge not allowed flag in 0x1876 b0 bit0.
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.max_discharge_current_dA = 100;
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.max_discharge_current_dA = 100;
+  datalayer.aggregate.reported_soc = 5000;
   foxess->update_values();
   flush_bms_info();
 
@@ -230,9 +230,9 @@ TEST_F(FoxessCanInverterTest, PackTempsFrameChargeNotAllowedBitWhenCurrentZero) 
 }
 
 TEST_F(FoxessCanInverterTest, PackTempsFrameChargeAllowedWhenCurrentNonZero) {
-  datalayer.battery.status.max_charge_current_dA = 100;
-  datalayer.battery.status.max_discharge_current_dA = 100;
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.aggregate.max_charge_current_dA = 100;
+  datalayer.aggregate.max_discharge_current_dA = 100;
+  datalayer.aggregate.reported_soc = 5000;
   datalayer.system.status.system_status = ACTIVE;
   foxess->update_values();
   flush_bms_info();
@@ -256,7 +256,7 @@ TEST_F(FoxessCanInverterTest, FaultStateSetsErrorByteIn1877) {
 
 TEST_F(FoxessCanInverterTest, StatusByteIn1879ReflectsChargingVsDischarging) {
   // Positive current → charging → byte[1] = 0x35
-  datalayer.battery.status.reported_current_dA = 100;
+  datalayer.aggregate.current_dA = 100;
   foxess->update_values();
   flush_bms_info();
   {
@@ -267,7 +267,7 @@ TEST_F(FoxessCanInverterTest, StatusByteIn1879ReflectsChargingVsDischarging) {
   clear_transmitted_frames();
 
   // Zero or negative current → discharging → byte[1] = 0x2B
-  datalayer.battery.status.reported_current_dA = 0;
+  datalayer.aggregate.current_dA = 0;
   foxess->update_values();
   flush_bms_info(100);
   {
@@ -283,9 +283,9 @@ TEST_F(FoxessCanInverterTest, StatusByteIn1879ReflectsChargingVsDischarging) {
 
 TEST_F(FoxessCanInverterTest, IndividualPackVoltageAndCurrentDividedByModuleCount) {
   // Default: 8 modules. voltage / 8 * 10 (cV), current / 8.
-  datalayer.battery.status.voltage_dV = 3200;         // 320 V / 8 = 40 V → 400 cV
-  datalayer.battery.status.reported_current_dA = 80;  // / 8 = 10 dA
-  datalayer.battery.status.reported_soc = 7000;       // 70%
+  datalayer.aggregate.voltage_dV = 3200;    // 320 V / 8 = 40 V → 400 cV
+  datalayer.aggregate.current_dA = 80;      // / 8 = 10 dA
+  datalayer.aggregate.reported_soc = 7000;  // 70%
   foxess->update_values();
 
   rx1871(0x01, 0x01);  // individual pack
