@@ -3,10 +3,10 @@
 *Prepared, not filed. Offered pull-style per maintainer preference: nothing here is a pull
 request. Point at whichever entry is useful, ignore the rest.*
 
-*Grouped by area: [CAN](#can), [Battery drivers](#battery-drivers), [Settings and web UI](#settings-and-web-ui), [Platform, build and storage](#platform-build-and-storage). Within each group, entries that apply directly to the current release `v12.6.0` come first; entries stacked on another come after it.*
+*Grouped by area: [CAN](#can), [Battery drivers](#battery-drivers), [Settings and web UI](#settings-and-web-ui), [Platform, build and storage](#platform-build-and-storage). Within each group, entries that apply directly to the current release `v13.0.1` come first; entries stacked on another come after it.*
 
 *These are the larger offerings - conversions, reworks, improvements. Each links its branch, the
-pinned commit and the full diff against the upstream release `v12.6.0`, and carries the PR body it
+pinned commit and the full diff against the upstream release `v13.0.1`, and carries the PR body it
 would ship
 with. Unlike a fix, an entry here may deserve a design conversation before code review - say so
 and we will start one.*
@@ -27,7 +27,7 @@ questions on hardware we do not run.
 ---
 
 **Flash writes no longer starve the CAN receive FIFOs: a broker, sector erases, and the measurement that says what is left**
-Branch [`flash-write-interleave`](https://github.com/ekholm/Battery-Emulator/tree/flash-write-interleave) @ `55801b8c` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:flash-write-interleave)
+Branch [`flash-write-interleave`](https://github.com/ekholm/Battery-Emulator/tree/flash-write-interleave) @ `2cf72a46` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:flash-write-interleave)
 A flash program or erase parks both cores: the cache is off for the whole operation, no task runs, and nothing drains the CAN controllers' receive FIFOs. That is why frames go missing during a settings save or an OTA upload. This funnels every runtime flash write through a broker that drains CAN first, runs ONE operation, and yields so the drain happens again before the next - turning a storm into a train of short windows. It also switches OTA erases from 64 KB blocks to 4 KB sectors, and measures what is left: on a T-CAN485 the longest gap between CAN drains during an OTA falls from **319-332 ms to 81-82 ms**. It does not claim zero loss, and says exactly why.
 
 *Overlaps the CAN lane (the next entry).* The sector-erase half of this branch is the same `CONFIG_SPI_FLASH_BYPASS_BLOCK_ERASE` option the lane carries as [`ota-erase-granularity`](https://github.com/ekholm/Battery-Emulator/tree/ota-erase-granularity), so take that half from one of them, not both. The broker half is not in the lane: an A/B on the lane, with and without this broker under a settings storm and an OTA upload, measured no difference on its IRAM-resident receive paths.
@@ -72,7 +72,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **CAN: the whole lane, measured - one branch, three offers, twelve PR candidates inside it**
-Branch [`can-lane`](https://github.com/ekholm/Battery-Emulator/tree/can-lane) @ `96a4042f` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:can-lane) · [diff vs `v12.6.0`](https://github.com/dalathegreat/Battery-Emulator/compare/v12.6.0...ekholm:Battery-Emulator:can-lane) · 10 merges over 124 commits
+Branch [`can-lane`](https://github.com/ekholm/Battery-Emulator/tree/can-lane) @ `7948bdfa` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:can-lane) · [diff vs `v13.0.1`](https://github.com/dalathegreat/Battery-Emulator/compare/v13.0.1...ekholm:Battery-Emulator:can-lane) · 10 merges over 126 commits
 
 One branch carries the complete CAN offering, built from twelve reviewed branches in
 dependency order; each of those is a PR candidate on its own and is linked below, so a maintainer
@@ -127,7 +127,7 @@ ESP32 only and has not yet been measured on silicon.
 - [`absent-can-addon-inert`](https://github.com/ekholm/Battery-Emulator/tree/absent-can-addon-inert) - an add-on the board does not have is not an incoherent map
 - [`select-unrepresented-value`](https://github.com/ekholm/Battery-Emulator/tree/select-unrepresented-value) - a settings select shows the stored value it has no option for
 - [`replay-unreachable-interface`](https://github.com/ekholm/Battery-Emulator/tree/replay-unreachable-interface) - a replay that cannot reach a wire is refused with the reason
-- [`inverter-driver-defects`](https://github.com/ekholm/Battery-Emulator/tree/inverter-driver-defects) - 21-driver protocol suite and the three defects it found
+- [`inverter-driver-defects`](https://github.com/ekholm/Battery-Emulator/tree/inverter-driver-defects) - 21-driver protocol suite and the defects it found (one of the three, SMA-SBS reporting one pack's current, `v13.0.1` has since fixed through its system aggregate)
 - [`ota-erase-granularity`](https://github.com/ekholm/Battery-Emulator/tree/ota-erase-granularity) - a firmware upload erases in 4 KB sectors, so no single erase parks the cores past a keepalive
 - [`can-host-testability`](https://github.com/ekholm/Battery-Emulator/tree/can-host-testability) - `comm_can.cpp` compiled into the host suite. It comes last and sits on the lane rather than on the release, because its tests pin the fixed behaviour of the branches above and do not build without them.
 
@@ -207,7 +207,7 @@ worst 32.2 ms, and the upload takes about 64 percent longer, once per update. Th
 ---
 
 **Ford Mach-E: hand the UDS transport to the shared superclass, and fix two latent superclass bugs it exposed**
-Branch [`mache-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mache-uds-superclass) @ `377b211f` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mache-uds-superclass)
+Branch [`mache-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mache-uds-superclass) @ `a58cc634` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mache-uds-superclass)
 The same move #2824 makes for the Zoe Gen2, applied to the Mach-E: the driver's hand-rolled diagnostics were a 1:1 duplicate of what `UdsCanBattery` already does. It keeps only what is genuinely Ford's, and the conversion exposed two latent bugs in the superclass itself - a queued sequence lost to a retry race, and a readout that leaves the page pending forever - which are fixed here and benefit four other drivers today.
 
 <details>
@@ -241,7 +241,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **MG5: the same conversion, and the DTC readout stops being serial-log-only**
-Branch [`mg5-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mg5-uds-superclass) @ `735f9a75` · on release `v12.6.0` @ `f7d65fc2` · stacked on `mache-uds-superclass` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mg5-uds-superclass)
+Branch [`mg5-uds-superclass`](https://github.com/ekholm/Battery-Emulator/tree/mg5-uds-superclass) @ `cb2cc970` · on release `v13.0.1` @ `e648ede4` · stacked on `mache-uds-superclass` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mg5-uds-superclass)
 The MG5 duplicated the same transport machinery, down to its own 1 KB ISO-TP reassembly context. It keeps what is genuinely MG5's - the broadcast decode, now pinned by golden tests for the first time, and the `0x8A` contactor-close handshake - and its DTC readout moves from the serial log to the standard UDS page with working read and erase buttons.
 
 Note on upstream direction: upstream's MGHS driver (`MG-GEN1`, already on the UDS superclass) has begun absorbing MG5 variants - the 50 kWh LFP is detected today and the hardware-number table knows the 52 kWh NMC this driver serves. If that route wins, this conversion retires with the driver it converts, and retiring it would be fine. Until then it keeps the 52 kWh pack's broadcast decode golden-tested and its DTC readout on the standard page - and if the better end-state is one MG driver, we would rather help that happen than defend this one. Worth a design conversation before code review.
@@ -272,7 +272,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Drivers: protected base destructors, a TYPE on every driver class, and Tesla variants as their own classes**
-Branch [`refactor/pr1-prep`](https://github.com/ekholm/Battery-Emulator/tree/refactor/pr1-prep) @ `e535409b` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/pr1-prep)
+Branch [`refactor/pr1-prep`](https://github.com/ekholm/Battery-Emulator/tree/refactor/pr1-prep) @ `3a9b7f9a` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/pr1-prep)
 Groundwork for a compile-time descriptor table, with no behaviour change: deleting a driver through its base becomes a compile error (it was undefined behaviour) at no flash cost; every battery, inverter, charger and shunt class states its enum `TYPE` beside its `Name`; the Tesla Model 3/Y and S/X variants become subclasses instead of one class reading a global to find out what it is.
 
 <details>
@@ -330,7 +330,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Settings: one descriptor table for every setting, and a boot audit of what is actually on the device**
-Branch [`refactor/settings-audit`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-audit) @ `3458d623` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-audit)
+Branch [`refactor/settings-audit`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-audit) @ `906fe44b` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-audit)
 A setting's key, NVS type, default and range are spread over up to five hand-synced places and have already drifted. This adds one row per setting (a constexpr X-macro table, validated at compile time, nothing reading it yet) and a boot-time audit that reads the table alongside the existing loads and reports - applies nothing - any stored entry whose NVS type disagrees with its row. That mismatch is what would make a table-driven loader silently replace a user's setting with a default.
 
 <details>
@@ -422,7 +422,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Settings: typed accessors generated from the table, and a guard that stops new code addressing settings by key**
-Branch [`refactor/settings-accessors`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-accessors) @ `0f346c12` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-accessors) · stacked on `refactor/settings-audit` (includes it)
+Branch [`refactor/settings-accessors`](https://github.com/ekholm/Battery-Emulator/tree/refactor/settings-accessors) @ `24779cf5` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/settings-accessors) · stacked on `refactor/settings-audit` (includes it)
 `setting_get<Sid::X>()` / `setting_save<Sid::X>()` take the key, NVS type and default from the row, so a mistyped access does not compile. A ratchet stops new call sites naming keys by hand; the webserver's literal-key access and the BYD calibration routes (which opened their own NVS handles beside the store) are migrated. Includes the settings-store emulation and NVS type-tag behaviour it needs.
 
 <details>
@@ -613,7 +613,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Web UI: language catalog storage, endpoints and a Languages block**
-Branch [`feature/i18n-stack`](https://github.com/ekholm/Battery-Emulator/tree/feature/i18n-stack) @ `34b8a09b` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:feature/i18n-stack)
+Branch [`feature/i18n-stack`](https://github.com/ekholm/Battery-Emulator/tree/feature/i18n-stack) @ `173b6a8b` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:feature/i18n-stack)
 Storage and plumbing for translating the web interface without rebuilding firmware: uploaded catalogs live in a power-loss-safe slot store on the otherwise unused spiffs partition, with upload/list/serve/delete endpoints and a Languages block on the settings page. Hardened after a security review (upload authenticated before any flash is touched; a rejected-upload crash; range-checked directory entries). Converting the UI strings is a separate change.
 
 <details>
@@ -667,7 +667,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **OTA: revert to the previous firmware, and the confirmation path it exposed - requested by the maintainer**
-Branch [`ota-revert`](https://github.com/ekholm/Battery-Emulator/tree/ota-revert) @ `fcbb3fa9` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ota-revert) · one commit
+Branch [`ota-revert`](https://github.com/ekholm/Battery-Emulator/tree/ota-revert) @ `e0fb8e7c` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ota-revert) · one commit
 A web-UI control to boot the other OTA slot. Most of the feature is the states it must refuse - a USB-flashed board with no passive image, a slot a rollback already marked aborted, a half-written slot that fails validation at click time - each rendered as a reason, never a dead button. Building it exposed the confirmation path around it, and the second half hardens that: the revert button reports the server's answer instead of blind-reloading, and the page counts consecutive failed polls at one-second cadence, so a single dropped request during the restart cannot read as a rollback, and a rollback verdict stays on screen until it is dismissed instead of being wiped by the page's own refresh; a restart deadline defers while a confirmation is still owed, so a healthy board under load cannot be rolled back by ordinary scheduling; a confirmation is a statement about the image that has run, so the write declines once the boot selection has moved; and an upload beginning is the last moment the running image can still be confirmed, so OTA start arms it - two flag writes in the TCP task, the otadata write stays on the main-task path. Run on hardware: an in-window revert flips slots cleanly and the reverted-into image earns its own confirmation window. Ships with the refusal-ladder, gate and feedback test suites.
 
 <details>
@@ -679,9 +679,9 @@ The feature is the set of states in which the control must not be offered. A boa
 
 The decision lives in `ota_revert_assessment()`, a pure function of four facts the caller extracts on the target, so the full state matrix is covered by host tests. `esp_ota_set_boot_partition()` re-validates the image at click time, so a half-written slot is refused there.
 
-Building the revert exposed five problems in the confirmation path. The page now reads the server's reply rather than blind-reloading. One dropped poll during restart is not a rollback - the detection latch is a count of consecutive failures, not a boolean. A rollback verdict is stored with the running version and stays on screen until dismissed rather than being wiped by the page's 15 s reload. The restart deadline defers while a confirmation is still owed, so a healthy board cannot be rolled back by ordinary scheduling. The confirmation write is gated on the running image still being the boot selection - a revert or an OTA upload inside the previous update's window could otherwise ship the arriving image pre-confirmed; OTA start arms the confirmation instead of skipping it.
+Building the revert exposed five problems in the confirmation path. The page now reads the server's reply rather than blind-reloading. One dropped poll during restart is not a rollback - the detection latch is a count of consecutive failures, not a boolean. A rollback verdict is stored with the running version and stays on screen until dismissed rather than being wiped when the page reloads on the board's new boot. The restart deadline defers while a confirmation is still owed, so a healthy board cannot be rolled back by ordinary scheduling. The confirmation write is gated on the running image still being the boot selection - a revert or an OTA upload inside the previous update's window could otherwise ship the arriving image pre-confirmed; OTA start arms the confirmation instead of skipping it.
 
-Three new test files cover the feature: `test/ota_revert_tests.cpp` (the assessment matrix), `test/ota_confirm_tests.cpp` (the confirmation gate and target-aware write), and `test/ota_revert_feedback_tests.cpp` (poll-count and verdict-persistence). The fact extraction that feeds the decision lives in `webserver.cpp`, which is not in the host test binary; that part is bench-verified only. The poll-count logic was also exercised from a real browser to confirm that a single injected connection failure does not trigger the rollback verdict and that the counter clears on an answering poll.
+Three new test files cover the feature: `test/ota_revert_tests.cpp` (the assessment matrix), `test/ota_confirm_tests.cpp` (the confirmation gate and target-aware write), and `test/ota_revert_feedback_tests.cpp` (poll-count and verdict-persistence). The fact extraction that feeds the decision lives in `webserver.cpp`, which is not in the host test binary; that part is bench-verified only. The poll-count logic was also exercised from a real browser to confirm that a single injected connection failure does not trigger the rollback verdict and that the counter clears on an answering poll. That browser run predates `v13.0.1`'s main page, which polls a live part instead of reloading every 15 s; on it the revert flow stands the page's own poll down while it waits, because that poll reloads the page on a new boot, and hands it back once it has a verdict.
 
 Note: drafted with AI assistance, reviewed by me.
 </details>
@@ -689,7 +689,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **T-CAN485: give the SD card its own SPI controller, and check SD writes**
-Branch [`sd-spi-bus-hspi`](https://github.com/ekholm/Battery-Emulator/tree/sd-spi-bus-hspi) @ `e831f21d` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:sd-spi-bus-hspi)
+Branch [`sd-spi-bus-hspi`](https://github.com/ekholm/Battery-Emulator/tree/sd-spi-bus-hspi) @ `05a2c5bf` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:sd-spi-bus-hspi)
 The SD card and the MCP2515 add-on share VSPI, and two `SPIClass::begin()` calls on one ESP32 controller cannot coexist - the card mounts, then goes deaf when `init_CAN()` runs. Every later log write failed with nothing reporting it, because the only SD event guards the mount. Two HAL overrides and checked write paths. Measured on hardware for the bus half.
 
 <details>
@@ -727,7 +727,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Silent assertions: drop the assert message strings, keep every check (−55 KB flash per board)**
-Branch [`assertions-silent`](https://github.com/ekholm/Battery-Emulator/tree/assertions-silent) @ `f27e34bc` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:assertions-silent)
+Branch [`assertions-silent`](https://github.com/ekholm/Battery-Emulator/tree/assertions-silent) @ `9c3f914c` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:assertions-silent)
 One config line in the shared size defaults; every check still compiled in and still aborts - only the per-assert message strings go. Measured −55,680 B (lilygo) / −55,432 B (devkit) from wiped, flag-verified builds.
 
 <details>
@@ -759,7 +759,7 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Boards as declarations: one file per board, its pin block generated into the header, and checks that make the declaration the source of truth**
-Branch [`feature/board-capability-tooling`](https://github.com/ekholm/Battery-Emulator/tree/feature/board-capability-tooling) @ `428c36f8` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:feature/board-capability-tooling) · 37 commits
+Branch [`feature/board-capability-tooling`](https://github.com/ekholm/Battery-Emulator/tree/feature/board-capability-tooling) @ `529c482f` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:feature/board-capability-tooling) · 37 commits
 Each of the eight boards gets one declaration, `Software/boards/<board>.yaml`, in which a feature owns its pins and a shared bus is declared once and referenced by whatever sits on it - so pin sharing is visible rather than implied by two getters happening to return the same GPIO. The board also declares its chip and flash size, and those are cross-checked against the env that builds it and against its own pins (the ESP32-S3 has no GPIO 22-25), so a wrong one is caught by the declaration contradicting itself. A generator rewrites the constant block inside the existing HAL header, between markers: the header stays the one file a reader opens, and getters whose pin is chosen at runtime or by variant stay hand-written below the block. A verifier proves the migration changed nothing - every generated line is verbatim from the header as it was before the tooling existed - and hardware no original header had, such as the Edge101's Ethernet PHY, has to be acknowledged by name with a reason rather than passing quietly.
 The declarations are checked rather than trusted, and each refusal has its own test: a required pin missing or declared NC, a reference to an undeclared bus, an unknown driver or field, more instances than the driver has, both card interfaces on one board, two outputs on one GPIO, an Ethernet pin colliding with the SD chip select, a pad the declared chip does not have. Add-on modules - a CAN controller on a header, the isolated dual-FD card - are described too, so a signal the module receives bound to a pin the chip can only read becomes a build error naming board, add-on, signal and pin instead of a line that silently never asserts. Every declared board must also be compiled by CI, which is how the 3LB got its first build env. A check job runs all of it.
 From the same declarations it emits each board's capability set as a constant expression - what a registry would ask instead of testing the board name - plus the pad and pin-role tables an on-device pin validator would need. Nothing in the firmware reads those yet: this is the build-time half. It also answers one question outright, in a checked-in report: whether a single image could identify its board at runtime by probing for parts. Today it cannot do so safely - reaching the part that separates the remaining candidates drives pins that are contactor, precharge or wake-up lines on the other boards in contention - and a pin change that alters that answer arrives as a diff.
@@ -800,8 +800,8 @@ Note: drafted with AI assistance, reviewed by me.
 ---
 
 **Build: each battery's web-page renderer compiles in its own file instead of inside the battery factory**
-Branch [`refactor/battery-renderer-tus`](https://github.com/ekholm/Battery-Emulator/tree/refactor/battery-renderer-tus) @ `e9a04610` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/battery-renderer-tus)
-Eighteen battery pages defined their renderers inline in headers, so all of that code was compiled into the battery factory's object: flash cost showed up against the factory instead of the driver that owns it, and touching any page rebuilt the factory. The bodies now live in one `.cpp` per renderer, the pattern BMW i3, BMW iX and Ioniq 28 already used. Pure code motion - every moved body is token-identical to what it replaced - and the firmware gets slightly smaller.
+Branch [`refactor/battery-renderer-tus`](https://github.com/ekholm/Battery-Emulator/tree/refactor/battery-renderer-tus) @ `0fca4ae4` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:refactor/battery-renderer-tus)
+Fifteen battery pages defined their renderers inline in headers, so all of that code was compiled into the battery factory's object: flash cost showed up against the factory instead of the driver that owns it, and touching any page rebuilt the factory. The bodies now live in one `.cpp` per renderer, the pattern BMW i3, BMW iX and Ioniq 28 already used. Pure code motion - every moved body is token-identical to what it replaced - and the firmware gets slightly smaller.
 
 <details>
 <summary>PR body it would ship with</summary>
@@ -815,13 +815,17 @@ that owns it, and BATTERIES.cpp rebuilds on every driver-HTML touch.
 Move the method bodies to per-renderer .cpp files, following the
 existing BMW-I3/BMW-IX/IONIQ-28 idiom: headers keep the class with its
 declarations, one-line definitions stay inline, a default argument stays
-on the declaration, and a helper used only by the bodies (Tesla's
-appendFault) moves with them. A method under a preprocessor guard keeps
+on the declaration, and a helper used only by the bodies
+moves with them. A method under a preprocessor guard keeps
 the same guard on both sides. Pure code motion: every moved body is
 token-identical to its inline original (comments and whitespace aside).
 The compiled sizes do change - out of the BATTERIES.cpp translation unit
 the compiler makes different inlining choices - and the firmware gets
 smaller overall; no behavior changes.
+
+Tesla is not among them: upstream has since split its renderer the same
+way. Neither are the Bolt/Ampera and e-CMP renderers, whose headers
+upstream has removed.
 
 Note: drafted with AI assistance, reviewed by me.
 </details>
