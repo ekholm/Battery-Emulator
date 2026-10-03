@@ -122,10 +122,10 @@ TEST_F(SmaBydHCanInverterTest, BatchSendsOncePerPairing) {
 // ── TX payload – frame 0x358 (limits) ────────────────────────────────────────
 
 TEST_F(SmaBydHCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
-  datalayer.battery.info.max_design_voltage_dV = 4200;      // 420.0 V
-  datalayer.battery.info.min_design_voltage_dV = 3000;      // 300.0 V
-  datalayer.battery.status.max_discharge_current_dA = 500;  // 50.0 A
-  datalayer.battery.status.max_charge_current_dA = 250;     // 25.0 A
+  datalayer.aggregate.max_design_voltage_dV = 4200;    // 420.0 V
+  datalayer.aggregate.min_design_voltage_dV = 3000;    // 300.0 V
+  datalayer.aggregate.max_discharge_current_dA = 500;  // 50.0 A
+  datalayer.aggregate.max_charge_current_dA = 250;     // 25.0 A
 
   sma->update_values();
   // 100ms path fires immediately (inverter_allows_contactor_closing=true default).
@@ -146,11 +146,11 @@ TEST_F(SmaBydHCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
 // ── TX payload – frame 0x3D8 (SoC / SoH / Ah remaining) ─────────────────────
 
 TEST_F(SmaBydHCanInverterTest, SocSohAhFrameEncodesCorrectly) {
-  datalayer.battery.status.reported_soc = 7500;  // 75.00 %
-  datalayer.battery.status.soh_pptt = 9800;      // 98.00 %
+  datalayer.aggregate.reported_soc = 7500;  // 75.00 %
+  datalayer.aggregate.soh_pptt = 9800;      // 98.00 %
   // Ah remaining = (Wh / voltage_dV) * 100 = (20000 / 4000) * 100 = 500
-  datalayer.battery.status.reported_remaining_capacity_Wh = 20000;
-  datalayer.battery.status.voltage_dV = 4000;
+  datalayer.aggregate.reported_remaining_capacity_Wh = 20000;
+  datalayer.aggregate.voltage_dV = 4000;
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -164,8 +164,8 @@ TEST_F(SmaBydHCanInverterTest, SocSohAhFrameEncodesCorrectly) {
 
 TEST_F(SmaBydHCanInverterTest, AhRemainingNotUpdatedWithVoltageAtOrBelowTen) {
   // Guard against division by zero: voltage <= 10 skips the Ah update.
-  datalayer.battery.status.voltage_dV = 5;
-  datalayer.battery.status.reported_remaining_capacity_Wh = 20000;
+  datalayer.aggregate.voltage_dV = 5;
+  datalayer.aggregate.reported_remaining_capacity_Wh = 20000;
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -179,11 +179,11 @@ TEST_F(SmaBydHCanInverterTest, AhRemainingNotUpdatedWithVoltageAtOrBelowTen) {
 // ── TX payload – frame 0x4D8 (voltage / current / temp / ready) ──────────────
 
 TEST_F(SmaBydHCanInverterTest, BatteryInfoFrameEncodesVoltageCurrentAndTemp) {
-  datalayer.battery.status.voltage_dV = 3700;
+  datalayer.aggregate.voltage_dV = 3700;
   // Negative current (discharge): 0xFCEE = -818 → 81.8 A discharge
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-818);
-  datalayer.battery.status.temperature_max_dC = 300;  // 30.0 °C
-  datalayer.battery.status.temperature_min_dC = 200;  // 20.0 °C
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-818);
+  datalayer.aggregate.temperature_max_dC = 300;  // 30.0 °C
+  datalayer.aggregate.temperature_min_dC = 200;  // 20.0 °C
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -223,11 +223,11 @@ TEST_F(SmaBydHCanInverterTest, ReadyByteIsReadyStateWhenNotFault) {
 // ── TX payload – frame 0x518 (temperature / voltage / cell voltages) ──────────
 
 TEST_F(SmaBydHCanInverterTest, TemperatureFrameEncodesMinMaxAndCellVoltages) {
-  datalayer.battery.status.temperature_max_dC = 350;  // 35.0 °C
-  datalayer.battery.status.temperature_min_dC = -50;  // -5.0 °C  (negative, signed)
-  datalayer.battery.status.voltage_dV = 3800;
-  datalayer.battery.status.cell_min_voltage_mV = 3500;  // 3500 / 25 = 140
-  datalayer.battery.status.cell_max_voltage_mV = 4100;  // 4100 / 25 = 164
+  datalayer.aggregate.temperature_max_dC = 350;  // 35.0 °C
+  datalayer.aggregate.temperature_min_dC = -50;  // -5.0 °C  (negative, signed)
+  datalayer.aggregate.voltage_dV = 3800;
+  datalayer.aggregate.cell_min_voltage_mV = 3500;  // 3500 / 25 = 140
+  datalayer.aggregate.cell_max_voltage_mV = 4100;  // 4100 / 25 = 164
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);
@@ -245,8 +245,8 @@ TEST_F(SmaBydHCanInverterTest, TemperatureFrameEncodesMinMaxAndCellVoltages) {
 // ── TX payload – frame 0x458 (lifetime energy counters) ──────────────────────
 
 TEST_F(SmaBydHCanInverterTest, EnergyCounterFrameEncodesChargedAndDischarged) {
-  datalayer.battery.status.total_charged_battery_Wh = 0x01234567;
-  datalayer.battery.status.total_discharged_battery_Wh = 0x0089ABCD;
+  datalayer.aggregate.total_charged_battery_Wh = 0x01234567;
+  datalayer.aggregate.total_discharged_battery_Wh = 0x0089ABCD;
 
   sma->update_values();
   sma->transmit_can(INTERVAL_100_MS + 1);

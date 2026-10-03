@@ -122,10 +122,10 @@ TEST_F(GrowattHvCanInverterTest, AllBatchFramesTransmittedInOneCycle) {
 // ---- Payload: 0x3110 (charge voltage, currents, status bits) ----------------
 
 TEST_F(GrowattHvCanInverterTest, Frame3110EncodesDesignVoltageAndCurrentsBE) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
-  datalayer.battery.status.max_charge_current_dA = 250;
-  datalayer.battery.status.max_discharge_current_dA = 300;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_charge_current_dA = 250;
+  datalayer.aggregate.max_discharge_current_dA = 300;
 
   growatt_hv->update_values();
   wake_inverter();
@@ -142,8 +142,8 @@ TEST_F(GrowattHvCanInverterTest, Frame3110EncodesDesignVoltageAndCurrentsBE) {
 }
 
 TEST_F(GrowattHvCanInverterTest, Frame3110HonoursUserChargeVoltage) {
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3950;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 3950;
 
   growatt_hv->update_values();
   wake_inverter();
@@ -155,9 +155,9 @@ TEST_F(GrowattHvCanInverterTest, Frame3110HonoursUserChargeVoltage) {
 }
 
 TEST_F(GrowattHvCanInverterTest, Frame3110StatusBitsSetNoChargeWhenCurrentZero) {
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.max_discharge_current_dA = 100;
-  datalayer.battery.status.reported_soc = 5000;  // not 0 or 10000
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.max_discharge_current_dA = 100;
+  datalayer.aggregate.reported_soc = 5000;  // not 0 or 10000
 
   growatt_hv->update_values();
   wake_inverter();
@@ -169,9 +169,9 @@ TEST_F(GrowattHvCanInverterTest, Frame3110StatusBitsSetNoChargeWhenCurrentZero) 
 }
 
 TEST_F(GrowattHvCanInverterTest, Frame3110StatusBitsSetNoChargeOnFullSoc) {
-  datalayer.battery.status.reported_soc = 10000;
-  datalayer.battery.status.max_charge_current_dA = 100;
-  datalayer.battery.status.max_discharge_current_dA = 100;
+  datalayer.aggregate.reported_soc = 10000;
+  datalayer.aggregate.max_charge_current_dA = 100;
+  datalayer.aggregate.max_discharge_current_dA = 100;
 
   growatt_hv->update_values();
   wake_inverter();
@@ -183,9 +183,9 @@ TEST_F(GrowattHvCanInverterTest, Frame3110StatusBitsSetNoChargeOnFullSoc) {
 }
 
 TEST_F(GrowattHvCanInverterTest, Frame3110StatusBitsSetNoDischargeOnEmptySoc) {
-  datalayer.battery.status.reported_soc = 0;
-  datalayer.battery.status.max_charge_current_dA = 100;
-  datalayer.battery.status.max_discharge_current_dA = 100;
+  datalayer.aggregate.reported_soc = 0;
+  datalayer.aggregate.max_charge_current_dA = 100;
+  datalayer.aggregate.max_discharge_current_dA = 100;
 
   growatt_hv->update_values();
   wake_inverter();
@@ -199,11 +199,11 @@ TEST_F(GrowattHvCanInverterTest, Frame3110StatusBitsSetNoDischargeOnEmptySoc) {
 // ---- Payload: 0x3130 (pack voltage, current, temp, SOC, SOH) ----------------
 
 TEST_F(GrowattHvCanInverterTest, Frame3130EncodesVoltageCurrentTempSocSoh) {
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);  // -10 A
-  datalayer.battery.status.temperature_max_dC = 250;
-  datalayer.battery.status.reported_soc = 8000;  // 80.00% → 80
-  datalayer.battery.status.soh_pptt = 9700;      // 97.00% → 97
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-100);  // -10 A
+  datalayer.aggregate.temperature_max_dC = 250;
+  datalayer.aggregate.reported_soc = 8000;  // 80.00% → 80
+  datalayer.aggregate.soh_pptt = 9700;      // 97.00% → 97
 
   growatt_hv->update_values();
   wake_inverter();
@@ -223,9 +223,9 @@ TEST_F(GrowattHvCanInverterTest, Frame3130EncodesVoltageCurrentTempSocSoh) {
 TEST_F(GrowattHvCanInverterTest, Frame3140EncodesCapacityIn10mAhUnits) {
   // capacity_remaining_10mAh = Wh * 1000 / voltage_dV
   // 37000 * 1000 / 3700 = 10000
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.status.reported_remaining_capacity_Wh = 37000;
-  datalayer.battery.info.reported_total_capacity_Wh = 74000;  // 74000*1000/3700 = 20000
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.reported_remaining_capacity_Wh = 37000;
+  datalayer.aggregate.reported_total_capacity_Wh = 74000;  // 74000*1000/3700 = 20000
 
   growatt_hv->update_values();
   wake_inverter();
@@ -239,10 +239,10 @@ TEST_F(GrowattHvCanInverterTest, Frame3140EncodesCapacityIn10mAhUnits) {
 
 TEST_F(GrowattHvCanInverterTest, Frame3140FallsBackToSocDerivedCapacityWhenRemainingIsZero) {
   // When reported_remaining_capacity_Wh == 0, driver derives from SOC.
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.status.reported_remaining_capacity_Wh = 0;
-  datalayer.battery.info.reported_total_capacity_Wh = 74000;
-  datalayer.battery.status.reported_soc = 5000;  // 50.00% → 50
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.reported_remaining_capacity_Wh = 0;
+  datalayer.aggregate.reported_total_capacity_Wh = 74000;
+  datalayer.aggregate.reported_soc = 5000;  // 50.00% → 50
   // full = 74000*1000/3700 = 20000; rem = 20000 * 50 / 100 = 10000
 
   growatt_hv->update_values();
@@ -257,8 +257,8 @@ TEST_F(GrowattHvCanInverterTest, Frame3140FallsBackToSocDerivedCapacityWhenRemai
 // ---- Payload: 0x3150 (discharge cutoff voltage, temp, topology) -------------
 
 TEST_F(GrowattHvCanInverterTest, Frame3150EncodesDischargeVoltageAndDefaultTopology) {
-  datalayer.battery.info.min_design_voltage_dV = 3000;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.min_design_voltage_dV = 3000;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
   // number_of_cells < 10 → uses hard-coded TOTAL_NUMBER_OF_CELLS=300
 
   growatt_hv->update_values();
@@ -290,8 +290,8 @@ TEST_F(GrowattHvCanInverterTest, Frame3150UsesDynamicCellCountWhenProvided) {
 // ---- Payload: 0x3190 (cell min/max voltages) --------------------------------
 
 TEST_F(GrowattHvCanInverterTest, Frame3190EncodesCellMinMaxVoltages) {
-  datalayer.battery.status.cell_max_voltage_mV = 4150;
-  datalayer.battery.status.cell_min_voltage_mV = 3750;
+  datalayer.aggregate.cell_max_voltage_mV = 4150;
+  datalayer.aggregate.cell_min_voltage_mV = 3750;
 
   growatt_hv->update_values();
   wake_inverter();
@@ -307,7 +307,7 @@ TEST_F(GrowattHvCanInverterTest, Frame3190EncodesCellMinMaxVoltages) {
 
 TEST_F(GrowattHvCanInverterTest, Frame3220EncodesRatedEnergyIn01kWhUnits) {
   // rated energy = Wh / 100 → BE in bytes 5-6
-  datalayer.battery.info.reported_total_capacity_Wh = 30000;  // 30000/100 = 300
+  datalayer.aggregate.reported_total_capacity_Wh = 30000;  // 30000/100 = 300
 
   growatt_hv->update_values();
   wake_inverter();

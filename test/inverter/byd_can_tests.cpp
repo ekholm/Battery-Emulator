@@ -81,11 +81,11 @@ TEST_F(BydCanInverterTest, FirstTransmitAfterWakeSendsInitialDataOnce) {
 }
 
 TEST_F(BydCanInverterTest, LimitsFrameEncodesDesignVoltageWindowWithOffset) {
-  datalayer.battery.info.max_design_voltage_dV = 4040;  // 404.0 V
-  datalayer.battery.info.min_design_voltage_dV = 3000;  // 300.0 V
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
-  datalayer.battery.status.max_discharge_current_dA = 300;  // 30.0 A
-  datalayer.battery.status.max_charge_current_dA = 250;     // 25.0 A
+  datalayer.aggregate.max_design_voltage_dV = 4040;  // 404.0 V
+  datalayer.aggregate.min_design_voltage_dV = 3000;  // 300.0 V
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_discharge_current_dA = 300;  // 30.0 A
+  datalayer.aggregate.max_charge_current_dA = 250;     // 25.0 A
 
   byd->update_values();
   wake_inverter();
@@ -102,11 +102,11 @@ TEST_F(BydCanInverterTest, LimitsFrameEncodesDesignVoltageWindowWithOffset) {
 }
 
 TEST_F(BydCanInverterTest, LimitsFrameHonoursUserVoltageLimits) {
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3900;
-  datalayer.battery.settings.max_user_set_discharge_voltage_dV = 3100;
-  datalayer.battery.info.max_design_voltage_dV = 4040;
-  datalayer.battery.info.min_design_voltage_dV = 3000;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 3900;
+  datalayer.battery_settings.max_user_set_discharge_voltage_dV = 3100;
+  datalayer.aggregate.max_design_voltage_dV = 4040;
+  datalayer.aggregate.min_design_voltage_dV = 3000;
 
   byd->update_values();
   wake_inverter();
@@ -119,12 +119,12 @@ TEST_F(BydCanInverterTest, LimitsFrameHonoursUserVoltageLimits) {
 }
 
 TEST_F(BydCanInverterTest, StatesFrameEncodesSocSohAndAhCapacities) {
-  datalayer.battery.status.reported_soc = 7550;  // 75.50 %
-  datalayer.battery.status.soh_pptt = 9900;      // 99.00 %
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.info.min_design_voltage_dV = 3000;  // nominal = 3500 dV
-  datalayer.battery.status.reported_remaining_capacity_Wh = 21000;
-  datalayer.battery.info.reported_total_capacity_Wh = 30000;
+  datalayer.aggregate.reported_soc = 7550;  // 75.50 %
+  datalayer.aggregate.soh_pptt = 9900;      // 99.00 %
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.aggregate.min_design_voltage_dV = 3000;  // nominal = 3500 dV
+  datalayer.aggregate.reported_remaining_capacity_Wh = 21000;
+  datalayer.aggregate.reported_total_capacity_Wh = 30000;
 
   byd->update_values();
   wake_inverter();
@@ -141,11 +141,11 @@ TEST_F(BydCanInverterTest, StatesFrameEncodesSocSohAndAhCapacities) {
 }
 
 TEST_F(BydCanInverterTest, AhCapacityFallsBackToPackVoltageWithoutDesignLimits) {
-  datalayer.battery.info.max_design_voltage_dV = 0;
-  datalayer.battery.info.min_design_voltage_dV = 0;
-  datalayer.battery.status.voltage_dV = 3500;
-  datalayer.battery.status.reported_remaining_capacity_Wh = 21000;
-  datalayer.battery.info.reported_total_capacity_Wh = 30000;
+  datalayer.aggregate.max_design_voltage_dV = 0;
+  datalayer.aggregate.min_design_voltage_dV = 0;
+  datalayer.aggregate.voltage_dV = 3500;
+  datalayer.aggregate.reported_remaining_capacity_Wh = 21000;
+  datalayer.aggregate.reported_total_capacity_Wh = 30000;
 
   byd->update_values();
   wake_inverter();
@@ -159,11 +159,11 @@ TEST_F(BydCanInverterTest, AhCapacityFallsBackToPackVoltageWithoutDesignLimits) 
 
 TEST_F(BydCanInverterTest, DeyeWorkaroundForcesSocEndpoints) {
   user_selected_inverter_deye_workaround = true;
-  datalayer.battery.status.reported_soc = 5000;
+  datalayer.aggregate.reported_soc = 5000;
 
   // Battery refuses charge -> report full
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.max_discharge_current_dA = 100;
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.max_discharge_current_dA = 100;
   byd->update_values();
   wake_inverter();
   byd->transmit_can(INTERVAL_10_S + 1);
@@ -173,8 +173,8 @@ TEST_F(BydCanInverterTest, DeyeWorkaroundForcesSocEndpoints) {
 
   // Battery refuses discharge -> report empty (discharge branch runs last and wins)
   clear_transmitted_frames();
-  datalayer.battery.status.max_charge_current_dA = 100;
-  datalayer.battery.status.max_discharge_current_dA = 0;
+  datalayer.aggregate.max_charge_current_dA = 100;
+  datalayer.aggregate.max_discharge_current_dA = 0;
   byd->update_values();
   byd->transmit_can(2 * (INTERVAL_10_S + 1));
   states = find_frame_with_id(0x150);
@@ -185,10 +185,10 @@ TEST_F(BydCanInverterTest, DeyeWorkaroundForcesSocEndpoints) {
 }
 
 TEST_F(BydCanInverterTest, BatteryInfoFrameEncodesVoltageCurrentAndAvgTemperature) {
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-810);  // -81.0 A
-  datalayer.battery.status.temperature_max_dC = 250;
-  datalayer.battery.status.temperature_min_dC = 210;
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-810);  // -81.0 A
+  datalayer.aggregate.temperature_max_dC = 250;
+  datalayer.aggregate.temperature_min_dC = 210;
 
   byd->update_values();
   wake_inverter();

@@ -80,9 +80,9 @@ TEST_F(AforeCanInverterTest, TxGateResetAfterOneBurst) {
 
 TEST_F(AforeCanInverterTest, OperationFrameEncodesVoltageCurrentTemperature) {
   // 0x350 — Operation information (little-endian throughout)
-  datalayer.battery.status.voltage_dV = 3750;                                 // 375.0 V
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);  // -10.0 A discharge
-  datalayer.battery.status.temperature_max_dC = 250;                          // 25.0 °C
+  datalayer.aggregate.voltage_dV = 3750;                        // 375.0 V
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-100);  // -10.0 A discharge
+  datalayer.aggregate.temperature_max_dC = 250;                 // 25.0 °C
 
   afore->update_values();
   wake_inverter();
@@ -100,11 +100,11 @@ TEST_F(AforeCanInverterTest, OperationFrameEncodesVoltageCurrentTemperature) {
 
 TEST_F(AforeCanInverterTest, BatteryInfoFrameEncodesSocAndSoh) {
   // 0x351 — Battery information
-  datalayer.battery.status.reported_soc = 7500;  // 75.00 %
-  datalayer.battery.status.soh_pptt = 9800;      // 98.00 %
+  datalayer.aggregate.reported_soc = 7500;  // 75.00 %
+  datalayer.aggregate.soh_pptt = 9800;      // 98.00 %
   datalayer.battery.info.number_of_cells = 96;
-  datalayer.battery.status.max_charge_current_dA = 100;  // keep enable bits set
-  datalayer.battery.status.max_discharge_current_dA = 200;
+  datalayer.aggregate.max_charge_current_dA = 100;  // keep enable bits set
+  datalayer.aggregate.max_discharge_current_dA = 200;
 
   afore->update_values();
   wake_inverter();
@@ -123,9 +123,9 @@ TEST_F(AforeCanInverterTest, BatteryInfoFrameEncodesSocAndSoh) {
 }
 
 TEST_F(AforeCanInverterTest, StatusByteChargeFlagClearedWhenMaxChargeIsZero) {
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.max_discharge_current_dA = 100;
-  datalayer.battery.status.reported_soc = 5000;  // non-zero so discharge condition is not also triggered
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.max_discharge_current_dA = 100;
+  datalayer.aggregate.reported_soc = 5000;  // non-zero so discharge condition is not also triggered
 
   afore->update_values();
   wake_inverter();
@@ -139,9 +139,9 @@ TEST_F(AforeCanInverterTest, StatusByteChargeFlagClearedWhenMaxChargeIsZero) {
 }
 
 TEST_F(AforeCanInverterTest, StatusByteChargeFlagClearedWhenSocFull) {
-  datalayer.battery.status.reported_soc = 10000;  // 100.00 %
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 100;
+  datalayer.aggregate.reported_soc = 10000;  // 100.00 %
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 100;
 
   afore->update_values();
   wake_inverter();
@@ -153,8 +153,8 @@ TEST_F(AforeCanInverterTest, StatusByteChargeFlagClearedWhenSocFull) {
 }
 
 TEST_F(AforeCanInverterTest, StatusByteDischargeFlagClearedWhenMaxDischargeIsZero) {
-  datalayer.battery.status.max_charge_current_dA = 100;
-  datalayer.battery.status.max_discharge_current_dA = 0;
+  datalayer.aggregate.max_charge_current_dA = 100;
+  datalayer.aggregate.max_discharge_current_dA = 0;
 
   afore->update_values();
   wake_inverter();
@@ -168,8 +168,8 @@ TEST_F(AforeCanInverterTest, StatusByteDischargeFlagClearedWhenMaxDischargeIsZer
 
 TEST_F(AforeCanInverterTest, FaultModeSetsStatusBitsAndClearsEnableFlags) {
   datalayer.system.status.system_status = FAULT;
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 200;
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 200;
 
   afore->update_values();
   wake_inverter();
@@ -185,10 +185,10 @@ TEST_F(AforeCanInverterTest, FaultModeSetsStatusBitsAndClearsEnableFlags) {
 
 TEST_F(AforeCanInverterTest, ProtectionParametersFrameEncodesCurrentAndVoltage) {
   // 0x352 — Protection parameters (little-endian)
-  datalayer.battery.status.max_charge_current_dA = 300;
-  datalayer.battery.status.max_discharge_current_dA = 500;
-  datalayer.battery.info.max_design_voltage_dV = 4200;
-  datalayer.battery.info.min_design_voltage_dV = 3000;
+  datalayer.aggregate.max_charge_current_dA = 300;
+  datalayer.aggregate.max_discharge_current_dA = 500;
+  datalayer.aggregate.max_design_voltage_dV = 4200;
+  datalayer.aggregate.min_design_voltage_dV = 3000;
 
   afore->update_values();
   wake_inverter();
@@ -205,8 +205,8 @@ TEST_F(AforeCanInverterTest, ProtectionParametersFrameEncodesCurrentAndVoltage) 
 TEST_F(AforeCanInverterTest, CellVoltageFramePassesThroughLfpVoltages) {
   // 0x354 — LFP: values forwarded directly (no remapping)
   datalayer.battery.info.chemistry = battery_chemistry_enum::LFP;
-  datalayer.battery.status.cell_max_voltage_mV = 3400;
-  datalayer.battery.status.cell_min_voltage_mV = 2900;
+  datalayer.aggregate.cell_max_voltage_mV = 3400;
+  datalayer.aggregate.cell_min_voltage_mV = 2900;
 
   afore->update_values();
   wake_inverter();
@@ -222,8 +222,8 @@ TEST_F(AforeCanInverterTest, CellVoltageFrameRemapsNonLfpVoltages) {
   // 0x354 — Non-LFP: linear interpolation [2500-4200] -> [2500-3400]
   // Formula: 2500 + (raw - 2500) * 900 / 1700
   datalayer.battery.info.chemistry = battery_chemistry_enum::NCA;
-  datalayer.battery.status.cell_max_voltage_mV = 4200;  // top of NCA range -> 3400
-  datalayer.battery.status.cell_min_voltage_mV = 2500;  // bottom of range  -> 2500
+  datalayer.aggregate.cell_max_voltage_mV = 4200;  // top of NCA range -> 3400
+  datalayer.aggregate.cell_min_voltage_mV = 2500;  // bottom of range  -> 2500
 
   afore->update_values();
   wake_inverter();
@@ -237,8 +237,8 @@ TEST_F(AforeCanInverterTest, CellVoltageFrameRemapsNonLfpVoltages) {
 
 TEST_F(AforeCanInverterTest, TemperatureFrameEncodesMaxAndMinWithOffset) {
   // 0x355 — Cell temperature parameters; raw = dC + 1000
-  datalayer.battery.status.temperature_max_dC = 350;  // 35.0 °C -> raw 1350
-  datalayer.battery.status.temperature_min_dC = 100;  // 10.0 °C -> raw 1100
+  datalayer.aggregate.temperature_max_dC = 350;  // 35.0 °C -> raw 1350
+  datalayer.aggregate.temperature_min_dC = 100;  // 10.0 °C -> raw 1100
 
   afore->update_values();
   wake_inverter();

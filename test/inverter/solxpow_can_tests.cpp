@@ -107,11 +107,11 @@ TEST_F(SolxpowCanInverterTest, SystemDataRequestSendsAllDataFrames) {
 // ---------------------------------------------------------------------------
 
 TEST_F(SolxpowCanInverterTest, DataFrameEncodesVoltageCurrentTemperatureSocSoh) {
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-200);  // -20.0 A
-  datalayer.battery.status.temperature_max_dC = 300;                          // +1000 offset → 1300
-  datalayer.battery.status.reported_soc = 7500;                               // 75.00 % → 75
-  datalayer.battery.status.soh_pptt = 9800;                                   // 98.00 % → 98
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-200);  // -20.0 A
+  datalayer.aggregate.temperature_max_dC = 300;                 // +1000 offset → 1300
+  datalayer.aggregate.reported_soc = 7500;                      // 75.00 % → 75
+  datalayer.aggregate.soh_pptt = 9800;                          // 98.00 % → 98
   solxpow->update_values();
   rx4200(0x00);
 
@@ -128,11 +128,11 @@ TEST_F(SolxpowCanInverterTest, DataFrameEncodesVoltageCurrentTemperatureSocSoh) 
 }
 
 TEST_F(SolxpowCanInverterTest, VoltagesFrameEncodesChargeDischargeAndCurrentLimits) {
-  datalayer.battery.info.max_design_voltage_dV = 4100;
-  datalayer.battery.info.min_design_voltage_dV = 2800;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
-  datalayer.battery.status.max_charge_current_dA = 180;
-  datalayer.battery.status.max_discharge_current_dA = 280;
+  datalayer.aggregate.max_design_voltage_dV = 4100;
+  datalayer.aggregate.min_design_voltage_dV = 2800;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_charge_current_dA = 180;
+  datalayer.aggregate.max_discharge_current_dA = 280;
   solxpow->update_values();
   rx4200(0x00);
 
@@ -150,11 +150,11 @@ TEST_F(SolxpowCanInverterTest, VoltagesFrameEncodesChargeDischargeAndCurrentLimi
 }
 
 TEST_F(SolxpowCanInverterTest, UserVoltageLimitsOverrideDesignVoltages) {
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3950;
-  datalayer.battery.settings.max_user_set_discharge_voltage_dV = 3050;
-  datalayer.battery.info.max_design_voltage_dV = 4100;
-  datalayer.battery.info.min_design_voltage_dV = 2800;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 3950;
+  datalayer.battery_settings.max_user_set_discharge_voltage_dV = 3050;
+  datalayer.aggregate.max_design_voltage_dV = 4100;
+  datalayer.aggregate.min_design_voltage_dV = 2800;
   solxpow->update_values();
   rx4200(0x00);
 
@@ -165,8 +165,8 @@ TEST_F(SolxpowCanInverterTest, UserVoltageLimitsOverrideDesignVoltages) {
 }
 
 TEST_F(SolxpowCanInverterTest, ChargeForbiddenByteSetWhenChargeCurrentZero) {
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.max_discharge_current_dA = 200;
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.max_discharge_current_dA = 200;
   solxpow->update_values();
   rx4200(0x00);
 
@@ -177,8 +177,8 @@ TEST_F(SolxpowCanInverterTest, ChargeForbiddenByteSetWhenChargeCurrentZero) {
 }
 
 TEST_F(SolxpowCanInverterTest, DischargeForbiddenByteSetWhenDischargeCurrentZero) {
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 0;
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 0;
   solxpow->update_values();
   rx4200(0x00);
 
@@ -189,8 +189,8 @@ TEST_F(SolxpowCanInverterTest, DischargeForbiddenByteSetWhenDischargeCurrentZero
 }
 
 TEST_F(SolxpowCanInverterTest, FaultStateForcesChargeForbiddenAndDischargeForbidden) {
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 200;
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 200;
   datalayer.system.status.system_status = FAULT;
   solxpow->update_values();
   rx4200(0x00);
@@ -205,7 +205,7 @@ TEST_F(SolxpowCanInverterTest, FaultStateForcesChargeForbiddenAndDischargeForbid
 
 TEST_F(SolxpowCanInverterTest, StatusByteReflectsChargingDischarging) {
   // Negative current → charging (byte 0 = 0x01)
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-100);
   solxpow->update_values();
   rx4200(0x00);
   {
@@ -216,7 +216,7 @@ TEST_F(SolxpowCanInverterTest, StatusByteReflectsChargingDischarging) {
   clear_transmitted_frames();
 
   // Positive current → discharging (byte 0 = 0x02)
-  datalayer.battery.status.reported_current_dA = 100;
+  datalayer.aggregate.current_dA = 100;
   solxpow->update_values();
   rx4200(0x00);
   {
@@ -227,7 +227,7 @@ TEST_F(SolxpowCanInverterTest, StatusByteReflectsChargingDischarging) {
   clear_transmitted_frames();
 
   // Zero → idle (byte 0 = 0x03)
-  datalayer.battery.status.reported_current_dA = 0;
+  datalayer.aggregate.current_dA = 0;
   solxpow->update_values();
   rx4200(0x00);
   {
@@ -238,8 +238,8 @@ TEST_F(SolxpowCanInverterTest, StatusByteReflectsChargingDischarging) {
 }
 
 TEST_F(SolxpowCanInverterTest, CellVoltagesFrameEncodesMaxAndMinLE) {
-  datalayer.battery.status.cell_max_voltage_mV = 3450;
-  datalayer.battery.status.cell_min_voltage_mV = 3380;
+  datalayer.aggregate.cell_max_voltage_mV = 3450;
+  datalayer.aggregate.cell_min_voltage_mV = 3380;
   solxpow->update_values();
   rx4200(0x00);
 
@@ -250,8 +250,8 @@ TEST_F(SolxpowCanInverterTest, CellVoltagesFrameEncodesMaxAndMinLE) {
 }
 
 TEST_F(SolxpowCanInverterTest, CellTemperaturesFrameEncodesMaxAndMinLE) {
-  datalayer.battery.status.temperature_max_dC = 350;
-  datalayer.battery.status.temperature_min_dC = static_cast<int16_t>(-100);  // -10 °C
+  datalayer.aggregate.temperature_max_dC = 350;
+  datalayer.aggregate.temperature_min_dC = static_cast<int16_t>(-100);  // -10 °C
   solxpow->update_values();
   rx4200(0x00);
 

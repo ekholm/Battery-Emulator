@@ -111,11 +111,11 @@ TEST_F(PylonCanInverterTest, Poll0x4200Data02SendsSetupInfoFrames) {
 // ---- Payload: 421X (voltage, current, temp, SOC, SOH) ----------------------
 
 TEST_F(PylonCanInverterTest, Frame421XEncodesVoltageCurrentTempSocSoh) {
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-810);  // charging: -81.0 A
-  datalayer.battery.status.temperature_max_dC = 250;                          // 25.0 °C → stored as 250 + 1000 = 1250
-  datalayer.battery.status.reported_soc = 7550;                               // 75.50 % → integer: 75
-  datalayer.battery.status.soh_pptt = 9900;                                   // 99.00 % → integer: 99
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-810);  // charging: -81.0 A
+  datalayer.aggregate.temperature_max_dC = 250;                 // 25.0 °C → stored as 250 + 1000 = 1250
+  datalayer.aggregate.reported_soc = 7550;                      // 75.50 % → integer: 75
+  datalayer.aggregate.soh_pptt = 9900;                          // 99.00 % → integer: 99
 
   pylon->update_values();
   request_system_data();
@@ -137,11 +137,11 @@ TEST_F(PylonCanInverterTest, Frame421XEncodesVoltageCurrentTempSocSoh) {
 // ---- Payload: 422X (charge/discharge voltages and currents) -----------------
 
 TEST_F(PylonCanInverterTest, Frame422XEncodesDesignVoltageLimitsWithOffset) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.info.min_design_voltage_dV = 3000;
-  datalayer.battery.status.max_charge_current_dA = 250;
-  datalayer.battery.status.max_discharge_current_dA = 300;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.aggregate.min_design_voltage_dV = 3000;
+  datalayer.aggregate.max_charge_current_dA = 250;
+  datalayer.aggregate.max_discharge_current_dA = 300;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
 
   pylon->update_values();
   request_system_data();
@@ -159,11 +159,11 @@ TEST_F(PylonCanInverterTest, Frame422XEncodesDesignVoltageLimitsWithOffset) {
 }
 
 TEST_F(PylonCanInverterTest, Frame422XHonoursUserVoltageLimits) {
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3900;
-  datalayer.battery.settings.max_user_set_discharge_voltage_dV = 3100;
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.info.min_design_voltage_dV = 3000;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 3900;
+  datalayer.battery_settings.max_user_set_discharge_voltage_dV = 3100;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.aggregate.min_design_voltage_dV = 3000;
 
   pylon->update_values();
   request_system_data();
@@ -177,8 +177,8 @@ TEST_F(PylonCanInverterTest, Frame422XHonoursUserVoltageLimits) {
 // ---- Payload: 423X (cell voltages) -----------------------------------------
 
 TEST_F(PylonCanInverterTest, Frame423XEncodesCellMinMaxVoltage) {
-  datalayer.battery.status.cell_max_voltage_mV = 4100;
-  datalayer.battery.status.cell_min_voltage_mV = 3700;
+  datalayer.aggregate.cell_max_voltage_mV = 4100;
+  datalayer.aggregate.cell_min_voltage_mV = 3700;
 
   pylon->update_values();
   request_system_data();
@@ -192,8 +192,8 @@ TEST_F(PylonCanInverterTest, Frame423XEncodesCellMinMaxVoltage) {
 // ---- Payload: 424X (per-cell temperatures with +1000 offset) ----------------
 
 TEST_F(PylonCanInverterTest, Frame424XEncodesCellTemperaturesWithOffset) {
-  datalayer.battery.status.temperature_max_dC = 300;  // 300 + 1000 = 1300 = 0x0514
-  datalayer.battery.status.temperature_min_dC = 100;  // 100 + 1000 = 1100 = 0x044C
+  datalayer.aggregate.temperature_max_dC = 300;  // 300 + 1000 = 1300 = 0x0514
+  datalayer.aggregate.temperature_min_dC = 100;  // 100 + 1000 = 1100 = 0x044C
 
   pylon->update_values();
   request_system_data();
@@ -214,7 +214,7 @@ TEST_F(PylonCanInverterTest, StatusByteReflectsCurrentDirection) {
   EXPECT_EQ(f->data.u8[0], 0x03u);  // Idle
 
   clear_transmitted_frames();
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-100);  // charging
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-100);  // charging
   pylon->update_values();
   request_system_data();
   f = find_frame_with_id(0x4250);
@@ -222,7 +222,7 @@ TEST_F(PylonCanInverterTest, StatusByteReflectsCurrentDirection) {
   EXPECT_EQ(f->data.u8[0], 0x01u);  // Charge
 
   clear_transmitted_frames();
-  datalayer.battery.status.reported_current_dA = 100;  // discharging
+  datalayer.aggregate.current_dA = 100;  // discharging
   pylon->update_values();
   request_system_data();
   f = find_frame_with_id(0x4250);
@@ -241,8 +241,8 @@ TEST_F(PylonCanInverterTest, StatusByteReflectsCurrentDirection) {
 // ---- Payload: 428X (charge/discharge permission flags) ----------------------
 
 TEST_F(PylonCanInverterTest, Frame428XForbidsChargeWhenCurrentIsZero) {
-  datalayer.battery.status.max_charge_current_dA = 0;
-  datalayer.battery.status.max_discharge_current_dA = 100;
+  datalayer.aggregate.max_charge_current_dA = 0;
+  datalayer.aggregate.max_discharge_current_dA = 100;
 
   pylon->update_values();
   request_system_data();
@@ -254,8 +254,8 @@ TEST_F(PylonCanInverterTest, Frame428XForbidsChargeWhenCurrentIsZero) {
 }
 
 TEST_F(PylonCanInverterTest, Frame428XForbidsBothOnFault) {
-  datalayer.battery.status.max_charge_current_dA = 100;
-  datalayer.battery.status.max_discharge_current_dA = 100;
+  datalayer.aggregate.max_charge_current_dA = 100;
+  datalayer.aggregate.max_discharge_current_dA = 100;
   datalayer.system.status.system_status = FAULT;
 
   pylon->update_values();
@@ -271,9 +271,9 @@ TEST_F(PylonCanInverterTest, Frame428XForbidsBothOnFault) {
 
 TEST_F(PylonCanInverterTest, Pylon30kOffsetShiftsCurrentAndLimits) {
   user_selected_pylon_30koffset = true;
-  datalayer.battery.status.reported_current_dA = 100;       // 100 → 100 + 30000 = 30100 = 0x75D4
-  datalayer.battery.status.max_charge_current_dA = 250;     // 250 + 30000 = 30250 = 0x762A
-  datalayer.battery.status.max_discharge_current_dA = 200;  // 200 + 30000 = 30200 = 0x75F8
+  datalayer.aggregate.current_dA = 100;                // 100 → 100 + 30000 = 30100 = 0x75D4
+  datalayer.aggregate.max_charge_current_dA = 250;     // 250 + 30000 = 30250 = 0x762A
+  datalayer.aggregate.max_discharge_current_dA = 200;  // 200 + 30000 = 30200 = 0x75F8
 
   pylon->update_values();
   request_system_data();
@@ -294,7 +294,7 @@ TEST_F(PylonCanInverterTest, Pylon30kOffsetShiftsCurrentAndLimits) {
 
 TEST_F(PylonCanInverterTest, PylonInvertByteorderSwapsWordBytes) {
   user_selected_pylon_invert_byteorder = true;
-  datalayer.battery.status.voltage_dV = 3700;  // BE: 0x0E, 0x74 → swapped: 0x74, 0x0E
+  datalayer.aggregate.voltage_dV = 3700;  // BE: 0x0E, 0x74 → swapped: 0x74, 0x0E
 
   pylon->update_values();
   request_system_data();

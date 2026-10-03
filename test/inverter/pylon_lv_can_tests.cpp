@@ -82,12 +82,12 @@ TEST_F(PylonLvCanInverterTest, UnknownRxFrameDoesNotRefreshAliveness) {
 // ---- Payload: 0x351 (charge voltage LE, charge and discharge currents LE) ---
 
 TEST_F(PylonLvCanInverterTest, Frame351EncodesChargeVoltageAndCurrentsLE) {
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.settings.user_set_voltage_limits_active = false;
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 300;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.battery_settings.user_set_voltage_limits_active = false;
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 300;
   // Keep real_soc in midrange so 35C enables both directions (avoids current zeroing)
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.aggregate.real_soc = 5000;
 
   tick_1s();
 
@@ -102,10 +102,10 @@ TEST_F(PylonLvCanInverterTest, Frame351EncodesChargeVoltageAndCurrentsLE) {
 }
 
 TEST_F(PylonLvCanInverterTest, Frame351UseUserSuppliedChargeVoltageWhenActive) {
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 3850;
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 3850;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.aggregate.real_soc = 5000;
 
   tick_1s();
 
@@ -116,10 +116,10 @@ TEST_F(PylonLvCanInverterTest, Frame351UseUserSuppliedChargeVoltageWhenActive) {
 
 TEST_F(PylonLvCanInverterTest, Frame351ClampsUserVoltageToDesignMax) {
   // If user sets a voltage above max_design, the driver clamps to max_design.
-  datalayer.battery.settings.user_set_voltage_limits_active = true;
-  datalayer.battery.settings.max_user_set_charge_voltage_dV = 5500;
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.battery_settings.user_set_voltage_limits_active = true;
+  datalayer.battery_settings.max_user_set_charge_voltage_dV = 5500;
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.aggregate.real_soc = 5000;
 
   tick_1s();
 
@@ -131,9 +131,9 @@ TEST_F(PylonLvCanInverterTest, Frame351ClampsUserVoltageToDesignMax) {
 // ---- Payload: 0x355 (SOC and SOH as integer percent, LE) --------------------
 
 TEST_F(PylonLvCanInverterTest, Frame355EncodesSocAndSohLE) {
-  datalayer.battery.status.reported_soc = 7550;  // 75.50% → integer 75
-  datalayer.battery.status.soh_pptt = 9900;      // 99.00% → integer 99
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.aggregate.reported_soc = 7550;  // 75.50% → integer 75
+  datalayer.aggregate.soh_pptt = 9900;      // 99.00% → integer 99
+  datalayer.aggregate.real_soc = 5000;
 
   tick_1s();
 
@@ -146,11 +146,11 @@ TEST_F(PylonLvCanInverterTest, Frame355EncodesSocAndSohLE) {
 // ---- Payload: 0x356 (voltage in cV LE, current LE, avg temp LE) -------------
 
 TEST_F(PylonLvCanInverterTest, Frame356EncodesVoltageCvCurrentAndAvgTempLE) {
-  datalayer.battery.status.voltage_dV = 4800;                                // 4800 * 10 = 48000 cV = 0xBB80
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(100);  // 10.0 A discharge
-  datalayer.battery.status.temperature_max_dC = 300;
-  datalayer.battery.status.temperature_min_dC = 100;  // avg = 200
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.aggregate.voltage_dV = 4800;                       // 4800 * 10 = 48000 cV = 0xBB80
+  datalayer.aggregate.current_dA = static_cast<int16_t>(100);  // 10.0 A discharge
+  datalayer.aggregate.temperature_max_dC = 300;
+  datalayer.aggregate.temperature_min_dC = 100;  // avg = 200
+  datalayer.aggregate.real_soc = 5000;
 
   tick_1s();
 
@@ -168,10 +168,10 @@ TEST_F(PylonLvCanInverterTest, Frame356EncodesVoltageCvCurrentAndAvgTempLE) {
 
 TEST_F(PylonLvCanInverterTest, Frame35CEnablesBothDirectionsByDefault) {
   // Normal: ACTIVE, voltage between design limits, real_soc in [min, max]
-  datalayer.battery.status.voltage_dV = 3700;
-  datalayer.battery.info.max_design_voltage_dV = 5000;
-  datalayer.battery.info.min_design_voltage_dV = 2500;
-  datalayer.battery.status.real_soc = 5000;  // between 2000 and 8000
+  datalayer.aggregate.voltage_dV = 3700;
+  datalayer.aggregate.max_design_voltage_dV = 5000;
+  datalayer.aggregate.min_design_voltage_dV = 2500;
+  datalayer.aggregate.real_soc = 5000;  // between 2000 and 8000
 
   tick_1s();
 
@@ -191,9 +191,9 @@ TEST_F(PylonLvCanInverterTest, Frame35CDisablesAllOnFault) {
 }
 
 TEST_F(PylonLvCanInverterTest, Frame35CEnablesChargeImmediatelyWhenVoltageBelowMin) {
-  datalayer.battery.status.voltage_dV = 2400;
-  datalayer.battery.info.min_design_voltage_dV = 2500;
-  datalayer.battery.info.max_design_voltage_dV = 5000;
+  datalayer.aggregate.voltage_dV = 2400;
+  datalayer.aggregate.min_design_voltage_dV = 2500;
+  datalayer.aggregate.max_design_voltage_dV = 5000;
 
   tick_1s();
 
@@ -203,9 +203,9 @@ TEST_F(PylonLvCanInverterTest, Frame35CEnablesChargeImmediatelyWhenVoltageBelowM
 }
 
 TEST_F(PylonLvCanInverterTest, Frame35CAllowsDischargeOnlyWhenVoltageAtMax) {
-  datalayer.battery.status.voltage_dV = 5000;
-  datalayer.battery.info.max_design_voltage_dV = 5000;
-  datalayer.battery.info.min_design_voltage_dV = 2500;
+  datalayer.aggregate.voltage_dV = 5000;
+  datalayer.aggregate.max_design_voltage_dV = 5000;
+  datalayer.aggregate.min_design_voltage_dV = 2500;
 
   tick_1s();
 
@@ -218,11 +218,11 @@ TEST_F(PylonLvCanInverterTest, Frame35CAllowsDischargeOnlyWhenVoltageAtMax) {
 
 TEST_F(PylonLvCanInverterTest, ChargeCurrentZeroedWhenChargeDisabledByMaxVoltage) {
   // Voltage at max → 35C = 0x40 (charge disabled) → charge current in 351 = 0
-  datalayer.battery.status.voltage_dV = 5000;
-  datalayer.battery.info.max_design_voltage_dV = 5000;
-  datalayer.battery.info.min_design_voltage_dV = 2500;
-  datalayer.battery.status.max_charge_current_dA = 200;
-  datalayer.battery.status.max_discharge_current_dA = 300;
+  datalayer.aggregate.voltage_dV = 5000;
+  datalayer.aggregate.max_design_voltage_dV = 5000;
+  datalayer.aggregate.min_design_voltage_dV = 2500;
+  datalayer.aggregate.max_charge_current_dA = 200;
+  datalayer.aggregate.max_discharge_current_dA = 300;
 
   tick_1s();
 
@@ -248,9 +248,9 @@ TEST_F(PylonLvCanInverterTest, Frame359OverCurrentErrorBitSetWhenDischargeExceed
   // reported_current_dA follows the datalayer's "+ = charging" convention, so a
   // DISCHARGE over-current is a sufficiently negative current: the check is
   // current <= -(max_discharge_current_dA + 10), here -200 <= -190.
-  datalayer.battery.status.reported_current_dA = -200;
-  datalayer.battery.status.max_discharge_current_dA = 180;
-  datalayer.battery.status.real_soc = 5000;
+  datalayer.aggregate.current_dA = -200;
+  datalayer.aggregate.max_discharge_current_dA = 180;
+  datalayer.aggregate.real_soc = 5000;
 
   tick_1s();
 

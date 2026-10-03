@@ -88,11 +88,11 @@ TEST_F(FerroampCanInverterTest, SystemDataRequestTriggersAllDataFrames) {
 
 TEST_F(FerroampCanInverterTest, SystemDataFrameEncodesVoltageCurrentTempSocSoh) {
   // 0x4211 — little-endian; current has +30000 offset; temperature has +1000
-  datalayer.battery.status.voltage_dV = 4000;
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-150);  // charging
-  datalayer.battery.status.temperature_max_dC = 300;
-  datalayer.battery.status.reported_soc = 6500;  // 65.00 %
-  datalayer.battery.status.soh_pptt = 9500;      // 95.00 %
+  datalayer.aggregate.voltage_dV = 4000;
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-150);  // charging
+  datalayer.aggregate.temperature_max_dC = 300;
+  datalayer.aggregate.reported_soc = 6500;  // 65.00 %
+  datalayer.aggregate.soh_pptt = 9500;      // 95.00 %
 
   ferro->update_values();
   send_inverter_request(0x00);
@@ -110,10 +110,10 @@ TEST_F(FerroampCanInverterTest, SystemDataFrameEncodesVoltageCurrentTempSocSoh) 
 
 TEST_F(FerroampCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
   // 0x4221 — charge voltage = max design, discharge = 30000 - discharge_current
-  datalayer.battery.info.max_design_voltage_dV = 4000;
-  datalayer.battery.info.min_design_voltage_dV = 3000;
-  datalayer.battery.status.max_charge_current_dA = 100;     // +30000 -> 30100
-  datalayer.battery.status.max_discharge_current_dA = 200;  // 30000 - 200 -> 29800
+  datalayer.aggregate.max_design_voltage_dV = 4000;
+  datalayer.aggregate.min_design_voltage_dV = 3000;
+  datalayer.aggregate.max_charge_current_dA = 100;     // +30000 -> 30100
+  datalayer.aggregate.max_discharge_current_dA = 200;  // 30000 - 200 -> 29800
 
   ferro->update_values();
   send_inverter_request(0x00);
@@ -129,8 +129,8 @@ TEST_F(FerroampCanInverterTest, LimitsFrameEncodesVoltagesAndCurrents) {
 TEST_F(FerroampCanInverterTest, CellVoltageFramePassesThroughLfpValues) {
   // 0x4231 — LFP: no remapping
   datalayer.battery.info.chemistry = battery_chemistry_enum::LFP;
-  datalayer.battery.status.cell_max_voltage_mV = 3300;
-  datalayer.battery.status.cell_min_voltage_mV = 2900;
+  datalayer.aggregate.cell_max_voltage_mV = 3300;
+  datalayer.aggregate.cell_min_voltage_mV = 2900;
 
   ferro->update_values();
   send_inverter_request(0x00);
@@ -157,9 +157,9 @@ TEST_F(FerroampCanInverterTest, CellVoltageFramePassesThroughLfpValues) {
  */
 TEST_F(FerroampCanInverterTest, CellVoltageFrameReportsAnLfpCurveForNonLfpDonors) {
   datalayer.battery.info.chemistry = battery_chemistry_enum::NCA;
-  datalayer.battery.status.reported_soc = 5000;  // 50% -> 3310 mV on the curve
-  datalayer.battery.status.cell_max_voltage_mV = 4200;
-  datalayer.battery.status.cell_min_voltage_mV = 2500;
+  datalayer.aggregate.reported_soc = 5000;  // 50% -> 3310 mV on the curve
+  datalayer.aggregate.cell_max_voltage_mV = 4200;
+  datalayer.aggregate.cell_min_voltage_mV = 2500;
 
   ferro->update_values();
   send_inverter_request(0x00);
@@ -173,8 +173,8 @@ TEST_F(FerroampCanInverterTest, CellVoltageFrameReportsAnLfpCurveForNonLfpDonors
 
   // Same SOC, wildly different donor cells: the frame must not move.
   clear_transmitted_frames();
-  datalayer.battery.status.cell_max_voltage_mV = 3900;
-  datalayer.battery.status.cell_min_voltage_mV = 3600;
+  datalayer.aggregate.cell_max_voltage_mV = 3900;
+  datalayer.aggregate.cell_min_voltage_mV = 3600;
   ferro->update_values();
   send_inverter_request(0x00);
   const CAN_frame* g = find_frame_with_id(0x4231);
@@ -188,8 +188,8 @@ TEST_F(FerroampCanInverterTest, CellVoltageFrameReportsAnLfpCurveForNonLfpDonors
 TEST_F(FerroampCanInverterTest, TemperatureFrameEncodesPerCellMaxAndMin) {
   // 0x4241 - temperature_max/min_dC carried with the protocol's +1000 dC offset
   // (TEMPERATURE_OFFSET_dC), so the field is unsigned on the wire and 0 dC is 1000.
-  datalayer.battery.status.temperature_max_dC = 350;  // 35.0 °C
-  datalayer.battery.status.temperature_min_dC = 50;   //  5.0 °C
+  datalayer.aggregate.temperature_max_dC = 350;  // 35.0 °C
+  datalayer.aggregate.temperature_min_dC = 50;   //  5.0 °C
 
   ferro->update_values();
   send_inverter_request(0x00);
@@ -202,7 +202,7 @@ TEST_F(FerroampCanInverterTest, TemperatureFrameEncodesPerCellMaxAndMin) {
 
 TEST_F(FerroampCanInverterTest, StatusByteReflectsChargingCurrent) {
   // 0x4251 byte 0: 1 = Charge (current < 0), 2 = Discharge (current > 0), 3 = Idle
-  datalayer.battery.status.reported_current_dA = static_cast<int16_t>(-50);
+  datalayer.aggregate.current_dA = static_cast<int16_t>(-50);
   ferro->update_values();
   send_inverter_request(0x00);
   const CAN_frame* f = find_frame_with_id(0x4251);
@@ -211,7 +211,7 @@ TEST_F(FerroampCanInverterTest, StatusByteReflectsChargingCurrent) {
 }
 
 TEST_F(FerroampCanInverterTest, StatusByteReflectsDischargingCurrent) {
-  datalayer.battery.status.reported_current_dA = 50;
+  datalayer.aggregate.current_dA = 50;
   ferro->update_values();
   send_inverter_request(0x00);
   const CAN_frame* f = find_frame_with_id(0x4251);
@@ -220,7 +220,7 @@ TEST_F(FerroampCanInverterTest, StatusByteReflectsDischargingCurrent) {
 }
 
 TEST_F(FerroampCanInverterTest, StatusByteReflectsIdle) {
-  datalayer.battery.status.reported_current_dA = 0;
+  datalayer.aggregate.current_dA = 0;
   ferro->update_values();
   send_inverter_request(0x00);
   const CAN_frame* f = find_frame_with_id(0x4251);
@@ -233,7 +233,7 @@ TEST_F(FerroampCanInverterTest, FaultModeSetsStatusByteSleepAndForbidenBytes) {
   // A distinctive SOC, because byte 3 of the same frame carries it: leaving the
   // fixture's default here makes "the fault blanked the SOC byte" and "the SOC
   // was zero anyway" the same observation, and the assertion below stops biting.
-  datalayer.battery.status.reported_soc = 4200;
+  datalayer.aggregate.reported_soc = 4200;
   ferro->update_values();
   send_inverter_request(0x00);
 
@@ -249,7 +249,7 @@ TEST_F(FerroampCanInverterTest, FaultModeSetsStatusByteSleepAndForbidenBytes) {
   // fields - and would red on nothing but the heartbeat's own value.
   EXPECT_EQ(prot->data.u8[0], 0xAAu);
   EXPECT_EQ(prot->data.u8[1], 0xAAu);
-  EXPECT_EQ(prot->data.u8[3], datalayer.battery.status.reported_soc / 100)
+  EXPECT_EQ(prot->data.u8[3], datalayer.aggregate.reported_soc / 100)
       << "byte 3 of 0x4281 is the SOC, and a fault must not blank it";
 }
 
