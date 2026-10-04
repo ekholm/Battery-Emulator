@@ -474,28 +474,6 @@ Note: drafted with AI assistance, reviewed by me.
 
 ---
 
-**Tesla: a second battery stops corrupting the first battery's page**
-Branch [`tesla-instance-parity`](https://github.com/ekholm/Battery-Emulator/tree/tesla-instance-parity) @ `7241dc10` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-instance-parity)
-`TESLA-BATTERY.cpp` wrote the shared `datalayer_extended.tesla` struct from every instance - 478 sites, both constructors - so a double-Tesla setup interleaved two packs into one advanced page. Each instance now carries its own extended-struct pointer, set at construction and null for the second battery: the pattern ECMP and Renault Zoe Gen2 already use. The hoisted UDS part-number trigger is covered, and both ends of the guarded extended block are pinned by test.
-
-<details>
-<summary>PR body it would ship with</summary>
-
-There is exactly one `datalayer_extended.tesla`, and both `TeslaBattery` constructors published into it from every instance. On a double-Tesla setup that means two packs interleaving their values into the first pack's advanced page - with nothing on the page to indicate whose numbers they are.
-
-`TeslaBattery` now carries a `DATALAYER_INFO_TESLA*` set at construction: the struct's address for the main instance, null for any additional instance. This is the pattern ECMP and Renault Zoe Gen2 already use. The 478 extended writes in `update_values()` occupy one contiguous region; a single `if (datalayer_tesla)` guards them all. Two things that live inside that region are hoisted above the guard so they keep running for every instance: the UDS part-number query trigger, which drives a request on the wire, and the pack's own energy counters, which are addressed through the per-instance `datalayer_battery` pointer rather than through the extended struct.
-
-`TeslaHtmlRenderer` takes the same pointer. An instance with no extended struct renders a brief "no extended data" section rather than the other pack's numbers. `renders_own_battery_data()` stays false for pack 2, keeping its existing "limited to the Main Battery" notice; the null path makes that a deliberate choice rather than the only safe option.
-
-The host `String` emulation now null-guards its `const char*` constructor and `operator+=`, matching Arduino's behavior. Some Tesla char* fields remain null until a CAN frame fills them; the firmware renders them as empty strings, but the previous `std::string` path threw. This was needed to run the Tesla HTML renderer in the host test binary at all.
-
-Eight tests in `test/tesla_instance_isolation_tests.cpp`: a positive control confirming the main instance still publishes (so "second instance wrote nothing" cannot pass vacuously), and cases pinning that a second instance leaves the struct untouched - including the UDS handshake path, which must still fire for every instance even though the extended struct is not written.
-
-Note: drafted with AI assistance, reviewed by me.
-</details>
-
----
-
 **TESLA-LEGACY: state of health is measured against an 85 kWh pack, so a larger pack reports over 100 %**
 Branch [`tesla-legacy-soh-clamp`](https://github.com/ekholm/Battery-Emulator/tree/tesla-legacy-soh-clamp) @ `b9328c45` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-legacy-soh-clamp)
 `TESLA-LEGACY-BATTERY.cpp` computes state of health as the measured minimum CAC over 231.6 Ah, the CAC-at-new of an 85 kWh pack and the only reference in the driver, so every other pack size reports a wrong SOH and a larger one reports more than 100 %, which the inverter protocols publish. An owner of a 100 kWh legacy pack on #2673 has a page reading SOH 113.94 %. This clamps the published value to 100 %. It is deliberately half a fix: a smaller pack still under-reports, because the per-size CAC-at-new figures are not in the tree and are not guessed here. Pairs with the 100 kWh capacity entry: that group is both mis-sized and over-reported.
@@ -1036,38 +1014,6 @@ Refs #1863, #1662.
 
 Note: drafted with AI assistance, reviewed by me.
 
-</details>
-
----
-
-**Safety: with two or three packs, a healthy pack clears another pack's cell-deviation or SOH-difference warning**
-Branch [`fix/shared-pack-warnings`](https://github.com/ekholm/Battery-Emulator/tree/fix/shared-pack-warnings) @ `53f78944` · on release `v12.6.0` @ `f7d65fc2` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:fix/shared-pack-warnings)
-The cell-deviation and SOH-difference checks run per pack and each clears the SHARED event, so whichever pack is evaluated last decides whether a real warning is shown: a healthy second pack silently clears the first pack's deviation warning every cycle. The two checks now aggregate across the packs before deciding, and a placeholder SOH reading can no longer clear a genuine SOH warning. One file, `safety.cpp`. Still present on upstream `main`.
-
-<details>
-<summary>PR body it would ship with</summary>
-
-With two or three packs, the cell-deviation and SOH-difference checks in
-update_machineryprotection() each ran per pack and called clear_event()
-on the shared event, so whichever pack was evaluated last decided the
-outcome: a healthy pack cleared a warning another pack had just raised.
-
-Both checks now aggregate across the configured packs before deciding.
-EVENT_CELL_DEVIATION_HIGH is raised when any pack's spread exceeds its
-limit, with the first offending pack's deviation as the event data (same
-/20 scaling), and cleared only when no pack exceeds it. EVENT_SOH_DIFFERENCE
-compares battery 1 against each extra pack and is raised when any pair
-differs by more than MAX_SOH_DEVIATION_PPTT.
-
-The SOH-difference warning is left untouched when no pack pair has two
-real readings (a pack reporting the 9900 placeholder), exactly as the
-per-pair checks behaved for a single pair, so a transient placeholder
-cannot clear a genuine warning.
-
-The per-pack event scheme is a separate change: it renames published
-events, which is a question of its own and does not belong in this one.
-
-Note: drafted with AI assistance, reviewed by me.
 </details>
 
 ## Settings and web UI
