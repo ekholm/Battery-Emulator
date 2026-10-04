@@ -815,6 +815,188 @@ on purpose stay open when the BMS speaks again.
 Note: drafted with AI assistance, reviewed by me.
 </details>
 
+---
+
+**Tesla: do not command DRIVE before the pack has reported its cell voltages**
+Branch [`tesla-cellvoltages-gate`](https://github.com/ekholm/Battery-Emulator/tree/tesla-cellvoltages-gate) @ `e7838e1b` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-cellvoltages-gate)
+The gate #716 added, no DRIVE until the pack has reported its cell voltages, was lost in the greenoem rewrite (#1314): `cellvoltagesRead` is still set on the 0x332 min/max frame but nothing reads it, so a damaged pack can close its contactors on the default 3300 mV the safety checks see (#1309). The power-state decision now commands DRIVE only once the flag is set and stays on the existing shutdown path until then, so the 0x221 frame itself is gated. The host tests fail on the current code; confirmed on a T-2CAN fed a pack that reported voltage but no cell voltages.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+A damaged Tesla pack could close its contactors before it had reported any cell voltage (#1309).
+
+#716 stopped the driver from closing the contactors until the pack's cell voltages had been read, so a pack
+reporting partial data could not close on the default 3300 mV the safety checks would otherwise see. That gate
+was dropped in e15f28ec4 ("Take into use greenoem method", #1314); the `cellvoltagesRead` flag is still set on
+the 0x332 min/max frame but nothing reads it. The legacy Tesla driver still has the gate.
+
+This restores it in the power-state decision: the driver commands DRIVE (0x221) only once `cellvoltagesRead`
+is set, and until then stays on the shutdown path it already uses when the inverter withholds permission. The
+power state starts as DRIVE and that decision runs once a second, so the 0x221 DRIVE frame itself is gated too -
+otherwise the first second after boot would still send it.
+
+Host tests drive the driver through its transmit phases: no DRIVE frame before any 0x332 (also in the window
+before the first update), the shutdown path meanwhile, and DRIVE once one arrives - so a change that never
+closes fails too. They fail on the current code.
+
+Checked on hardware too: a LilyGo T-2CAN running the Tesla driver was fed a pack that reported voltage but no
+cell voltages. The current code sent the DRIVE power state in every 0x221 frame; with this change it sent none
+until the cell voltages arrived, and DRIVE after.
+
+Note: #2976 adds a second path to the DRIVE state (the PCS charge-mode handoff). Because the DRIVE frame is
+gated where it is sent, that path is covered as well; the two changes touch the same line there, so whichever
+merges second needs a trivial rebase. #2976's own charge-mode 0x221 frames are not gated on the cell voltages.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Tesla: keep decoding an older pack's 0x352 until the muxed layout is confirmed**
+Branch [`tesla-352-mux-detect`](https://github.com/ekholm/Battery-Emulator/tree/tesla-352-mux-detect) @ `3b0574fe` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-352-mux-detect)
+0x352 has two layouts, and since #1314 the driver stops decoding the older one as soon as byte 0 reads as index 0 or 1, which an older pack's energy low byte does by its value alone, so full-pack energy and calculated SOH stay empty or freeze. The older layout is now decoded until the multiplexed one is confirmed: indices 0 and 1 seen, and the index changing on three consecutive frames. Measured on a T-2CAN: 0.0 kWh full-pack energy before, 75.2 kWh after.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+On older Tesla packs (without the multiplexed 0x352), the battery page's full-pack energy and calculated SOH
+are never filled in, or stop updating at the first frame whose byte 0 reads as index 0 or 1.
+
+0x352 BMS_energyStatus has two layouts. Newer packs multiplex it on the low two bits of byte 0; older packs
+send one frame whose byte 0 is the low byte of BMS_nominalFullPackEnergy. Since #1314 the driver stops
+decoding the older layout as soon as a single frame reads as index 0 or 1 - which an older pack's byte 0 does
+by its value alone.
+
+This decodes the older layout until the multiplexed layout is confirmed, and confirms it only on index 0,
+index 1 and an index that changed on three consecutive frames. A multiplexed pack changes its index on every
+frame; an older pack's energy value moves slowly. Over a long uptime it can cross several index boundaries,
+which both the simpler "both indices seen" rule and a count of changes over the whole uptime would take for
+multiplexed.
+
+Tests: an older pack whose byte 0 reads as index 0 keeps its layout and follows its value, including across
+the 0-to-1 boundary; one drifting slowly across three boundaries, and one flickering for a single frame, are
+never taken for multiplexed; a multiplexed pack is confirmed and its later frames are not decoded as the
+older layout. Three of the four fail on the current code.
+
+Checked on hardware too: a LilyGo T-2CAN running the Tesla driver was fed an older-layout 0x352. With the
+current code its battery page showed 0.0 kWh full-pack energy; with this change it showed 75.2 kWh, and 72.9 kWh
+after the value changed across the index boundary. (That run used the change before the consecutive-frame
+rule; both phases hold one value, so the rule change does not alter what they show.)
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Tesla: a second pack waits for its join gate before DRIVE**
+Branch [`tesla-pack2-instance`](https://github.com/ekholm/Battery-Emulator/tree/tesla-pack2-instance) @ `f937f83b` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-pack2-instance)
+The second Tesla pack never read `battery2_allowed_contactor_closing`, so it went to DRIVE whenever the inverter allowed it, even while the parallel safety refused the join. The pack-2 constructor now takes the join gate, the factory passes it, and the pack drives only while it is true; a single pack is unchanged.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+With two Tesla packs, the second pack closed its contactors whenever the inverter allowed it, even when the
+parallel-battery safety had not let it join the DC link (for example with too large a voltage difference to
+pack 1).
+
+The pack-2 driver never looked at `battery2_allowed_contactor_closing`, the flag the parallel safety sets; the
+double-Tesla code before the drivers became instance-based (#2378) had its own check. The second-pack
+constructor now takes that join gate, the factory passes it, and the pack goes to DRIVE only while it is true.
+A single (first) pack has no gate and is unchanged.
+
+Tests: pack 2 sends no DRIVE frame while its join is disallowed and does once it is allowed; pack 1 still
+drives with pack 2's gate closed. The first fails on the current code. (The shared "More battery info" data
+of the same report was fixed in #2963.)
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Tesla: allow only float charging within 20 mV of the cell voltage limit again**
+Branch [`tesla-cell-voltage-taper`](https://github.com/ekholm/Battery-Emulator/tree/tesla-cell-voltage-taper) @ `aee35583` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:tesla-cell-voltage-taper) · stacked on `taper-floor-cap`
+#2678 removed Tesla's own charge ramp, and with it the one clamp keyed on cell voltage: within 20 mV of the chemistry's cell limit only 200 W was allowed. The SOC taper lags the cells at the top of charge, so an unbalanced or LFP pack reaches the limit at full power. The clamp returns on its own, lowering only. Stacked on `taper-floor-cap`: without it the taper's float charge power lifts the 200 W back up inside the taper band.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+#2678 removed the Tesla integration's own charge ramp so that the SOC-based charge taper would be the only
+one. Most of what it removed was a SOC ramp, which the SOC taper covers. But inside that ramp sat a clamp: once
+the highest cell was within 20 mV of its limit (4.25 V NCA/NCM, 3.65 V LFP), only 200 W was allowed. That
+part has no replacement. (It only ran while the SOC was inside the ramp band; the one here runs at any SOC.)
+
+The SOC taper follows the SOC, and at the top of charge the SOC lags the cells. An unbalanced pack or an LFP
+pack on its flat curve can reach the cell limit while the SOC still reads below the taper band. It is then charged at full power until the hard stop at the limit itself.
+Several reports in #tesla-battery describe cells overshooting the limit this way.
+
+This brings the clamp back on its own. It depends on the cell voltage, not the SOC, uses the chemistry's
+limit, and only ever lowers the allowed charge power. Inside the SOC taper band the taper's float charge
+power setting currently lifts any smaller non-zero limit back up to itself (400 W by default); that is fixed
+separately, and is not specific to Tesla.
+
+Tests: NCA/NCM and LFP inside, outside and at the edge of the 20 mV window, and a lower limit left
+untouched. The inside-window cases fail without this change.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**MG5: keep the user's battery capacity, and let the user set it**
+Branch [`mg5-user-capacity`](https://github.com/ekholm/Battery-Emulator/tree/mg5-user-capacity) @ `8cb8080f` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mg5-user-capacity)
+`setup()` forces 52.5 kWh after the stored settings are loaded, so a user's capacity is overwritten on every boot, and the capacity row is hidden for MG5 so it cannot be set. The forced value goes and the row returns, as before #1849. Measured on a Stark with 60 kWh stored: 52,500 Wh and a hidden row before, 60,000 Wh and the row after.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The MG5 integration sets the battery capacity to a fixed 52.5 kWh at startup. That runs after the stored
+settings are loaded, so a capacity configured by the user is replaced on every boot. For a different pack on
+this integration (a Marvel R, for example), the capacity and the remaining energy derived from it are then
+wrong.
+
+Before #1849 the integration left the capacity to the user setting, and this restores that. The Battery
+capacity row on the settings page is hidden for integrations that set the capacity themselves, so MG5
+comes off that list and the row appears again. Without that, the setting could not be made.
+
+An install that has never stored a capacity now starts from the generic 30 kWh default, as the other
+integrations that leave the capacity to the user do, instead of 52.5 kWh; the row prompts for the real value.
+
+Checked on hardware (a Stark board, integration set to MG5, capacity set to 60 kWh, then a reboot):
+- v12.6.0 shows 52,500 Wh, and the capacity row is hidden;
+- with this change it shows 60,000 Wh, and the row is back.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**eCMP: halve the PID pack voltage before the +800 offset**
+Branch [`ecmp-pid-pack-voltage`](https://github.com/ekholm/Battery-Emulator/tree/ecmp-pid-pack-voltage) @ `8fc6302e` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:ecmp-pid-pack-voltage)
+The 0xD815 PID answers twice the voltage. #2939 stores it raw and `update_values()` adds 800 on top, so the polled path reports about double (6024 dV seen). Halve before the offset, as the decode did before #2939; the temperature offset and current sign from the same change were fixed in #3005 and #3025, the voltage was not.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+On eCMP packs using the polled values (the MysteryVan path), the pack voltage is reported about twice too
+high - one user saw 6024 dV.
+
+The pack-voltage PID (0xD815) replies with twice the voltage in 0.1 V. Before #2939 the decode halved it; #2939
+("Add back reading values from UDS polls") stores the raw value, and `update_values()` adds 800 on top. The
+temperature offset and current sign from the same change were fixed in #3005 and #3025; the voltage was not.
+
+A host test sends the driver's own poll for the PID, answers it with a raw 4800 and expects 3200 dV
+(4800 / 2 + 800); the current code gives 5600 dV.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
 ## Inverters
 
 ---
@@ -1011,6 +1193,106 @@ This restores the flag to the gate and fixes the drivers the restoration would o
 Nothing has read the flag since v9.0.RC3, so each driver's own logic for it has gone unexercised in the field for that long. A driver that wrongly withholds under some benign condition would now never close its contactors, and the contract test covers setup plus benign update ticks only, not later in a session. If contactors stop closing after this change, check the status page: "Battery allows contactor closing" showing ✗ while the inverter allows closing points at the battery driver, and that driver's handling of `battery_allows_contactor_closing` is where to look.
 
 Refs #1863, #1662.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**SOC taper: don't let the float charge power raise a charge limit above the battery's**
+Branch [`taper-floor-cap`](https://github.com/ekholm/Battery-Emulator/tree/taper-floor-cap) @ `ca0974a5` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:taper-floor-cap)
+The SOC taper's float charge power raises any non-zero limit below it back up to itself (400 W by default), including a limit the BMS or the integration set lower, for example 200 W on a cold pack or with a cell near its limit. The float power is now capped at the limit entering the taper; zero stays zero and anything at or above the float power is unchanged. The taper function moves to `charge_taper.cpp` first, unchanged, so it can be tested on its own.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+The SOC-based charge taper has a float charge power: through the tail of the taper band it holds the charge
+limit at a minimum (400 W by default, configurable up to 2000 W), so the inverter stays above its minimum
+stable charging power and the charge actually finishes.
+
+It applies that minimum to any non-zero limit below it, though. If the battery itself (its BMS, or the
+integration) allows less than the float power, for example 200 W on a cold pack or with a cell near its
+limit, the taper raises the limit back up to the float power. That is more than the battery asked for.
+
+This caps the float power at the limit coming into the taper. A zero still stays zero, and a limit at or
+above the float power behaves exactly as before.
+
+The taper function moves out of `Software.cpp` into `devboard/utils/charge_taper.cpp`, unchanged, as a
+separate first commit, so it can be built and tested on its own.
+
+Tests (host): a 200 W limit is kept with a 400 W and with a 2000 W float power; 399 W stays 399 W; the derived
+current limit follows; plus controls for what the float power and the taper are for (a large allowance still
+held at the float power, exactly-at-floor, zero, full, below the band, the linear taper).
+
+This pairs with the Tesla change that restores the 200 W clamp within 20 mV of the cell limit
+(`fix/tesla-cell-voltage-taper`): the taper is mandatory for Tesla, so without this fix that clamp is lifted
+back to the float power inside the taper band.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Safety: bound battery CAN silence in two stages (limits at 10 s, missing at 45 s)**
+Branch [`battery-can-loss-bound`](https://github.com/ekholm/Battery-Emulator/tree/battery-can-loss-bound) @ `f224e43b` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:battery-can-loss-bound)
+A battery that stops talking keeps its last limits for the full 60 s until the missing event, and a silent second or third pack only warns and stays on the DC link. Two stages, counted from the alive counter every driver refreshes: the limits are zeroed at 10 s and the missing event is raised at 45 s, which opens the contactors for the main pack and takes a second or third pack off the link until it is heard again. Composes with `pack-join-ownership`.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+When a battery stops talking on CAN, its last published limits are kept, so the inverter keeps charging or
+discharging on stale values for a full minute until the missing event. A silent second or third pack only raises
+a warning and stays on the DC link.
+
+This bounds the silence in two stages, counted from the alive counter every driver already refreshes on each
+frame:
+- **10 s:** the silent pack's charge and discharge limits are zeroed until it is heard again.
+- **45 s:** its missing event is raised. For the main pack that is an error, so the contactors open, 55 s in all
+  instead of 70. A second or third pack is taken off the DC link, and it rejoins once heard again.
+
+A pack that has not been heard since boot keeps the full 60 s, since it may still be waking up. The charger is
+unchanged.
+
+The periodic/remote BMS reset follows the new window. Every reset now gives the BMS the full window from
+power-on, because the default 30 s off-time alone is two thirds of it.
+
+Tests:
+- the 9/10 s and 44/45 s boundaries for packs 1, 2 and 3;
+- recovery on a frame;
+- the undetected-pack and charger windows.
+
+Existing tests that pinned the 60 s countdown are moved to the new window.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Parallel safety: a pack that reads 0 V or has gone silent leaves the join**
+Branch [`pack-join-ownership`](https://github.com/ekholm/Battery-Emulator/tree/pack-join-ownership) @ `76ce9e30` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:pack-join-ownership)
+A pack that had joined the DC link and then dropped out stayed joined: the check returned early on a 0 V reading and a silent pack kept its last voltage, so its SOC stayed in the total sent to the inverter (a user saw 0 % that way). A second or third pack that reads 0 V for 10 s, or whose CAN has gone silent, now leaves the join and rejoins when it is back in sync; the first pack at 0 V still only means there is nothing to compare against. Deliberately small, next to #3037's rework.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+With two or three packs, a pack that had joined the DC link and then dropped out stayed "joined". The parallel
+safety check returned early whenever a pack read 0 V and left the join flag as it was. A pack whose CAN went
+silent kept its last voltage and passed the check. Either way its SOC stayed in the total sent to the
+inverter; one user saw the inverter report 0 % that way.
+
+Now a second or third pack that reads 0 V for 10 s, or whose CAN has gone silent, is taken out of the join. The first
+pack reading 0 V still only means there is nothing to compare against yet, and does not affect the others. A
+pack that comes back and is in sync joins again as before.
+
+This is deliberately small: #3037 reworks how contactor and join state are handled, and this only closes the
+hole in the current code.
+
+Tests: a joined pack that reads 0 V leaves the join, as does one whose CAN goes silent; the third pack is
+treated the same; the first pack at 0 V does not unjoin the second; a returning pack in sync rejoins. The first
+four fail on the current code.
 
 Note: drafted with AI assistance, reviewed by me.
 
@@ -1260,6 +1542,66 @@ alone, which a bench run confirmed - but about the store's own bookkeeping:
 settingsUpdated decides whether the user is told to reboot to apply a change,
 and a no-op save must not set it. Verified by reverting the four tag
 checks: the four repair cases fail, the two preservation cases pass.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**Settings page: show the balancing max time again**
+Branch [`balancing-max-time-placeholder`](https://github.com/ekholm/Battery-Emulator/tree/balancing-max-time-placeholder) @ `8d8dfec7` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:balancing-max-time-placeholder)
+The settings page asks for `%BAL_MAX_TIME%` and the template processor answers only `BALANCING_MAX_TIME`, a name nothing asks for, so the balancing max time renders as an empty field (#2856). One line, to the name its siblings use. Measured on a Stark.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Fixes #2856.
+
+In the manual LFP balancing section of the settings page, "Balancing max time" shows only "Minutes", with
+no value. The page asks for the placeholder `%BAL_MAX_TIME%`, but the template processor only answers
+`BALANCING_MAX_TIME`, a name nothing asks for. A placeholder nobody answers renders as nothing. This has
+been the case since the settings page moved to template rendering.
+
+The processor now answers `BAL_MAX_TIME`, the name the page uses, matching its `BAL_POWER` /
+`BAL_MAX_PACK_VOLTAGE` siblings. One line.
+
+Checked on hardware: on a Stark board the settings page read "Balancing max time:  Minutes" on v12.6.0,
+and reads "Balancing max time: 60.0 Minutes" with this change.
+
+Note: drafted with AI assistance, reviewed by me.
+
+</details>
+
+---
+
+**MQTT: publish cell max/min for batteries without per-cell voltages**
+Branch [`mqtt-cell-minmax-without-array`](https://github.com/ekholm/Battery-Emulator/tree/mqtt-cell-minmax-without-array) @ `63cf2469` · on release `v13.0.1` @ `e648ede4` · [diff vs upstream main](https://github.com/dalathegreat/Battery-Emulator/compare/main...ekholm:Battery-Emulator:mqtt-cell-minmax-without-array)
+Cell max/min go out over MQTT only once the per-cell list is complete, so integrations that report max/min directly and never fill the list (I-PACE, Rivian, Sono, Thunderstruck, ENNOID, Akasol and others) never publish them, although the web UI shows them (#813). They are published when the list is complete, or when the battery has no list and the values have left the boot defaults; a partly filled list still holds them back.
+
+<details>
+<summary>PR body it would ship with</summary>
+
+Fixes #813.
+
+`cell_max_voltage` and `cell_min_voltage` are only published over MQTT once the last per-cell voltage is
+filled in. That protects batteries whose max/min are computed from the cell list. But many integrations
+never fill the cell list and report max/min directly from their own CAN frames: Jaguar I-PACE, Rivian, Sono,
+Thunderstruck, ENNOID, Akasol and others. For those, Home Assistant never receives cell max/min
+at all, although the web UI shows them.
+
+With this change, max/min are published when either:
+- the cell list is filled, as before; or
+- the battery does not use the cell list and has reported real values, i.e. they have left the defaults the
+  datalayer boots with.
+
+A cell list that is only partly filled still holds them back, so nothing half-computed is published, and a
+battery still at the datalayer's boot values publishes nothing. (A few integrations start from their own
+placeholder instead - ENNOID 3.3 V, for example; those show over MQTT before the first frame, as they already
+do on the web page.)
+
+Tests: max/min are published for a battery with no cell list and for one that sets a cell count but no cell
+voltages. They are still held back at boot defaults, and while the cell list is partly filled.
 
 Note: drafted with AI assistance, reviewed by me.
 
